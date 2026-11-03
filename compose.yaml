@@ -37,10 +37,31 @@ services:
       # data-server needs a real mailer first; then drop MAIL_DEV and set NODE_ENV=production.
       MAIL_DEV: "1"
       TRUST_PROXY: "0"
+      # Push-to-talk. LIVEKIT_URL is what the PHONES connect to, so on a LAN set it to ws://<pc-lan-ip>:7880 in .env.
+      LIVEKIT_URL: ${LIVEKIT_URL:-ws://localhost:7880}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-convoyage-dev-livekit-secret-0123456789}
+      # OSRM for GET /v1/route. The public demo is rate-limited and not for production.
+      OSRM_URL: ${OSRM_URL:-https://router.project-osrm.org}
     ports:
       - "0.0.0.0:8080:8080"
     volumes:
       - convoyage-media:/data/media
+
+  # Push-to-talk voice (WebRTC SFU). Dev keys come from .env (LIVEKIT_API_KEY / LIVEKIT_API_SECRET, with dev defaults).
+  # 7880 signalling (ws), 7881 WebRTC over TCP, 50000-50100/udp media. Phones need the UDP range reachable on the PC's
+  # LAN address: if the bridge network or UDP forwarding misbehaves, use scripts/up.ps1 (host networking) instead.
+  # For phones on a LAN set LIVEKIT_NODE_IP in .env to the PC's LAN IPv4 so the right WebRTC candidate is advertised.
+  livekit:
+    image: docker.io/livekit/livekit-server:latest
+    restart: unless-stopped
+    command: ["--node-ip", "${LIVEKIT_NODE_IP:-127.0.0.1}"]
+    environment:
+      LIVEKIT_CONFIG: "{port: 7880, rtc: {tcp_port: 7881, port_range_start: 50000, port_range_end: 50100, use_external_ip: false}, keys: {${LIVEKIT_API_KEY:-devkey}: ${LIVEKIT_API_SECRET:-convoyage-dev-livekit-secret-0123456789}}}"
+    ports:
+      - "0.0.0.0:7880:7880"
+      - "0.0.0.0:7881:7881"
+      - "0.0.0.0:50000-50100:50000-50100/udp"
 
 volumes:
   convoyage-db:

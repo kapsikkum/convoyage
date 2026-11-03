@@ -7,11 +7,23 @@ $root = Split-Path $PSScriptRoot -Parent
 $envFile = Join-Path $root '.env'
 $secret = (Get-Content $envFile | Where-Object { $_ -match '^JWT_SECRET=' } | Select-Object -First 1) -replace '^JWT_SECRET=', ''
 if (-not $secret -or $secret.Length -lt 32) { throw "JWT_SECRET (32+ chars) missing in $envFile" }
+function EnvVal($name, $default) {
+  $line = Get-Content $envFile | Where-Object { $_ -match "^$name=.+" } | Select-Object -First 1
+  if ($line) { return ($line -replace "^$name=", '').Trim() } else { return $default }
+}
+$lkKey = EnvVal 'LIVEKIT_API_KEY' 'devkey'
+$lkSecret = EnvVal 'LIVEKIT_API_SECRET' 'convoyage-dev-livekit-secret-0123456789'
+$osrm = EnvVal 'OSRM_URL' 'https://router.project-osrm.org'
+# LAN address phones reach this PC on (first Wi-Fi/Ethernet IPv4). LiveKit advertises it as the WebRTC candidate.
+$lan = Get-NetIPAddress -AddressFamily IPv4 -InterfaceAlias 'Wi-Fi','Ethernet' -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -notlike '169.254.*' } | Select-Object -First 1 -ExpandProperty IPAddress
+$lkNodeIp = EnvVal 'LIVEKIT_NODE_IP' $lan
+if (-not $lkNodeIp) { $lkNodeIp = '127.0.0.1' }
+$lkUrl = EnvVal 'LIVEKIT_URL' $(if ($lan) { "ws://${lan}:7880" } else { 'ws://localhost:7880' })
 
 if (-not $NoBuild) { podman build --format docker --network host -t convoyage-server:local (Join-Path $root 'server'); if ($LASTEXITCODE) { throw 'build failed' } }
 
 $ErrorActionPreference = 'Continue'   # native stderr (already exists / no such container) is not fatal
-podman rm -f convoyage-server convoyage-db *> $null
+podman rm -f convoyage-server convoyage-livekit convoyage-db *> $null
 foreach ($v in 'convoyage-db', 'convoyage-media') { podman volume exists $v; if ($LASTEXITCODE) { podman volume create $v | Out-Null } }
 
 podman run -d --name convoyage-db --network host --restart unless-stopped `
@@ -26,16 +38,30 @@ for ($i = 0; $i -lt 40; $i++) {
   Start-Sleep -Seconds 2
 }
 
+# Push-to-talk: LiveKit SFU on the host network. 7880 ws signalling, 7881 TCP media, 50000-50100/udp media.
+# Dev keys come from .env (defaults devkey / a dev secret). Host networking means nothing is published explicitly.
+$lkConfig = "{port: 7880, rtc: {tcp_port: 7881, port_range_start: 50000, port_range_end: 50100, use_external_ip: false}, keys: {${lkKey}: ${lkSecret}}}"
+podman run -d --name convoyage-livekit --network host --restart unless-stopped `
+  -e "LIVEKIT_CONFIG=$lkConfig" `
+  docker.io/livekit/livekit-server:latest --node-ip $lkNodeIp
+if ($LASTEXITCODE) { throw 'livekit start failed' }
+
 # BETA ONLY: MAIL_DEV=1 returns magic links in API responses (no real mailer yet). No NODE_ENV=production.
 podman run -d --name convoyage-server --network host --restart unless-stopped `
   -e DATABASE_URL=postgres://convoyage:convoyage@127.0.0.1:5432/convoyage `
   -e AUTO_MIGRATE=1 -e MAIL_DEV=1 -e "JWT_SECRET=$secret" -e PORT=8080 -e HOST=0.0.0.0 `
+  -e "LIVEKIT_URL=$lkUrl" -e "LIVEKIT_API_KEY=$lkKey" -e "LIVEKIT_API_SECRET=$lkSecret" -e "OSRM_URL=$osrm" `
   -v convoyage-media:/data/media `
   convoyage-server:local
 if ($LASTEXITCODE) { throw 'server start failed' }
-Write-Host 'Up. http://localhost:8080/health'
+Write-Host "Up. http://localhost:8080/health   LiveKit ws://localhost:7880 (phones use $lkUrl)"
 
 # LAN: the Podman machine only publishes on loopback, so forward 0.0.0.0:8080 -> 127.0.0.1:8080 for phones.
 Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -match 'lan-relay\.mjs' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 Start-Process node -ArgumentList (Join-Path $PSScriptRoot 'lan-relay.mjs') -WindowStyle Hidden
 Get-NetIPAddress -AddressFamily IPv4 -InterfaceAlias 'Wi-Fi','Ethernet' -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "LAN: http://$($_.IPAddress):8080" }
+# Phones also need inbound 7880/tcp, 7881/tcp and 50000-50100/udp on Windows Firewall (Private profile, admin shell):
+#   New-NetFirewallRule -DisplayName "Convoyage LiveKit" -Direction Inbound -Protocol TCP -LocalPort 7880,7881 -Action Allow -Profile Private
+#   New-NetFirewallRule -DisplayName "Convoyage LiveKit UDP" -Direction Inbound -Protocol UDP -LocalPort 50000-50100 -Action Allow -Profile Private
+# The Podman machine only publishes ports on loopback, so a host-network LiveKit is not reachable from the LAN by itself, and
+# lan-relay.mjs only forwards TCP. Voice from phones over the LAN needs WSL mirrored networking, or TCP media only (7881).
