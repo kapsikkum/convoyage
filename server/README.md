@@ -35,6 +35,42 @@ curl -s -X POST localhost:8080/auth/magic-link/verify -H 'content-type: applicat
 curl -s localhost:8080/v1/me -H 'authorization: Bearer <accessToken>'
 ```
 
+## Run it locally with Docker/Podman
+
+`compose.yaml` runs Postgres/PostGIS plus the server (`server/Dockerfile`: multi-stage, non-root, prod deps only,
+`/health` healthcheck, migrations on start via `AUTO_MIGRATE=1`, media in the `convoyage-media` volume at `/data/media`).
+
+```
+cp .env.example .env     # repo root; set JWT_SECRET to 48+ random chars (.env is gitignored)
+podman compose up -d --build
+curl localhost:8080/health
+```
+
+`MAIL_DEV=1` is set in compose (**beta only**: magic links are returned in API responses because there is no real
+mailer). `NODE_ENV` is deliberately not `production`, since config refuses `MAIL_DEV` there.
+
+**If `podman compose up` fails with a netavark/nftables error** (seen on the Windows Podman machine; bridge networks
+cannot be set up, host networking works), use the fallback, which runs the same containers with `--network host`:
+
+```
+powershell scripts/up.ps1      # builds the image, starts db + server, starts the LAN relay
+powershell scripts/down.ps1    # stops them (-Volumes also deletes the data)
+```
+
+**Phones on the LAN**: set the app's Server URL to `http://<lan-ip>:8080` (the PC's Wi-Fi/Ethernet IPv4, see
+`ipconfig`). On Windows the Podman machine only publishes ports on loopback, so `up.ps1` also runs
+`scripts/lan-relay.mjs` (0.0.0.0:8080 to 127.0.0.1:8080). If Windows Firewall blocks it, allow inbound 8080 on the
+Private profile from an admin shell:
+`New-NetFirewallRule -DisplayName "Convoyage 8080" -Direction Inbound -Protocol TCP -LocalPort 8080 -Action Allow -Profile Private`
+
+## Moving to data-server
+
+- [ ] A real `Mailer` implementation (`src/mail.ts`) sending the magic link.
+- [ ] HTTPS reverse proxy in front (Caddy/nginx) with WebSocket upgrade for `/ws`; set `TRUST_PROXY=1`; stop publishing 8080 publicly.
+- [ ] `NODE_ENV=production` (requires `JWT_SECRET` and `DATABASE_URL`).
+- [ ] Remove `MAIL_DEV` (and never set `CONVOYAGE_DEV_AUTH`).
+- [ ] Strong, unique Postgres password (compose uses `convoyage`/`convoyage`) and not publishing 5432; back up the db and media volumes.
+
 ## Scripts
 
 | script | does |
