@@ -35,6 +35,8 @@ struct Member: Codable, Equatable, Identifiable {
     var online: Bool
     var lastSeen: Int64
     var position: MemberPosition?
+    /// Not in the v1 snapshot yet; read tolerantly in case the server adds it ("moving", "stopping", "sos").
+    var status: String?
 }
 
 struct ConvoyChatMessage: Codable, Equatable, Identifiable {
@@ -82,6 +84,8 @@ enum ServerMessage: Decodable {
     case error(message: String, inType: String?)
     case chat(room: String, message: ConvoyChatMessage)
     case hazard(room: String, hazard: HazardDto)
+    /// A member's `convoy.status` (stopping / moving / sos), broadcast by the server. Decoded tolerantly.
+    case status(room: String?, id: String, status: String, note: String?)
     case unknown(String)
 
     private enum Keys: String, CodingKey {
@@ -100,6 +104,9 @@ enum ServerMessage: Decodable {
         case inType = "in"
         case message
         case hazard
+        case userId
+        case status
+        case note
     }
 
     init(from decoder: Decoder) throws {
@@ -141,6 +148,17 @@ enum ServerMessage: Decodable {
             let room: String = try c.decode(String.self, forKey: .room)
             let hazard: HazardDto = try c.decode(HazardDto.self, forKey: .hazard)
             self = .hazard(room: room, hazard: hazard)
+        case "status", "convoy.status":
+            var who: String = try c.decodeIfPresent(String.self, forKey: .id) ?? ""
+            if who.isEmpty { who = try c.decodeIfPresent(String.self, forKey: .userId) ?? "" }
+            let st: String = try c.decodeIfPresent(String.self, forKey: .status) ?? ""
+            if who.isEmpty || st.isEmpty {
+                self = .unknown(t)
+            } else {
+                let room: String? = try? c.decodeIfPresent(String.self, forKey: .room)
+                let note: String? = try? c.decodeIfPresent(String.self, forKey: .note)
+                self = .status(room: room, id: who, status: st, note: note)
+            }
         default:
             self = .unknown(t)
         }
@@ -160,6 +178,8 @@ enum ClientMessage {
     case lead(room: String, to: String)
     case remove(room: String, id: String)
     case chat(room: String, text: String, clientId: String)
+    case status(status: String, note: String?)
+    case route(room: String, name: String, stops: [[Double]])
 
     var payload: [String: Any] {
         switch self {
@@ -194,6 +214,12 @@ enum ClientMessage {
             return ["t": "convoy.remove", "room": room, "id": id]
         case let .chat(room, text, clientId):
             return ["t": "convoy.message", "room": room, "text": text, "clientId": clientId]
+        case let .status(status, note):
+            var o: [String: Any] = ["t": "convoy.status", "status": status]
+            if let n = note, !n.isEmpty { o["note"] = String(n.prefix(200)) }
+            return o
+        case let .route(room, name, stops):
+            return ["t": "convoy.route", "room": room, "route": ["name": name, "stops": stops] as [String: Any]]
         }
     }
 

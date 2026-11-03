@@ -81,6 +81,7 @@ struct VehicleDto: Decodable, Identifiable, Equatable {
 struct MeDto: Decodable, Equatable {
     var id: String
     var handle: String?
+    var handleChosen: Bool?
     var displayName: String?
     var bio: String?
     var avatarMediaId: String?

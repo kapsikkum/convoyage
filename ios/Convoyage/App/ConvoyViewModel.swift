@@ -8,6 +8,19 @@ enum SocketAuth {
     case dev(userId: String, name: String)
 }
 
+/// What a member told the convoy about themselves (`convoy.status`).
+enum MemberStatusKind: String {
+    case stopping
+    case moving
+    case sos
+}
+
+struct MemberStatus: Equatable {
+    var kind: MemberStatusKind
+    var note: String?
+    var at: Date
+}
+
 /// Owns the socket, the current convoy and the 1 Hz position sender.
 @Observable
 @MainActor
@@ -19,19 +32,34 @@ final class ConvoyViewModel {
     /// Live positions that arrived after the last full room snapshot.
     var livePositions: [String: MemberPosition] = [:]
 
-    /// "<name> is stopping", raised by a convoy chat message from another member.
+    /// "<name> is stopping", raised by a `status` frame (or the old chat line) from another member.
     var stopNotice: String?
     /// Set by me: I told the convoy I am stopping.
     var iAmStopping: Bool = false
+    /// Latest status per member id (stopping / sos). A "moving" status removes the entry.
+    var statuses: [String: MemberStatus] = [:]
+    /// Open SOS calls from other members: member id -> text. Stays until they say they are moving or I dismiss it.
+    var sosNotices: [String: String] = [:]
+    /// Chat messages up to this server timestamp count as read.
+    var lastReadTs: Int64 = 0
+    /// A convoy invite code waiting for the socket (deep link before sign-in / connect).
+    var pendingJoin: String?
+    /// An invite code that needs a decision because I am already in another convoy.
+    var joinPrompt: String?
 
     let location: LocationService = LocationService()
 
     /// Supplies access tokens for the socket handshake (refreshing them when needed). `force` = the server just refused one.
     @ObservationIgnored var tokenProvider: ((Bool) async -> String?)?
-    /// Every live `hazard` frame (fed to the HazardStore).
     /// My display name, for default convoy names.
     @ObservationIgnored var displayName: String = ""
+    /// Every live `hazard` frame (fed to the HazardStore).
     @ObservationIgnored var onHazard: ((String, HazardDto) -> Void)?
+    /// Called when I enter or leave a convoy (background location follows it).
+    @ObservationIgnored var onRoomChange: (() -> Void)?
+    /// False once the server answered "Unknown message" to `convoy.status`: fall back to chat lines.
+    @ObservationIgnored private var statusSupported: Bool = true
+    @ObservationIgnored private var lastStatusSend: (kind: MemberStatusKind, at: Date)?
 
     @ObservationIgnored private let socket: ConvoySocket = ConvoySocket()
     @ObservationIgnored private var ticker: Task<Void, Never>?
@@ -75,6 +103,10 @@ final class ConvoyViewModel {
         socketState = .idle
         stopNotice = nil
         iAmStopping = false
+        statuses = [:]
+        sosNotices = [:]
+        statusSupported = true
+        onRoomChange?()
     }
 
     func reconnect() {
@@ -143,38 +175,202 @@ final class ConvoyViewModel {
 
     // MARK: Commands
 
-    func createConvoy(name: String) {
+    static func normalizeCode(_ raw: String) -> String {
+        let stripped: String = raw.filter { (ch: Character) -> Bool in
+            return !ch.isWhitespace && ch != "-"
+        }
+        return stripped.uppercased()
+    }
+
+    /// Invite codes: 8 characters from this alphabet (no 0/O/1/I/L).
+    static func isValidCode(_ code: String) -> Bool {
+        return code.range(of: "^[A-HJKMNP-Z2-9]{8}$", options: .regularExpression) != nil
+    }
+
+    /// A name for a convoy when the person types none.
+    var defaultConvoyName: String {
+        if Formatters.isGeneratedName(displayName) { return "Convoy" }
+        return "\(displayName.trimmingCharacters(in: .whitespacesAndNewlines))'s convoy"
+    }
+
+    func createConvoy(name: String, regroupEnabled: Bool = true, separationM: Double = 2000) {
         let trimmed: String = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        socket.send(.create(name: trimmed.isEmpty ? "\(displayName)'s convoy" : trimmed,
-                            regroup: AutomaticRegroup(enabled: true, separationM: 2000)))
+        let sep: Double = min(20000, max(1000, separationM))
+        let finalName: String = trimmed.isEmpty ? defaultConvoyName : trimmed
+        socket.send(.create(name: String(finalName.prefix(40)),
+                            regroup: AutomaticRegroup(enabled: regroupEnabled, separationM: sep)))
     }
 
     func joinConvoy(code: String) {
+        socket.send(.join(code: Self.normalizeCode(code)))
+    }
+
+    /// Join from a link: waits for the socket, asks first when I am already in another convoy.
+    func requestJoin(code: String) {
+        let clean: String = Self.normalizeCode(code)
+        if !Self.isValidCode(clean) {
+            lastError = "That is not a convoy code"
+            return
+        }
+        if let r = room {
+            if r.code == clean { return }
+            joinPrompt = clean
+            return
+        }
+        if socketState == .open {
+            socket.send(.join(code: clean))
+        } else {
+            pendingJoin = clean
+        }
+    }
+
+    /// Leave the current convoy and join `code` (the one in `joinPrompt`).
+    func confirmSwitch(code: String) {
+        if let r = room { socket.send(.leave(room: r.code)) }
         socket.send(.join(code: code))
+        joinPrompt = nil
     }
 
     func leaveConvoy() {
         if let r = room { socket.send(.leave(room: r.code)) }
     }
 
-    /// "I'm stopping": a local flag plus a convoy chat line (the v1 protocol has no dedicated stopped signal).
+    // MARK: Status ("I'm stopping", SOS)
+
     func setStopping(_ stopping: Bool) {
         iAmStopping = stopping
-        if let r = room {
-            let text: String = stopping ? Self.stoppingText : "I'm moving again"
-            socket.send(.chat(room: r.code, text: text, clientId: UUID().uuidString))
+        sendStatus(stopping ? .stopping : .moving, note: nil)
+    }
+
+    /// Sends `convoy.status`. A server that does not know it answers "Unknown message": see `handle(.error)`.
+    func sendStatus(_ kind: MemberStatusKind, note: String?) {
+        guard room != nil else { return }
+        if statusSupported {
+            lastStatusSend = (kind: kind, at: Date())
+            socket.send(.status(status: kind.rawValue, note: note))
+        } else {
+            sendStatusFallback(kind)
         }
     }
 
+    private func sendStatusFallback(_ kind: MemberStatusKind) {
+        guard let r = room else { return }
+        switch kind {
+        case .stopping:
+            socket.send(.chat(room: r.code, text: Self.stoppingText, clientId: UUID().uuidString))
+        case .moving:
+            socket.send(.chat(room: r.code, text: Self.movingText, clientId: UUID().uuidString))
+        case .sos:
+            break // the SOS chat message that always goes with it carries the alert
+        }
+    }
+
+    /// The crash countdown ran out: SOS status plus a chat line with where I am. Returns false when not in a convoy.
+    @discardableResult
+    func sendSOS() -> Bool {
+        guard let r = room else { return false }
+        sendStatus(.sos, note: "Possible crash")
+        var text: String = "SOS: possible crash detected and no response."
+        if let loc = location.latest {
+            let lat: String = String(format: "%.5f", loc.coordinate.latitude)
+            let lng: String = String(format: "%.5f", loc.coordinate.longitude)
+            text += " Location \(lat), \(lng) https://maps.apple.com/?ll=\(lat),\(lng)"
+        }
+        // The server allows one chat message per member every 2 s, so let the status go first.
+        let code: String = r.code
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 2_200_000_000)
+            self?.socket.send(.chat(room: code, text: text, clientId: UUID().uuidString))
+        }
+        iAmStopping = true
+        return true
+    }
+
     static let stoppingText: String = "I'm stopping"
+    static let movingText: String = "I'm moving again"
 
     func requestRegroup() {
         if let r = room { socket.send(.rest(room: r.code, action: "find")) }
     }
 
+    func restContinue() {
+        if let r = room { socket.send(.rest(room: r.code, action: "continue")) }
+    }
+
+    // MARK: Chat
+
+    var chatMessages: [ConvoyChatMessage] {
+        return room?.messages ?? []
+    }
+
+    var unreadCount: Int {
+        guard let r = room else { return 0 }
+        return r.messages.filter { (m: ConvoyChatMessage) -> Bool in
+            return m.userId != myId && m.ts > lastReadTs
+        }.count
+    }
+
+    func markChatRead() {
+        if let last = room?.messages.last?.ts, last > lastReadTs { lastReadTs = last }
+    }
+
+    func sendChat(_ text: String) {
+        guard let r = room else { return }
+        let clean: String = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if clean.isEmpty { return }
+        socket.send(.chat(room: r.code, text: String(clean.prefix(500)), clientId: UUID().uuidString))
+    }
+
+    /// Display name for a user id in this convoy (never a raw generated handle).
+    func nameOf(userId: String) -> String {
+        if let m = room?.members.first(where: { (x: Member) -> Bool in return x.id == userId }) {
+            return Formatters.shownName(m.username)
+        }
+        return "Someone"
+    }
+
+    // MARK: Leader tools
+
+    var isLeader: Bool {
+        guard let r = room else { return false }
+        return r.leader == myId
+    }
+
+    func setDestination(_ coordinate: CLLocationCoordinate2D, label: String) {
+        guard let r = room else { return }
+        let clean: String = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        let d: Destination = Destination(lat: coordinate.latitude, lng: coordinate.longitude,
+                                         label: String((clean.isEmpty ? "Destination" : clean).prefix(80)))
+        socket.send(.destination(room: r.code, destination: d))
+    }
+
+    func clearDestination() {
+        if let r = room { socket.send(.destination(room: r.code, destination: nil)) }
+    }
+
+    func handOver(to id: String) {
+        if let r = room { socket.send(.lead(room: r.code, to: id)) }
+    }
+
+    func removeMember(_ id: String) {
+        if let r = room { socket.send(.remove(room: r.code, id: id)) }
+    }
+
+    /// Shares a straight route from me to the destination. The server needs a shared route before it will look for
+    /// a rest stop; there is no road routing in the app yet.
+    func shareRouteToDestination() {
+        guard let r = room, let d = r.destination, let loc = location.latest else {
+            lastError = "Need a destination and a GPS fix first"
+            return
+        }
+        let stops: [[Double]] = [[loc.coordinate.longitude, loc.coordinate.latitude], [d.lng, d.lat]]
+        socket.send(.route(room: r.code, name: String("To \(d.label)".prefix(40)), stops: stops))
+    }
+
     // MARK: Incoming
 
     private func handle(_ m: ServerMessage) {
+        let before: String? = room?.code
         switch m {
         case .pong, .unknown:
             break
@@ -182,33 +378,93 @@ final class ConvoyViewModel {
             myId = me
             room = rooms.first
             livePositions = [:]
+            statuses = [:]
+            sosNotices = [:]
+            seedRead()
+            if let p = pendingJoin {
+                pendingJoin = nil
+                requestJoin(code: p)
+            }
         case .room(let r):
             if room == nil || room?.code == r.code {
+                let first: Bool = (room == nil)
                 room = r
+                if first { seedRead() }
                 livePositions = [:]
+                pruneStatuses()
             }
         case .left(let code, _):
             if room?.code == code {
                 room = nil
                 livePositions = [:]
+                statuses = [:]
+                sosNotices = [:]
+                iAmStopping = false
             }
         case .pos(let u):
             if room?.code == u.room {
                 livePositions[u.id] = MemberPosition(lat: u.lat, lng: u.lng, heading: u.heading, speed: u.speed, ts: u.ts)
             }
         case .error(let message, _):
-            lastError = message
+            if message == "Unknown message", let probe = lastStatusSend, Date().timeIntervalSince(probe.at) < 6 {
+                // An older server without convoy.status: use chat lines from now on.
+                statusSupported = false
+                lastStatusSend = nil
+                sendStatusFallback(probe.kind)
+            } else {
+                lastError = message
+            }
         case .chat(let code, let message):
-            if room?.code == code {
-                var r: Room = room!
-                r.messages.append(message)
+            if var r = room, r.code == code {
+                if !r.messages.contains(where: { (x: ConvoyChatMessage) -> Bool in return x.id == message.id }) {
+                    r.messages.append(message)
+                }
                 room = r
-                if message.userId != myId && message.text == Self.stoppingText {
-                    raiseStopNotice("\(message.username) is stopping")
+                if message.userId != myId {
+                    if message.text == Self.stoppingText { applyStatus(userId: message.userId, kind: .stopping, note: nil) }
+                    if message.text == Self.movingText { applyStatus(userId: message.userId, kind: .moving, note: nil) }
                 }
             }
         case .hazard(let code, let hazard):
             onHazard?(code, hazard)
+        case .status(let code, let id, let status, let note):
+            let forThisRoom: Bool = (code == nil) || (code == room?.code)
+            if forThisRoom, let kind = MemberStatusKind(rawValue: status) {
+                applyStatus(userId: id, kind: kind, note: note)
+            }
+        }
+        if room?.code != before { onRoomChange?() }
+    }
+
+    private func seedRead() {
+        lastReadTs = room?.messages.last?.ts ?? 0
+    }
+
+    private func pruneStatuses() {
+        guard let r = room else { return }
+        let ids: Set<String> = Set(r.members.map { (x: Member) -> String in return x.id })
+        statuses = statuses.filter { (entry: (key: String, value: MemberStatus)) -> Bool in return ids.contains(entry.key) }
+        sosNotices = sosNotices.filter { (entry: (key: String, value: String)) -> Bool in return ids.contains(entry.key) }
+    }
+
+    private func applyStatus(userId: String, kind: MemberStatusKind, note: String?) {
+        let name: String = (userId == myId) ? "You" : nameOf(userId: userId)
+        switch kind {
+        case .moving:
+            statuses.removeValue(forKey: userId)
+            sosNotices.removeValue(forKey: userId)
+            if userId == myId { iAmStopping = false }
+        case .stopping:
+            statuses[userId] = MemberStatus(kind: .stopping, note: note, at: Date())
+            sosNotices.removeValue(forKey: userId)
+            if userId != myId { raiseStopNotice("\(name) is stopping") }
+        case .sos:
+            statuses[userId] = MemberStatus(kind: .sos, note: note, at: Date())
+            if userId != myId {
+                var text: String = "\(name) needs help"
+                if let n = note, !n.isEmpty { text += " (\(n))" }
+                sosNotices[userId] = text
+            }
         }
     }
 
@@ -222,7 +478,7 @@ final class ConvoyViewModel {
         }
     }
 
-    // MARK: Outgoing position, about 1 Hz while the app is in the foreground
+    // MARK: Outgoing position, about 1 Hz (also in the background while a convoy or ride keeps location alive)
 
     private func startTicker() {
         ticker?.cancel()
@@ -268,6 +524,12 @@ final class ConvoyViewModel {
         return loc.distance(from: CLLocation(latitude: p.lat, longitude: p.lng))
     }
 
+    func statusKind(of member: Member) -> MemberStatusKind? {
+        if let st = statuses[member.id] { return st.kind }
+        if let raw = member.status, let k = MemberStatusKind(rawValue: raw), k != .moving { return k }
+        return nil
+    }
+
     func isStopped(_ member: Member) -> Bool {
         guard member.online, let s = member.position?.speed else { return false }
         return s < 0.8
@@ -292,21 +554,59 @@ final class ConvoyViewModel {
     }
 
     var mapPins: [MapPin] {
-        return members.compactMap { (m: Member) -> MapPin? in
+        var out: [MapPin] = members.compactMap { (m: Member) -> MapPin? in
             guard m.id != myId, let p = m.position else { return nil }
             let kind: MapPin.Kind
-            if m.id == room?.leader { kind = .lead }
-            else if isStopped(m) { kind = .stopped }
+            let sk: MemberStatusKind? = statusKind(of: m)
+            if sk == .sos { kind = .sos }
+            else if m.id == room?.leader { kind = .lead }
+            else if sk == .stopping || isStopped(m) { kind = .stopped }
             else { kind = .member }
             return MapPin(id: m.id,
-                          initials: Formatters.initials(m.username),
+                          initials: Formatters.initials(Formatters.shownName(m.username)),
                           kind: kind,
                           coordinate: CLLocationCoordinate2D(latitude: p.lat, longitude: p.lng))
+        }
+        if let r = room, let d = r.destination {
+            out.append(MapPin(id: "convoy-destination",
+                              initials: "",
+                              kind: r.resting ? .rest : .destination,
+                              coordinate: CLLocationCoordinate2D(latitude: d.lat, longitude: d.lng),
+                              symbol: r.resting ? "cup.and.saucer.fill" : "flag.checkered"))
+        }
+        return out
+    }
+
+    /// The shared route as map coordinates ([lng, lat] on the wire).
+    var mapRoute: [CLLocationCoordinate2D] {
+        guard let stops = room?.route?.stops else { return [] }
+        return stops.compactMap { (s: [Double]) -> CLLocationCoordinate2D? in
+            if s.count < 2 { return nil }
+            return CLLocationCoordinate2D(latitude: s[1], longitude: s[0])
         }
     }
 }
 
 enum Formatters {
+    /// True for the handle the server invents for a new account (`rider_` and 8 hex digits), or a bare UUID.
+    static func isGeneratedName(_ raw: String) -> Bool {
+        let t: String = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.isEmpty { return true }
+        if t.range(of: "^rider_[0-9a-fA-F]{8}$", options: .regularExpression) != nil { return true }
+        if t.range(of: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", options: .regularExpression) != nil { return true }
+        return false
+    }
+
+    /// A name fit to show in a roster or chat: a generated handle becomes "Rider 3FA2".
+    static func shownName(_ raw: String) -> String {
+        let t: String = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.isEmpty { return "Driver" }
+        if isGeneratedName(t) {
+            return "Rider " + String(t.suffix(4)).uppercased()
+        }
+        return t
+    }
+
     static func initials(_ name: String) -> String {
         let parts: [Substring] = name.split(separator: " ")
         if parts.count >= 2, let a = parts[0].first, let b = parts[1].first {

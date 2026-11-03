@@ -121,6 +121,7 @@ enum RosterState {
     case leader
     case online
     case stopped
+    case sos
     case offline
 }
 
@@ -138,9 +139,12 @@ struct RosterChip: View {
         case .leader: return theme.lead
         case .online: return theme.go
         case .stopped: return theme.pulse
+        case .sos: return theme.pulse
         case .offline: return theme.lineStrong
         }
     }
+
+    private var alarmed: Bool { return state == .stopped || state == .sos }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -151,7 +155,7 @@ struct RosterChip: View {
                     .foregroundStyle(theme.ink)
                 Text(detail)
                     .font(CvFont.text(12, weight: .medium))
-                    .foregroundStyle(state == .stopped ? theme.pulse : theme.inkMuted)
+                    .foregroundStyle(alarmed ? theme.pulse : theme.inkMuted)
             }
             Spacer(minLength: 8)
             if let distance = distance {
@@ -169,7 +173,7 @@ struct RosterChip: View {
         }
         .padding(.horizontal, 12)
         .frame(minHeight: 56)
-        .cvPanel(fill: theme.surface200, edge: state == .stopped ? theme.pulse : theme.line, cut: Cut.s)
+        .cvPanel(fill: theme.surface200, edge: alarmed ? theme.pulse : theme.line, cut: Cut.s)
     }
 }
 

@@ -40,3 +40,21 @@ extension View {
             .contentShape(ChamferShape(cut: cut))
     }
 }
+
+/// A rectangle with only the top-left corner cut; the other corners are square. For bottom sheets that run to the
+/// screen edge: no cut at the bottom or at the sides.
+struct TopLeftChamferShape: Shape {
+    var cut: CGFloat = Cut.l
+
+    func path(in rect: CGRect) -> Path {
+        let c: CGFloat = min(cut, min(rect.width, rect.height) / 2)
+        var p = Path()
+        p.move(to: CGPoint(x: rect.minX + c, y: rect.minY))
+        p.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        p.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        p.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+        p.addLine(to: CGPoint(x: rect.minX, y: rect.minY + c))
+        p.closeSubpath()
+        return p
+    }
+}

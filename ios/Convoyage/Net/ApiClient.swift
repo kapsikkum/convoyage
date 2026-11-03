@@ -144,6 +144,13 @@ final class ApiClient: @unchecked Sendable {
         return await send("PATCH", "/v1/me", json: ["displayName": name], as: MeDto.self)
     }
 
+    /// `PATCH /v1/me` with a display name and (optionally) a handle. A taken handle answers 409.
+    func updateProfile(displayName: String, handle: String?) async -> ApiResult<MeDto> {
+        var body: [String: Any] = ["displayName": displayName]
+        if let h = handle, !h.isEmpty { body["handle"] = h }
+        return await send("PATCH", "/v1/me", json: body, as: MeDto.self)
+    }
+
     // MARK: Hazards
 
     func createHazard(kind: String, subkind: String?, lat: Double, lng: Double, heading: Double?) async -> ApiResult<HazardDto> {
