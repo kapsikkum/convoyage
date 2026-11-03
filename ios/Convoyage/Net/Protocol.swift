@@ -81,6 +81,7 @@ enum ServerMessage: Decodable {
     case pos(PositionUpdate)
     case error(message: String, inType: String?)
     case chat(room: String, message: ConvoyChatMessage)
+    case hazard(room: String, hazard: HazardDto)
     case unknown(String)
 
     private enum Keys: String, CodingKey {
@@ -98,6 +99,7 @@ enum ServerMessage: Decodable {
         case error
         case inType = "in"
         case message
+        case hazard
     }
 
     init(from decoder: Decoder) throws {
@@ -135,6 +137,10 @@ enum ServerMessage: Decodable {
             let room: String = try c.decode(String.self, forKey: .room)
             let message: ConvoyChatMessage = try c.decode(ConvoyChatMessage.self, forKey: .message)
             self = .chat(room: room, message: message)
+        case "hazard":
+            let room: String = try c.decode(String.self, forKey: .room)
+            let hazard: HazardDto = try c.decode(HazardDto.self, forKey: .hazard)
+            self = .hazard(room: room, hazard: hazard)
         default:
             self = .unknown(t)
         }

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // MARK: - CvButton
 
@@ -177,6 +178,8 @@ struct RosterChip: View {
 enum BannerKind {
     case pulse
     case hazard
+    case police
+    case go
     case info
 }
 
@@ -187,12 +190,16 @@ struct Banner: View {
     var icon: String = "person.3.fill"
     var actionTitle: String? = nil
     var action: (() -> Void)? = nil
+    var secondaryTitle: String? = nil
+    var secondaryAction: (() -> Void)? = nil
     @Environment(\.theme) private var theme
 
     private var tint: Color {
         switch kind {
         case .pulse: return theme.pulse
         case .hazard: return theme.hazard
+        case .police: return theme.police
+        case .go: return theme.go
         case .info: return theme.signal
         }
     }
@@ -215,13 +222,24 @@ struct Banner: View {
                 }
             }
             Spacer(minLength: 8)
+            if let secondaryTitle = secondaryTitle, let secondaryAction = secondaryAction {
+                Button(action: secondaryAction) {
+                    Text(secondaryTitle.uppercased())
+                        .font(CvFont.label(12))
+                        .tracking(1.0)
+                        .foregroundStyle(theme.inkMuted)
+                        .padding(.horizontal, 8)
+                        .frame(minHeight: 44)
+                }
+                .buttonStyle(.plain)
+            }
             if let actionTitle = actionTitle, let action = action {
                 Button(action: action) {
                     Text(actionTitle.uppercased())
                         .font(CvFont.label(12))
                         .tracking(1.0)
                         .foregroundStyle(tint)
-                        .padding(.horizontal, 10)
+                        .padding(.horizontal, 8)
                         .frame(minHeight: 44)
                 }
                 .buttonStyle(.plain)
@@ -270,6 +288,7 @@ enum RideTileTone {
     case neutral
     case signal
     case hazard
+    case police
     case alert
 }
 
@@ -280,6 +299,7 @@ struct RideTile: View {
     var icon: String? = nil
     var tone: RideTileTone = .neutral
     var valueColor: Color? = nil
+    var compact: Bool = false
     let action: () -> Void
     @Environment(\.theme) private var theme
 
@@ -288,7 +308,16 @@ struct RideTile: View {
         case .neutral: return theme.lineStrong
         case .signal: return theme.signal
         case .hazard: return theme.hazard
+        case .police: return theme.police
         case .alert: return theme.pulse
+        }
+    }
+
+    private var iconColor: Color {
+        switch tone {
+        case .hazard: return theme.hazard
+        case .police: return theme.police
+        default: return fg
         }
     }
 
@@ -305,13 +334,13 @@ struct RideTile: View {
             VStack(spacing: 6) {
                 if let icon = icon {
                     Image(systemName: icon)
-                        .font(.system(size: 28, weight: .semibold))
-                        .foregroundStyle(tone == .hazard ? theme.hazard : fg)
+                        .font(.system(size: compact ? 24 : 28, weight: .semibold))
+                        .foregroundStyle(iconColor)
                 }
                 if let value = value {
                     HStack(alignment: .lastTextBaseline, spacing: 3) {
                         Text(value)
-                            .font(CvFont.mono(34))
+                            .font(CvFont.mono(compact ? 28 : 34))
                             .foregroundStyle(valueColor ?? fg)
                         if let unit = unit {
                             Text(unit.uppercased())
@@ -325,7 +354,7 @@ struct RideTile: View {
                     .tracking(1.4)
                     .foregroundStyle(tone == .alert ? Color.white : theme.inkMuted)
             }
-            .frame(maxWidth: .infinity, minHeight: 104)
+            .frame(maxWidth: .infinity, minHeight: compact ? 84 : 104)
             .cvPanel(fill: fill, edge: edge, cut: Cut.m)
         }
         .buttonStyle(.plain)
@@ -460,13 +489,17 @@ struct SectionLabel: View {
 struct CvField: View {
     let placeholder: String
     @Binding var text: String
+    var keyboard: UIKeyboardType = .default
+    var autocap: TextInputAutocapitalization = .never
+    var mono: Bool = false
     @Environment(\.theme) private var theme
 
     var body: some View {
         TextField(placeholder, text: $text)
-            .font(CvFont.text(16, weight: .semibold))
+            .font(mono ? CvFont.mono(14, weight: .medium) : CvFont.text(16, weight: .semibold))
             .foregroundStyle(theme.ink)
-            .textInputAutocapitalization(.never)
+            .keyboardType(keyboard)
+            .textInputAutocapitalization(autocap)
             .autocorrectionDisabled(true)
             .padding(.horizontal, 14)
             .frame(minHeight: 52)

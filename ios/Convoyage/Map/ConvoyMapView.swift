@@ -8,6 +8,8 @@ struct MapPin: Identifiable, Equatable {
         case lead
         case member
         case stopped
+        case hazard
+        case police
     }
 
     let id: String
@@ -62,6 +64,8 @@ struct ConvoyMapView: UIViewRepresentable {
     /// Increment to re-centre on the user.
     let recenterToken: Int
     let theme: Theme
+    /// Called (debounced) when the visible area changes, and once the style loads.
+    var onViewport: ((GeoBox) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
         return Coordinator()
@@ -82,6 +86,7 @@ struct ConvoyMapView: UIViewRepresentable {
     func updateUIView(_ map: MLNMapView, context: Context) {
         let c: Coordinator = context.coordinator
         c.theme = theme
+        c.onViewport = onViewport
         c.syncPins(pins)
         if c.is3D != is3D {
             c.is3D = is3D
@@ -99,6 +104,8 @@ struct ConvoyMapView: UIViewRepresentable {
         var theme: Theme = Theme.night
         var is3D: Bool = false
         var lastRecenter: Int = 0
+        var onViewport: ((GeoBox) -> Void)?
+        private var viewportTask: Task<Void, Never>?
         private var annotations: [String: PinAnnotation] = [:]
         private var buildingLayers: [MLNFillExtrusionStyleLayer] = []
 
@@ -153,6 +160,24 @@ struct ConvoyMapView: UIViewRepresentable {
 
             applyBuildings()
             applyPitch()
+            reportViewport(mapView)
+        }
+
+        // MARK: Viewport (hazards are fetched for what is on screen)
+
+        func mapView(_ mapView: MLNMapView, regionDidChangeAnimated animated: Bool) {
+            reportViewport(mapView)
+        }
+
+        private func reportViewport(_ mapView: MLNMapView) {
+            viewportTask?.cancel()
+            viewportTask = Task { @MainActor [weak self, weak mapView] in
+                try? await Task.sleep(nanoseconds: 600_000_000)
+                if Task.isCancelled { return }
+                guard let self = self, let mapView = mapView, let handler = self.onViewport else { return }
+                let b: MLNCoordinateBounds = mapView.visibleCoordinateBounds
+                handler(GeoBox(south: b.sw.latitude, west: b.sw.longitude, north: b.ne.latitude, east: b.ne.longitude))
+            }
         }
 
         func applyBuildings() {
@@ -201,15 +226,25 @@ struct ConvoyMapView: UIViewRepresentable {
 
         private func restyle(_ view: PinAnnotationView, _ ann: PinAnnotation) {
             let edge: Color
+            var fill: Color = theme.surface300
+            var text: Color = theme.ink
             switch ann.kind {
             case .lead: edge = theme.lead
             case .member: edge = theme.go
             case .stopped: edge = theme.pulse
+            case .hazard:
+                edge = theme.hazard
+                fill = theme.hazard
+                text = Color(hex: 0x05080d)
+            case .police:
+                edge = theme.police
+                fill = theme.police
+                text = Color(hex: 0x05080d)
             }
             view.apply(initials: ann.initials,
-                       fill: UIColor(theme.surface300),
+                       fill: UIColor(fill),
                        edge: UIColor(edge),
-                       text: UIColor(theme.ink))
+                       text: UIColor(text))
         }
 
         func mapView(_ mapView: MLNMapView, viewFor annotation: MLNAnnotation) -> MLNAnnotationView? {
