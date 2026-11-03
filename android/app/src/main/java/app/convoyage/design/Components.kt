@@ -663,7 +663,7 @@ fun CvTextField(
 enum class Tab(val label: String, val icon: ImageVector) {
     Home("Home", CvIcons.Home),
     Feed("Feed", CvIcons.Feed),
-    Convoy("Convoy", CvIcons.Convoy),
+    Drive("Drive", CvIcons.Navigate),
     Garage("Garage", CvIcons.Garage),
     Profile("Profile", CvIcons.Profile),
 }
@@ -679,7 +679,7 @@ fun CvTabBar(selected: Tab?, onSelect: (Tab) -> Unit, modifier: Modifier = Modif
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Tab.entries.forEach { tab ->
-            if (tab == Tab.Convoy) {
+            if (tab == Tab.Drive) {
                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                     Box(
                         Modifier
@@ -687,7 +687,7 @@ fun CvTabBar(selected: Tab?, onSelect: (Tab) -> Unit, modifier: Modifier = Modif
                             .glow(c.signal.copy(alpha = 0.6f), CutMShape, 12.dp)
                             .cutPanel(c.signal, c.signal, CutMShape)
                             .clickable(role = Role.Button) { onSelect(tab) }
-                            .semantics { contentDescription = "Convoy" },
+                            .semantics { contentDescription = "Drive" },
                         contentAlignment = Alignment.Center,
                     ) { CvIcon(tab.icon, c.signalInk, size = 28.dp) }
                 }

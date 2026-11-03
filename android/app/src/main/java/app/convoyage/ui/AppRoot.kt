@@ -33,6 +33,7 @@ object Routes {
     const val WELCOME = "welcome"
     const val ONBOARDING = "onboarding"
     const val HOME = "home"
+    const val DRIVE = "drive"
     const val FEED = "feed"
     const val GARAGE = "garage"
     const val GARAGE_DETAIL = "garage/{id}"
@@ -53,7 +54,7 @@ object Routes {
     fun garageEdit(id: String?) = if (id == null) "garage-edit" else "garage-edit?id=$id"
     fun ride(id: String) = "ride/$id"
 
-    val tabRoutes = mapOf(HOME to Tab.Home, FEED to Tab.Feed, GARAGE to Tab.Garage, PROFILE to Tab.Profile)
+    val tabRoutes = mapOf(HOME to Tab.Home, DRIVE to Tab.Drive, FEED to Tab.Feed, GARAGE to Tab.Garage, PROFILE to Tab.Profile)
 }
 
 @Composable
@@ -65,7 +66,8 @@ fun AppRoot(container: AppContainer) {
     val pendingJoin by container.pendingJoin.collectAsState()
     var onboardingSkipped by rememberSaveable { mutableStateOf(false) }
     val signedIn = !name.isNullOrBlank()
-    val start = if (!signedIn) Routes.WELCOME else Routes.HOME
+    // Navigation is the default state: the app opens on Drive.
+    val start = if (!signedIn) Routes.WELCOME else Routes.DRIVE
     val entry by nav.currentBackStackEntryAsState()
     val route = entry?.destination?.route
     val tab = Routes.tabRoutes[route]
@@ -83,20 +85,20 @@ fun AppRoot(container: AppContainer) {
     LaunchedEffect(name, route, needsOnboarding) {
         if (route == null) return@LaunchedEffect
         if (signedIn && route == Routes.WELCOME) {
-            nav.navigate(if (needsOnboarding) Routes.ONBOARDING else Routes.HOME) { popUpTo(Routes.WELCOME) { inclusive = true } }
-        } else if (signedIn && needsOnboarding && route == Routes.HOME) {
-            nav.navigate(Routes.ONBOARDING) { popUpTo(Routes.HOME) { inclusive = true } }
+            nav.navigate(if (needsOnboarding) Routes.ONBOARDING else Routes.DRIVE) { popUpTo(Routes.WELCOME) { inclusive = true } }
+        } else if (signedIn && needsOnboarding && route == Routes.DRIVE) {
+            nav.navigate(Routes.ONBOARDING) { popUpTo(Routes.DRIVE) { inclusive = true } }
         } else if (signedIn && !needsOnboarding && route == Routes.ONBOARDING) {
-            nav.navigate(Routes.HOME) { popUpTo(Routes.ONBOARDING) { inclusive = true } }
+            nav.navigate(Routes.DRIVE) { popUpTo(Routes.ONBOARDING) { inclusive = true } }
         }
         if (!signedIn && route != Routes.WELCOME && route != Routes.SETTINGS) nav.navigate(Routes.WELCOME) { popUpTo(0) { inclusive = true } }
     }
 
-    // `convoyage://join/<CODE>`: once signed in (and named), open the convoy screen, which does the joining.
+    // `convoyage://join/<CODE>`: once signed in (and named), open Drive, whose convoy view does the joining.
     LaunchedEffect(pendingJoin, signedIn, needsOnboarding, route) {
         if (pendingJoin == null || !signedIn || needsOnboarding || route == null) return@LaunchedEffect
-        if (route == Routes.WELCOME || route == Routes.ONBOARDING || route == Routes.SETTINGS || route.startsWith("convoy")) return@LaunchedEffect
-        nav.navigate(Routes.convoy(false)) { launchSingleTop = true }
+        if (route == Routes.WELCOME || route == Routes.ONBOARDING || route == Routes.SETTINGS || route == Routes.DRIVE || route.startsWith("convoy")) return@LaunchedEffect
+        nav.switchTab(Routes.DRIVE)
     }
 
     CompositionLocalProvider(LocalContainer provides container, LocalOpenRecap provides { nav.navigate(Routes.RECAP) { launchSingleTop = true } }) {
@@ -113,10 +115,18 @@ fun AppRoot(container: AppContainer) {
                 composable(Routes.RIDE_DETAIL) { backStack ->
                     RecapScreen(rideId = backStack.arguments?.getString("id"), onClose = { nav.popBackStack() })
                 }
+                composable(Routes.DRIVE) {
+                    DriveScreen(
+                        onReport = { nav.navigate(Routes.REPORT) },
+                        onRide = { nav.navigate(Routes.RIDE) },
+                        onOpenRoutes = { nav.navigate(Routes.ROUTES) { launchSingleTop = true } },
+                        onBuildRoute = { nav.navigate(Routes.ROUTE_NEW) },
+                    )
+                }
                 composable(Routes.HOME) {
                     HomeScreen(
                         onOpenConvoy = { join -> nav.navigate(Routes.convoy(join)) },
-                        onOpenNavigation = { nav.navigate(Routes.NAV) { launchSingleTop = true } },
+                        onOpenNavigation = { nav.switchTab(Routes.DRIVE) },
                         onOpenGarage = { nav.switchTab(Routes.GARAGE) },
                         onOpenRoutes = { nav.navigate(Routes.ROUTES) { launchSingleTop = true } },
                     )
@@ -125,7 +135,7 @@ fun AppRoot(container: AppContainer) {
                     RoutesScreen(
                         onBack = { nav.popBackStack() },
                         onNew = { nav.navigate(Routes.ROUTE_NEW) },
-                        onOpenConvoy = { nav.navigate(Routes.convoy(false)) { popUpTo(Routes.ROUTES) { inclusive = true } } },
+                        onOpenConvoy = { nav.popBackStack(); nav.switchTab(Routes.DRIVE) },
                     )
                 }
                 composable(Routes.ROUTE_NEW) { RouteBuilderScreen(onBack = { nav.popBackStack() }, onSaved = { nav.popBackStack() }) }
@@ -180,7 +190,7 @@ fun AppRoot(container: AppContainer) {
                     selected = tab,
                     onSelect = { t ->
                         when (t) {
-                            Tab.Convoy -> nav.navigate(Routes.convoy(false))
+                            Tab.Drive -> nav.switchTab(Routes.DRIVE)
                             Tab.Home -> nav.switchTab(Routes.HOME)
                             Tab.Feed -> nav.switchTab(Routes.FEED)
                             Tab.Garage -> nav.switchTab(Routes.GARAGE)

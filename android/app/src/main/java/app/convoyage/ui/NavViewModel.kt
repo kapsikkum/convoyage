@@ -74,6 +74,7 @@ class NavViewModel(private val container: AppContainer) : ViewModel() {
         query.value = ""
         _search.value = SearchUi()
         _local.update { it.copy(follow = true) }
+        if (place.name != "Dropped pin") container.savedPlaces.remember(place)
         nav.navigateTo(place, container.tracker.lastKnown())
     }
 
@@ -83,7 +84,10 @@ class NavViewModel(private val container: AppContainer) : ViewModel() {
         select(pin)
         viewModelScope.launch {
             val r = container.places.reverse(lat, lng)
-            if (r is ApiResult.Ok) nav.relabel(lat, lng, r.value.name, r.value.detail)
+            if (r is ApiResult.Ok) {
+                nav.relabel(lat, lng, r.value.name, r.value.detail)
+                container.savedPlaces.remember(Place(r.value.name, r.value.detail, lat, lng))
+            }
         }
     }
 
@@ -105,7 +109,7 @@ class NavViewModel(private val container: AppContainer) : ViewModel() {
     fun shareHandled() = _local.update { it.copy(shareWhenReady = false) }
 
     private var hintJob: kotlinx.coroutines.Job? = null
-    private fun hint(text: String) {
+    fun hint(text: String) {
         _local.update { it.copy(hint = text) }
         hintJob?.cancel()
         hintJob = viewModelScope.launch {

@@ -79,7 +79,7 @@ private fun Double.round2() = Math.round(this * 100) / 100.0
 private enum class SheetTab { Roster, Chat, Lead }
 
 @Composable
-fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Unit, onClose: () -> Unit, onBuildRoute: () -> Unit = {}) {
+fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Unit, onClose: () -> Unit, onBuildRoute: () -> Unit = {}, openPreStart: Boolean = false) {
     val container = LocalContainer.current
     val context = LocalContext.current
     val vm: ConvoyViewModel = viewModel(factory = viewModelFactory { initializer { ConvoyViewModel(container) } })
@@ -101,6 +101,8 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
     var fitAll by remember { mutableStateOf<List<LatLng>>(emptyList()) }
     LaunchedEffect(local.follow) { if (local.follow) fitAll = emptyList() }
     val sharedRoute by container.convoy.sharedRoute.collectAsStateWithLifecycle()
+    val navState by container.nav.state.collectAsStateWithLifecycle()
+    val navVoiceOn by container.session.navVoice.collectAsStateWithLifecycle()
 
     // Sheet state: peek while in a convoy; a pre-start sheet opens to half when Start or Join is chosen.
     var detent by rememberSaveable { mutableStateOf(Detent.Peek) }
@@ -112,9 +114,9 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
     var confirmRemove by remember { mutableStateOf<RosterEntry?>(null) }
     var containerH by remember { mutableStateOf(0) }
     LaunchedEffect(copied) { if (copied) { delay(1500); copied = false } }
-    LaunchedEffect(startWithJoin) { if (startWithJoin && room == null) detent = Detent.Half }
+    LaunchedEffect(startWithJoin) { if ((startWithJoin || openPreStart) && room == null) detent = Detent.Half }
     // A convoy appearing (start/join answered) settles at peek; leaving it does too.
-    LaunchedEffect(room?.code) { detent = Detent.Peek; tabIndex = 0 }
+    LaunchedEffect(room?.code) { if (room != null || !(startWithJoin || openPreStart)) detent = Detent.Peek; tabIndex = 0 }
 
     // `convoyage://join/<CODE>`: join as soon as the connection is up.
     val pendingJoin by container.pendingJoin.collectAsStateWithLifecycle()
@@ -174,7 +176,7 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
 
     val statusTop = WindowInsets.statusBars.getTop(density)
     val navBottom = WindowInsets.navigationBars.getBottom(density)
-    val peekPad = SheetPeekHeight + with(density) { navBottom.toDp() }
+    val peekPad = SheetPeekHeight + with(density) { navBottom.toDp() } + LocalBottomChrome.current
 
     Box(Modifier.fillMaxSize().onSizeChanged { containerH = it.height }) {
         ConvoyMap(
@@ -200,6 +202,19 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
             Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars).padding(horizontal = 12.dp).padding(top = Space.s2),
             verticalArrangement = Arrangement.spacedBy(Space.s2),
         ) {
+            // Turn-by-turn keeps going inside the convoy view (Drive tab): its maneuver card leads the top.
+            if (navState.phase.guiding()) {
+                navState.maneuver?.let { step ->
+                    ManeuverCard(
+                        step = step,
+                        distanceM = if (navState.phase == app.convoyage.nav.NavPhase.Arrived) 0.0 else navState.progress?.distToManeuverM ?: 0.0,
+                        then = navState.thenStep,
+                        muted = !navVoiceOn,
+                        arrived = navState.phase == app.convoyage.nav.NavPhase.Arrived,
+                        arrivedLine = navState.destination?.name?.let { "Arrived at $it" } ?: "You have arrived",
+                    )
+                }
+            }
             if (!permission.granted) {
                 Banner(
                     BannerTone.Hazard, "Location is off", sub = "Allow location so the convoy can see you.",

@@ -80,6 +80,8 @@ class AppContainer(private val context: Context) {
         }
     }
     val places: PlaceSearch = NominatimSearch()
+    /** Home / Work and recent destinations for the Drive dock. */
+    val savedPlaces = app.convoyage.data.PlacesStore(context)
 
     /** Push-to-talk to the convoy (LiveKit). Connects while a convoy is on. */
     val voice = VoiceChat(context, appScope, { code -> api.voiceToken(code) })

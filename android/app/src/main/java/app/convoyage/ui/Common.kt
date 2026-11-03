@@ -46,6 +46,9 @@ import app.convoyage.design.cutPanel
 
 val LocalContainer = staticCompositionLocalOf<AppContainer> { error("AppContainer not provided") }
 
+/** Extra room at the bottom (above the navigation bar) that floating chrome covers, e.g. the tab bar on Drive. */
+val LocalBottomChrome = androidx.compose.runtime.compositionLocalOf { 0.dp }
+
 /** Bottom room the floating tab bar needs (bar height + its margin). */
 val TabBarClearance = 112.dp
 

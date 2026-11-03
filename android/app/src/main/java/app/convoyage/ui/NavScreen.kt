@@ -25,6 +25,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
@@ -92,8 +95,16 @@ fun followZoomFor(speedMps: Double): Double = when {
     else -> 15.2
 }
 
+/** What the Drive tab adds around navigation: the dock's convoy, recording and route actions. */
+class DriveHooks(
+    val onStartConvoy: () -> Unit,
+    val onJoinConvoy: () -> Unit,
+    val onOpenRoutes: () -> Unit,
+    val onBuildRoute: () -> Unit,
+)
+
 @Composable
-fun NavScreen(onBack: () -> Unit, onReport: () -> Unit) {
+fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = null) {
     val container = LocalContainer.current
     val context = LocalContext.current
     val vm: NavViewModel = viewModel(factory = viewModelFactory { initializer { NavViewModel(container) } })
@@ -108,6 +119,16 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit) {
     val permission = rememberLocationPermission()
     TrackWhileVisible(permission)
     val c = Cv.colors
+    val saved by container.savedPlaces.saved.collectAsStateWithLifecycle()
+    val recent by container.savedPlaces.recent.collectAsStateWithLifecycle()
+    val rec by container.recorder.state.collectAsStateWithLifecycle()
+    val chrome = LocalBottomChrome.current
+    var showRecord by remember { mutableStateOf(false) }
+    var dockDetent by rememberSaveable { mutableStateOf(Detent.Peek) }
+    var boxH by remember { mutableStateOf(0) }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val navInset = with(density) { WindowInsets.navigationBars.getBottom(density).toDp() }
+    val idleDrive = drive != null && nav.phase == NavPhase.Idle
 
     // Warm up text-to-speech while the screen is up so the first prompt is not late.
     LaunchedEffect(Unit) { container.navVoice.prepare() }
@@ -145,9 +166,9 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit) {
         }
     }
     val following = nav.phase == NavPhase.Active && local.follow
-    val sheetHeight = when (nav.phase) { NavPhase.Idle -> 0.dp; else -> 236.dp }
+    val sheetHeight = when (nav.phase) { NavPhase.Idle -> if (drive != null) SheetPeekHeight else 0.dp; else -> 236.dp } + chrome
 
-    Box(Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxSize().onSizeChanged { boxH = it.height }) {
         ConvoyMap(
             modifier = Modifier.fillMaxSize(),
             pins = pins,
@@ -176,12 +197,32 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit) {
                 Banner(BannerTone.Hazard, "Location is off", sub = "Allow location so navigation can follow you.", icon = CvIcons.Locate, actionLabel = "Allow", onAction = permission.request)
             }
             when (nav.phase) {
-                NavPhase.Idle -> SearchPanel(
-                    query = query, onQuery = { vm.query.value = it }, search = search, onPick = vm::select, onBack = onBack,
-                    error = nav.error, onDismissError = vm::clearError,
-                )
+                NavPhase.Idle -> {
+                    SearchPanel(
+                        query = query, onQuery = { vm.query.value = it }, search = search, onPick = vm::select,
+                        onBack = if (drive == null) onBack else null,
+                        error = nav.error, onDismissError = vm::clearError,
+                    )
+                    if (drive != null && query.isBlank()) {
+                        DriveChips(saved, recent, onPick = vm::select, onRoutes = drive.onOpenRoutes, onUnset = { slot ->
+                            vm.hint("Search for ${slot.label.lowercase()}, then tap Set as ${slot.label}")
+                        })
+                    }
+                }
                 NavPhase.Routing -> DestinationBar(nav.destination, "FINDING A ROUTE", onBack = { vm.end() })
-                NavPhase.Preview -> DestinationBar(nav.destination, "ROUTE", onBack = { vm.end() })
+                NavPhase.Preview -> {
+                    DestinationBar(nav.destination, "ROUTE", onBack = { vm.end() })
+                    nav.destination?.let { d ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(Space.s2)) {
+                            app.convoyage.data.SavedSlot.entries.forEach { slot ->
+                                val isIt = saved[slot]?.let { it.lat == d.lat && it.lng == d.lng } == true
+                                CvChipToggle(if (isIt) slot.label else "Set as ${slot.label}", isIt, {
+                                    if (isIt) container.savedPlaces.clear(slot) else container.savedPlaces.save(slot, d)
+                                })
+                            }
+                        }
+                    }
+                }
                 NavPhase.Active, NavPhase.Arrived -> {
                     val step = nav.maneuver
                     val p = nav.progress
@@ -215,6 +256,20 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit) {
         }
 
         // ---- right rail ----
+        if (idleDrive && dockDetent == Detent.Peek) {
+            Column(
+                Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = sheetHeight + navInset + Space.s3),
+                verticalArrangement = Arrangement.spacedBy(Space.s2),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                CvChipToggle("3D", local.buildings3d, vm::toggle3d)
+                CvIconButton(CvIcons.Alert, "Report hazard", onReport, tint = c.hazard, edge = c.hazard)
+                CvIconButton(CvIcons.Locate, "Recentre", vm::recenter, tint = if (local.follow) c.signal else c.ink)
+            }
+        }
+        if (active) {
+            SpeedReadout(nav.speedMps, Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = sheetHeight + navInset + Space.s3))
+        }
         if (active) {
             Column(
                 Modifier.align(Alignment.CenterEnd).padding(end = 12.dp, top = 60.dp),
@@ -234,6 +289,7 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit) {
                 Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                     .cutPanel(c.surface100, c.lineStrong, CutLShape)
                     .navigationBarsPadding()
+                    .padding(bottom = chrome)
                     .padding(horizontal = Space.gutter, vertical = Space.s3),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
@@ -243,10 +299,31 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit) {
                     inConvoy = room != null,
                     onStart = vm::start,
                     onInvite = vm::inviteFriends,
-                    onEnd = { vm.end(); onBack() },
+                    onEnd = { vm.end(); if (drive == null) onBack() },
                 )
             }
         }
+
+        if (idleDrive && drive != null) {
+            ConvoySheet(
+                detent = dockDetent,
+                onDetentChange = { dockDetent = it },
+                containerHeightPx = boxH,
+                topReservePx = WindowInsets.statusBars.getTop(density) + with(density) { 120.dp.roundToPx() },
+            ) { expanded ->
+                DriveDock(
+                    expanded = expanded,
+                    drive = drive,
+                    saved = saved,
+                    recent = recent,
+                    recording = rec.isActive,
+                    onRecord = { showRecord = true },
+                    onPick = vm::select,
+                    onForget = container.savedPlaces::forget,
+                )
+            }
+        }
+        if (showRecord) RecordSheet(onDismiss = { showRecord = false }, bottomInset = chrome)
     }
 }
 
@@ -256,7 +333,7 @@ private fun SearchPanel(
     onQuery: (String) -> Unit,
     search: SearchUi,
     onPick: (Place) -> Unit,
-    onBack: () -> Unit,
+    onBack: (() -> Unit)?,
     error: String?,
     onDismissError: () -> Unit,
 ) {
@@ -266,7 +343,7 @@ private fun SearchPanel(
         verticalArrangement = Arrangement.spacedBy(Space.s2),
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(Space.s2), verticalAlignment = Alignment.Bottom) {
-            CvIconButton(CvIcons.Back, "Back", onBack, fill = c.surface200)
+            if (onBack != null) CvIconButton(CvIcons.Back, "Back", onBack, fill = c.surface200)
             CvTextField(
                 query, onQuery, "Where to?", Modifier.weight(1f), placeholder = "Search a place or address",
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
@@ -276,7 +353,7 @@ private fun SearchPanel(
         when {
             search.loading -> Eyebrow("SEARCHING")
             search.error != null -> CvText(search.error, Cv.type.bodyS, c.inkMuted)
-            search.results.isEmpty() -> Eyebrow("OR LONG-PRESS THE MAP TO DROP A PIN")
+            search.results.isEmpty() -> if (onBack != null || query.isNotBlank()) Eyebrow("OR LONG-PRESS THE MAP TO DROP A PIN")
             else -> LazyColumn(Modifier.heightIn(max = 320.dp), verticalArrangement = Arrangement.spacedBy(Space.s1)) {
                 items(search.results, key = { "${it.lat},${it.lng},${it.name}" }) { p ->
                     Row(
@@ -313,7 +390,7 @@ private fun DestinationBar(place: Place?, caption: String, onBack: () -> Unit) {
 
 /** The maneuver card of the mockup: arrow, distance in mono, street, and the step after. */
 @Composable
-private fun ManeuverCard(step: app.convoyage.nav.RouteStep, distanceM: Double, then: app.convoyage.nav.RouteStep?, muted: Boolean, arrived: Boolean, arrivedLine: String = "You have arrived") {
+internal fun ManeuverCard(step: app.convoyage.nav.RouteStep, distanceM: Double, then: app.convoyage.nav.RouteStep?, muted: Boolean, arrived: Boolean, arrivedLine: String = "You have arrived") {
     val c = Cv.colors
     Column(
         Modifier.fillMaxWidth().cutPanel(c.surface200, c.signal, CutLShape).padding(horizontal = Space.s4, vertical = 14.dp),

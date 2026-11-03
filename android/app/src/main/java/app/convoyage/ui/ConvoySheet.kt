@@ -85,7 +85,7 @@ fun BoxScope.ConvoySheet(
     content: @Composable ColumnScope.(expanded: Boolean) -> Unit,
 ) {
     val density = LocalDensity.current
-    val navPx = WindowInsets.navigationBars.getBottom(density)
+    val navPx = WindowInsets.navigationBars.getBottom(density) + with(density) { LocalBottomChrome.current.roundToPx() }
     val peekPx = with(density) { SheetPeekHeight.toPx() } + navPx
     val fullPx = (containerHeightPx - topReservePx).toFloat().coerceAtLeast(peekPx + 1f)
     val halfPx = (containerHeightPx * 0.52f).coerceIn(peekPx + 1f, fullPx)

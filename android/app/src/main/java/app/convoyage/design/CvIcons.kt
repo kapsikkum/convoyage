@@ -54,6 +54,8 @@ object CvIcons {
     val Back = stroke("back", "M15 5l-7 7 7 7")
     val Close = stroke("close", "M6 6l12 12M18 6 6 18")
     val Plus = stroke("plus", "M12 5v14M5 12h14")
+    val Work = stroke("work", "M4 8h16v11H4z", "M9 8V5h6v3", "M4 13h16")
+    val Clock = stroke("clock", circle(12f, 12f, 8.5f), "M12 7.5V12l3 2")
     val Navigate = stroke("navigate", "M12 2.5 19.5 21 12 16.8 4.5 21z", fill = true)
     val Alert = stroke("alert", "M12 3.5 22 20H2z", "M12 10v4.5M12 17.2v.3")
     val Stop = stroke("stop", "M5 5h14v14H5z")
