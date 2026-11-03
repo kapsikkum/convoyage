@@ -12,3 +12,6 @@ android/.idea/
 .DS_Store
 ios/build/
 ios/DerivedData/
+
+# Podman (run from Git Bash) writes its SSH known-hosts to a literal NUL file
+/NUL
