@@ -1,0 +1,246 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://convoyage.app/protocol/convoy.v1.schema.json",
+  "title": "Convoyage convoy socket protocol v1",
+  "description": "Every frame on /ws is one JSON text object with a 't' naming it. Frames are at most 4096 bytes. Use #/$defs/ClientMessage for client-to-server and #/$defs/ServerMessage for server-to-client.",
+  "oneOf": [
+    { "$ref": "#/$defs/ClientMessage" },
+    { "$ref": "#/$defs/ServerMessage" }
+  ],
+  "$defs": {
+    "Id": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "Lat": { "type": "number", "minimum": -90, "maximum": 90 },
+    "Lng": { "type": "number", "minimum": -180, "maximum": 180 },
+    "Destination": {
+      "type": "object",
+      "required": ["lat", "lng", "label"],
+      "properties": {
+        "lat": { "$ref": "#/$defs/Lat" },
+        "lng": { "$ref": "#/$defs/Lng" },
+        "label": { "type": "string", "maxLength": 80 }
+      },
+      "additionalProperties": false
+    },
+    "ConvoyRoute": {
+      "description": "Ordered driving stops as [lng, lat]. A circuit repeats its first stop at the end.",
+      "type": "object",
+      "required": ["name", "stops"],
+      "properties": {
+        "name": { "type": "string", "maxLength": 40 },
+        "stops": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 25,
+          "items": {
+            "type": "array",
+            "prefixItems": [{ "$ref": "#/$defs/Lng" }, { "$ref": "#/$defs/Lat" }],
+            "minItems": 2,
+            "maxItems": 2
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "AutomaticRegroup": {
+      "type": "object",
+      "required": ["enabled", "separationM"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "separationM": { "type": "number", "minimum": 1000, "maximum": 20000 }
+      },
+      "additionalProperties": false
+    },
+    "Position": {
+      "type": "object",
+      "required": ["lat", "lng", "heading", "speed", "ts"],
+      "properties": {
+        "lat": { "$ref": "#/$defs/Lat" },
+        "lng": { "$ref": "#/$defs/Lng" },
+        "heading": { "type": ["number", "null"] },
+        "speed": { "type": ["number", "null"] },
+        "ts": { "type": "integer", "description": "Server receive time, ms since the epoch." }
+      }
+    },
+    "Member": {
+      "type": "object",
+      "required": ["id", "username", "avatar", "online", "lastSeen", "position"],
+      "properties": {
+        "id": { "type": "string" },
+        "username": { "type": "string" },
+        "avatar": { "type": "string" },
+        "online": { "type": "boolean" },
+        "lastSeen": { "type": "integer" },
+        "position": { "oneOf": [{ "$ref": "#/$defs/Position" }, { "type": "null" }] }
+      },
+      "additionalProperties": false
+    },
+    "ConvoyMessage": {
+      "type": "object",
+      "required": ["id", "clientId", "userId", "username", "text", "ts"],
+      "properties": {
+        "id": { "type": "string" },
+        "clientId": { "type": "string" },
+        "userId": { "type": "string" },
+        "username": { "type": "string" },
+        "text": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "ts": { "type": "integer" }
+      },
+      "additionalProperties": false
+    },
+    "Room": {
+      "type": "object",
+      "required": ["messages", "code", "name", "eventId", "leader", "destination", "resting", "route", "automaticRegroup", "members"],
+      "properties": {
+        "messages": { "type": "array", "maxItems": 50, "items": { "$ref": "#/$defs/ConvoyMessage" } },
+        "code": { "type": "string", "pattern": "^[A-HJKMNP-Z2-9]{8}$", "description": "Invite code, also the room id." },
+        "name": { "type": "string" },
+        "eventId": { "type": ["string", "null"] },
+        "leader": { "type": "string" },
+        "destination": { "oneOf": [{ "$ref": "#/$defs/Destination" }, { "type": "null" }] },
+        "resting": { "type": "boolean" },
+        "route": { "oneOf": [{ "$ref": "#/$defs/ConvoyRoute" }, { "type": "null" }] },
+        "automaticRegroup": { "$ref": "#/$defs/AutomaticRegroup" },
+        "members": { "type": "array", "maxItems": 30, "items": { "$ref": "#/$defs/Member" } }
+      },
+      "additionalProperties": false
+    },
+
+    "Hazard": {
+      "description": "A road hazard report. Vote counts and the reporter are deliberately not on the wire.",
+      "type": "object",
+      "required": ["id", "kind", "subkind", "lat", "lng", "heading", "createdAt", "expiresAt"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "kind": { "enum": ["police", "hazard", "works", "fuel", "rest", "crash"] },
+        "subkind": { "type": "string", "maxLength": 24 },
+        "lat": { "$ref": "#/$defs/Lat" },
+        "lng": { "$ref": "#/$defs/Lng" },
+        "heading": { "type": ["number", "null"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "expiresAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "ClientMessage": {
+      "oneOf": [
+        { "type": "object", "required": ["t"], "properties": { "t": { "const": "ping" } } },
+        { "type": "object", "required": ["t"], "properties": { "t": { "const": "pos.stop" } } },
+        {
+          "type": "object",
+          "required": ["t", "lat", "lng"],
+          "properties": {
+            "t": { "const": "pos" },
+            "lat": { "$ref": "#/$defs/Lat" },
+            "lng": { "$ref": "#/$defs/Lng" },
+            "heading": { "type": ["number", "null"], "minimum": 0, "maximum": 360 },
+            "speed": { "type": ["number", "null"], "minimum": 0, "maximum": 120, "description": "Metres per second." }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["t"],
+          "properties": {
+            "t": { "const": "convoy.create" },
+            "name": { "type": "string", "maxLength": 40 },
+            "automaticRegroup": { "$ref": "#/$defs/AutomaticRegroup" }
+          }
+        },
+        { "type": "object", "required": ["t", "code"], "properties": { "t": { "const": "convoy.join" }, "code": { "type": "string", "maxLength": 32 } } },
+        { "type": "object", "required": ["t", "eventId"], "properties": { "t": { "const": "convoy.cruise" }, "eventId": { "$ref": "#/$defs/Id" } } },
+        { "type": "object", "required": ["t", "room"], "properties": { "t": { "const": "convoy.leave" }, "room": { "$ref": "#/$defs/Id" } } },
+        {
+          "type": "object",
+          "required": ["t", "room", "destination"],
+          "properties": {
+            "t": { "const": "convoy.dest" },
+            "room": { "$ref": "#/$defs/Id" },
+            "destination": { "oneOf": [{ "$ref": "#/$defs/Destination" }, { "type": "null" }] }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["t", "room", "action"],
+          "properties": {
+            "t": { "const": "convoy.rest" },
+            "room": { "$ref": "#/$defs/Id" },
+            "action": { "enum": ["find", "continue"] }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["t", "room", "route"],
+          "properties": {
+            "t": { "const": "convoy.route" },
+            "room": { "$ref": "#/$defs/Id" },
+            "route": { "oneOf": [{ "$ref": "#/$defs/ConvoyRoute" }, { "type": "null" }] }
+          }
+        },
+        { "type": "object", "required": ["t", "room", "to"], "properties": { "t": { "const": "convoy.lead" }, "room": { "$ref": "#/$defs/Id" }, "to": { "$ref": "#/$defs/Id" } } },
+        { "type": "object", "required": ["t", "room", "id"], "properties": { "t": { "const": "convoy.remove" }, "room": { "$ref": "#/$defs/Id" }, "id": { "$ref": "#/$defs/Id" } } },
+        {
+          "type": "object",
+          "required": ["t", "room", "text", "clientId"],
+          "properties": {
+            "t": { "const": "convoy.message" },
+            "room": { "$ref": "#/$defs/Id" },
+            "text": { "type": "string", "minLength": 1, "maxLength": 500 },
+            "clientId": { "$ref": "#/$defs/Id" }
+          }
+        }
+      ]
+    },
+
+    "ServerMessage": {
+      "oneOf": [
+        { "type": "object", "required": ["t"], "properties": { "t": { "const": "pong" } }, "additionalProperties": false },
+        {
+          "type": "object",
+          "required": ["t", "me", "rooms"],
+          "properties": { "t": { "const": "hello" }, "me": { "type": "string" }, "rooms": { "type": "array", "items": { "$ref": "#/$defs/Room" } } },
+          "additionalProperties": false
+        },
+        { "type": "object", "required": ["t", "room"], "properties": { "t": { "const": "room" }, "room": { "$ref": "#/$defs/Room" } }, "additionalProperties": false },
+        {
+          "type": "object",
+          "required": ["t", "room"],
+          "properties": { "t": { "const": "left" }, "room": { "type": "string" }, "removed": { "type": "boolean", "description": "The leader put you out." } },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["t", "room", "id", "lat", "lng", "heading", "speed", "ts"],
+          "properties": {
+            "t": { "const": "pos" },
+            "room": { "type": "string" },
+            "id": { "type": "string" },
+            "lat": { "$ref": "#/$defs/Lat" },
+            "lng": { "$ref": "#/$defs/Lng" },
+            "heading": { "type": ["number", "null"] },
+            "speed": { "type": ["number", "null"] },
+            "ts": { "type": "integer" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["t", "error"],
+          "properties": { "t": { "const": "error" }, "error": { "type": "string" }, "in": { "type": "string", "description": "The 't' of the message that failed, when known." } },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["t", "room", "message"],
+          "properties": { "t": { "const": "convoy.message" }, "room": { "type": "string" }, "message": { "$ref": "#/$defs/ConvoyMessage" } },
+          "additionalProperties": false
+        },
+        {
+          "description": "Additive in v1. A member reported a hazard (POST /v1/hazards) while in this convoy; sent to every member of the room, including the reporter.",
+          "type": "object",
+          "required": ["t", "room", "hazard"],
+          "properties": { "t": { "const": "hazard" }, "room": { "type": "string" }, "hazard": { "$ref": "#/$defs/Hazard" } },
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
+}
