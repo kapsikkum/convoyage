@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Convoyage mark: chamfered square (top-left and bottom-right cut) with three convoy dots. -->
+    <path
+        android:fillColor="#2DE2E6"
+        android:pathData="M44.4,31.6 L76.4,31.6 L76.4,63.6 L63.6,76.4 L31.6,76.4 L31.6,44.4 Z" />
+    <path
+        android:fillColor="#021416"
+        android:pathData="M46,58a4,4 0,1 0,0.01 0 M54,50a4,4 0,1 0,0.01 0 M62,42a4,4 0,1 0,0.01 0" />
+</vector>
