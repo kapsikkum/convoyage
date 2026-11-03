@@ -1,0 +1,64 @@
+﻿<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<style>html,body{margin:0;background:#0b0f16}#m{position:absolute;inset:0}.maplibregl-ctrl-attrib,.maplibregl-ctrl-logo{display:none!important}#out{display:none}</style>
+</head><body><div id="m"></div><pre id="out"></pre>
+<script>
+// Params: ?c=lng,lat&z=&p=pitch&b=bearing&d3=1&route=lng,lat;lng,lat&fr=0.1,0.3 (fractions along route to project)
+const q = new URLSearchParams(location.search);
+const [lng, lat] = q.get('c').split(',').map(Number);
+const d3 = q.get('d3') === '1';
+const map = new maplibregl.Map({ container: 'm', style: 'https://tiles.openfreemap.org/styles/liberty', center: [lng, lat], zoom: +q.get('z'), pitch: +(q.get('p') || 0), bearing: +(q.get('b') || 0), attributionControl: false, interactive: false, preserveDrawingBuffer: true, fadeDuration: 0 });
+map.on('style.load', async () => {
+  const layers = map.getStyle().layers;
+  for (const l of layers) {
+    if (/^poi|^airport|housenumber|shield/.test(l.id)) map.setLayoutProperty(l.id, 'visibility', 'none');
+    if (l.type === 'symbol') {
+      try { map.setPaintProperty(l.id, 'text-color', l.id.includes('water') ? '#6f8fb3' : '#b9c4d2'); map.setPaintProperty(l.id, 'text-halo-color', '#0b0f16'); map.setPaintProperty(l.id, 'text-halo-width', 1.4); } catch (e) {}
+    }
+    if (l.type === 'fill-extrusion') {
+      if (!d3) map.setLayoutProperty(l.id, 'visibility', 'none');
+      else { map.setPaintProperty(l.id, 'fill-extrusion-color', '#3b4357'); map.setPaintProperty(l.id, 'fill-extrusion-opacity', 0.9); }
+    }
+  }
+  map.setLight({ anchor: 'map', position: [1.5, 210, 60], color: '#9aa4c8', intensity: 0.45 });
+  const firstAbove = layers.find((l) => l.type === 'fill-extrusion' || l.type === 'symbol');
+  // PhotoScout's night "mood": one dark tint over the base map, under buildings and labels.
+  map.addSource('mood', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'Polygon', coordinates: [[[-180, -85], [180, -85], [180, 85], [-180, 85], [-180, -85]]] } } });
+  map.addLayer({ id: 'mood', type: 'fill', source: 'mood', paint: { 'fill-color': '#0a0c1a', 'fill-opacity': +(q.get('mood') || 0.62) } }, firstAbove && firstAbove.id);
+  const out = {};
+  const r = q.get('route');
+  if (r) {
+    try {
+      const res = await fetch('https://router.project-osrm.org/route/v1/driving/' + r + '?overview=full&geometries=geojson');
+      const j = await res.json();
+      const coords = j.routes[0].geometry.coordinates;
+      map.addSource('route', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: coords } } });
+      if (q.get('draw') !== '0') {
+        map.addLayer({ id: 'route-halo', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#2de2e6', 'line-width': 14, 'line-opacity': 0.16, 'line-blur': 2 } });
+        map.addLayer({ id: 'route', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#2de2e6', 'line-width': 4 } });
+      }
+      if (q.get('fit')) {
+        const b = coords.reduce((bb, c) => bb.extend(c), new maplibregl.LngLatBounds(coords[0], coords[0]));
+        const pad = q.get('fit').split(',').map(Number);
+        map.fitBounds(b, { padding: pad.length === 4 ? { top: pad[0], right: pad[1], bottom: pad[2], left: pad[3] } : pad[0], duration: 0, bearing: +(q.get('b') || 0), pitch: +(q.get('p') || 0) });
+      }
+      // cumulative length to place points by fraction
+      const d = [0]; for (let i = 1; i < coords.length; i++) { const a = coords[i - 1], b = coords[i]; d.push(d[i - 1] + Math.hypot((b[0] - a[0]) * Math.cos(lat * Math.PI / 180), b[1] - a[1])); }
+      const at = (f) => { const t = f * d[d.length - 1]; let i = d.findIndex((x) => x >= t); if (i <= 0) i = 1; const a = coords[i - 1], b = coords[i], u = (t - d[i - 1]) / ((d[i] - d[i - 1]) || 1); return [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u]; };
+      out.coords = coords.length;
+      out.pts = (q.get('fr') || '').split(',').filter(Boolean).map(Number).map((f) => { const p = map.project(at(f)); return [f, Math.round(p.x), Math.round(p.y)]; });
+      // the full line in screen px (decimated) so the page can trace it if needed
+      out.line = coords.filter((_, i) => i % Math.max(1, Math.floor(coords.length / 80)) === 0).map((c) => { const p = map.project(c); return [Math.round(p.x), Math.round(p.y)]; });
+    } catch (e) { out.err = String(e); }
+  }
+  const extra = q.get('proj');
+  if (extra) out.proj = extra.split(';').map((s) => { const p = map.project(s.split(',').map(Number)); return [s, Math.round(p.x), Math.round(p.y)]; });
+  document.getElementById('out').textContent = JSON.stringify(out);
+  window.__out = out;
+  map.once('idle', () => { setTimeout(() => { window.__done = true; }, 600); });
+  map.triggerRepaint();
+});
+</script></body></html>
+

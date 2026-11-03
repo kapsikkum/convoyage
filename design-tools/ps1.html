@@ -1,0 +1,108 @@
+﻿<!doctype html>
+<html><head><meta charset="utf-8">
+<style>html,body{margin:0;background:transparent}canvas{display:block;image-rendering:pixelated}</style>
+<script type="importmap">{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js"}}</script>
+</head><body>
+<script type="module">
+import * as THREE from 'three';
+// PS1 emulation: low internal res, vertex snap, affine UVs, Gouraud, 15-bit colour + Bayer dither, nearest textures.
+const q = new URLSearchParams(location.search);
+const W = +(q.get('w') || 179), H = +(q.get('h') || 125), SCALE = +(q.get('s') || 2);
+const renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1); renderer.setSize(W, H, false);
+renderer.domElement.style.width = W * SCALE + 'px'; renderer.domElement.style.height = H * SCALE + 'px';
+renderer.setClearColor(0x000000, 0);
+document.body.appendChild(renderer.domElement);
+
+const VS = `
+uniform vec2 uRes; uniform vec3 uLight; uniform float uUnlit; uniform vec3 uTint;
+out vec3 vUvW; out vec3 vCol;
+void main(){
+  vec4 p = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  vec2 g = uRes * 0.5;
+  p.xyz /= p.w; p.xy = floor(p.xy * g + 0.5) / g; p.xyz *= p.w;   // vertex snap
+  gl_Position = p;
+  vec3 n = normalize(normalMatrix * normal);
+  float d = max(dot(n, normalize(uLight)), 0.0);
+  float rim = pow(1.0 - max(n.z, 0.0), 2.0) * 0.25;
+  float l = mix(0.38 + 0.85 * d + rim, 1.0, uUnlit);              // Gouraud
+  vCol = uTint * l; vUvW = vec3(uv * p.w, p.w);   // affine: undo perspective-correct interpolation
+}`;
+const FS = `
+uniform sampler2D uMap; uniform float uHasMap;
+in vec3 vUvW; in vec3 vCol; out vec4 o;
+float bayer(vec2 f){ int x=int(mod(f.x,4.)),y=int(mod(f.y,4.)); int m[16]=int[16](0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5); return float(m[y*4+x])/16.; }
+void main(){
+  vec2 vUv = vUvW.xy / vUvW.z; vec4 t = uHasMap > 0.5 ? texture(uMap, vUv) : vec4(1.0);
+  vec3 c = t.rgb * vCol;
+  c += (bayer(gl_FragCoord.xy) - 0.5) / 24.0;                       // ordered dither
+  c = floor(clamp(c, 0.0, 1.0) * 31.0 + 0.5) / 31.0;                // 15-bit colour
+  o = vec4(c, 1.0);
+}`;
+const light = new THREE.Vector3(0.5, 0.9, 0.7);
+function mat(tint, map, unlit = 0) {
+  return new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: VS, fragmentShader: FS,
+    uniforms: { uRes: { value: new THREE.Vector2(W, H) }, uLight: { value: light }, uUnlit: { value: unlit }, uTint: { value: new THREE.Color(tint) }, uMap: { value: map || null }, uHasMap: { value: map ? 1 : 0 } } });
+}
+function canvasTex(size, draw, repeat) {
+  const c = document.createElement('canvas'); c.width = c.height = size; const g = c.getContext('2d'); draw(g, size);
+  const t = new THREE.CanvasTexture(c); t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace;
+  if (repeat) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(repeat, repeat); }
+  return t;
+}
+// tiny paint texture: speckle + darker rocker + a pale stripe, read through the tint
+const bodyTex = canvasTex(32, (g, s) => {
+  for (let y = 0; y < s; y++) for (let x = 0; x < s; x++) { const v = 225 + ((x * 7 + y * 13) % 5) * 6; g.fillStyle = `rgb(${v},${v},${v})`; g.fillRect(x, y, 1, 1); }
+  g.fillStyle = 'rgb(150,150,150)'; g.fillRect(0, 26, s, 6);
+  g.fillStyle = 'rgb(255,255,255)'; g.fillRect(0, 17, s, 2);
+});
+const groundTex = canvasTex(32, (g, s) => { g.fillStyle = '#16263a'; g.fillRect(0, 0, s, s); g.fillStyle = '#2a7f8c'; g.fillRect(0, 0, s, 1); g.fillRect(0, 0, 1, s); g.fillStyle = '#2de2e6'; g.fillRect(0, 0, 1, 1); }, 6);
+const rimTex = canvasTex(16, (g, s) => { g.fillStyle = '#111'; g.fillRect(0, 0, s, s); g.fillStyle = '#fff'; g.beginPath(); g.arc(8, 8, 6.5, 0, 7); g.fill(); g.fillStyle = '#333'; for (let i = 0; i < 5; i++) { const a = i * 1.2566; g.save(); g.translate(8, 8); g.rotate(a); g.fillRect(-1, 2, 2, 4); g.restore(); } g.fillStyle = '#666'; g.fillRect(7, 7, 2, 2); });
+
+function profile(pts) { const s = new THREE.Shape(); pts.forEach(([x, y], i) => { const X = (x - 75) / 20, Y = (48 - y) / 20; i ? s.lineTo(X, Y) : s.moveTo(X, Y); }); return s; }
+function extrude(pts, depth, roofTaper) {
+  const g = new THREE.ExtrudeGeometry(profile(pts), { depth, bevelEnabled: false, curveSegments: 1 });
+  g.translate(0, 0, -depth / 2);
+  const p = g.attributes.position, uv = g.attributes.uv;
+  for (let i = 0; i < p.count; i++) {
+    const y = p.getY(i);
+    if (y > 0.95) p.setZ(i, p.getZ(i) * roofTaper);
+    uv.setXY(i, p.getX(i) / 7 + 0.5, y / 2.0);
+  }
+  g.computeVertexNormals();
+  return g.toNonIndexed();
+}
+const BODY = [[8, 48], [9, 38], [12, 34], [29, 30], [47, 18.5], [60, 14], [72, 13.5], [96, 13.5], [110, 16.5], [116, 21.5], [129, 30], [139, 33], [142, 40.5], [142, 48]];
+const GLASS = [[42, 29.6], [51, 19.6], [72, 15.6], [95, 15.6], [106, 19.5], [113, 29.2]];
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(30, W / H, 0.1, 100);
+const car = new THREE.Group(); scene.add(car);
+const paintMat = mat(q.get('paint') || '#e9edf2', bodyTex);
+car.add(new THREE.Mesh(extrude(BODY, 3.1, 0.78), paintMat));
+const glass = new THREE.Mesh(extrude(GLASS, 3.18, 0.8), mat('#0b1622')); glass.position.y = 0.01; car.add(glass);
+// lights: unlit blocks
+const hl = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.16, 0.7), mat('#dff9ff', null, 1)); hl.position.set(3.32, 0.62, 0.95); car.add(hl); const hl2 = hl.clone(); hl2.position.z = -0.95; car.add(hl2);
+const tl = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.14, 0.6), mat('#ff3d5a', null, 1)); tl.position.set(-3.36, 0.62, 1.0); car.add(tl); const tl2 = tl.clone(); tl2.position.z = -1.0; car.add(tl2);
+const grille = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.28, 1.5), mat('#0a0d12')); grille.position.set(3.37, 0.32, 0); car.add(grille);
+// wheels: 8 sides, textured rim face
+const rimMat = mat(q.get('wheel') || '#c08a3e', rimTex), tyreMat = mat('#16181c');
+for (const [x, z] of [[-1.9, 1.38], [2.05, 1.38], [-1.9, -1.38], [2.05, -1.38]]) {
+  const w = new THREE.Mesh(new THREE.CylinderGeometry(0.53, 0.53, 0.42, 8), [tyreMat, rimMat, rimMat]);
+  w.rotation.x = Math.PI / 2; w.position.set(x, 0, z); car.add(w);
+}
+const ground = new THREE.Mesh(new THREE.CircleGeometry(4.6, 12), mat('#ffffff', groundTex));
+{ const u = ground.geometry.attributes.uv; for (let i = 0; i < u.count; i++) u.setXY(i, u.getX(i) * 6, u.getY(i) * 6); } ground.rotation.x = -Math.PI / 2; ground.position.y = -0.53; scene.add(ground);
+const shadow = new THREE.Mesh(new THREE.PlaneGeometry(6.4, 2.5), mat('#05080d')); shadow.rotation.x = -Math.PI / 2; shadow.position.y = -0.52; scene.add(shadow);
+
+const yaw = +(q.get('yaw') || -32) * Math.PI / 180;
+car.rotation.y = yaw; shadow.rotation.z = yaw;
+const dist = +(q.get('dist') || 12.2), elev = +(q.get('elev') || 0.3);
+camera.position.set(0, Math.sin(elev) * dist + 0.4, Math.cos(elev) * dist);
+camera.lookAt(0, 0.35, 0);
+renderer.render(scene, camera);
+window.__done = true;
+</script></body></html>
+
+
+
