@@ -47,8 +47,8 @@ data class MapPinData(
     val tag: String? = null,
 )
 
-/** Where the camera should look when nothing has a position yet (Melbourne, like the mockups). */
-private val DEFAULT_CENTER = LatLng(-37.8136, 144.9631)
+/** Where the camera should look when nothing has a position yet: Bathurst, NSW (home of Mount Panorama). */
+private val DEFAULT_CENTER = LatLng(-33.4193, 149.5775)
 
 /**
  * Full-bleed dark MapLibre map (OpenFreeMap liberty, darkened at runtime by [MapNightStyle]).

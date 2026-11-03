@@ -73,7 +73,8 @@ struct ConvoyMapView: UIViewRepresentable {
         map.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         map.showsUserLocation = true
         map.logoView.isHidden = false
-        map.setCenter(CLLocationCoordinate2D(latitude: -37.8136, longitude: 144.9631), zoomLevel: 12, animated: false)
+        // Default view before a GPS fix: Bathurst, NSW (home of Mount Panorama).
+        map.setCenter(CLLocationCoordinate2D(latitude: -33.4193, longitude: 149.5775), zoomLevel: 12, animated: false)
         context.coordinator.map = map
         return map
     }
