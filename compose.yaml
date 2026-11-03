@@ -1,6 +1,7 @@
 # Local dev database. Works with `podman compose` or `docker compose` (compose-spec only).
 #   podman compose up -d
 #   cd server && npm run migrate
+# Full stack (db + server): copy .env.example to .env (set JWT_SECRET), then `podman compose up -d --build`.
 services:
   db:
     image: docker.io/postgis/postgis:16-3.4
@@ -19,5 +20,28 @@ services:
       timeout: 3s
       retries: 10
 
+  server:
+    build:
+      context: ./server
+      network: host   # builds work even when netavark bridge setup is broken
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://convoyage:convoyage@db:5432/convoyage
+      AUTO_MIGRATE: "1"
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env (48+ random chars)}
+      # BETA ONLY: there is no real mailer yet, so magic links are returned in API responses.
+      # Do NOT set NODE_ENV=production while MAIL_DEV=1 (config refuses it). Production on
+      # data-server needs a real mailer first; then drop MAIL_DEV and set NODE_ENV=production.
+      MAIL_DEV: "1"
+      TRUST_PROXY: "0"
+    ports:
+      - "0.0.0.0:8080:8080"
+    volumes:
+      - convoyage-media:/data/media
+
 volumes:
   convoyage-db:
+  convoyage-media:
