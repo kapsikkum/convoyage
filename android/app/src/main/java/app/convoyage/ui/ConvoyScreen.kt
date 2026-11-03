@@ -79,7 +79,7 @@ private fun Double.round2() = Math.round(this * 100) / 100.0
 private enum class SheetTab { Roster, Chat, Lead }
 
 @Composable
-fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Unit, onClose: () -> Unit) {
+fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Unit, onClose: () -> Unit, onBuildRoute: () -> Unit = {}) {
     val container = LocalContainer.current
     val context = LocalContext.current
     val vm: ConvoyViewModel = viewModel(factory = viewModelFactory { initializer { ConvoyViewModel(container) } })
@@ -96,6 +96,8 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
     val capture = rememberRidePhotoCapture()
     val sessionName by container.session.name.collectAsStateWithLifecycle()
     var showRecord by remember { mutableStateOf(false) }
+    var pickRoute by remember { mutableStateOf(false) }
+    val sharedRoute by container.convoy.sharedRoute.collectAsStateWithLifecycle()
 
     // Sheet state: peek while in a convoy; a pre-start sheet opens to half when Start or Join is chosen.
     var detent by rememberSaveable { mutableStateOf(Detent.Peek) }
@@ -311,6 +313,9 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
                                 onContinue = vm::continueFromRest,
                                 onHandOver = { confirmLead = it },
                                 onRemove = { confirmRemove = it },
+                                sharedRoute = sharedRoute,
+                                onPickRoute = { pickRoute = true },
+                                onRollOut = container.convoy::rollOut,
                             )
                         }
                     }
@@ -319,6 +324,7 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
         }
 
         if (showRecord) RecordSheet(onDismiss = { showRecord = false })
+        if (pickRoute) SavedRoutePickerSheet(onDismiss = { pickRoute = false }, onBuild = { pickRoute = false; onBuildRoute() })
         PhotoConfirmSheet(capture)
 
         if (showQr && room != null) InviteDialog(room.code, room.name, onCopied = { copied = true }, onDismiss = { showQr = false })

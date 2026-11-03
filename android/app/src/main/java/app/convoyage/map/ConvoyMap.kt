@@ -79,6 +79,8 @@ fun ConvoyMap(
     interactive: Boolean = true,
     /** A long press on the map (the leader sets the destination with it). Null = long press does nothing. */
     onLongPress: ((LatLng) -> Unit)? = null,
+    /** A tap on the map (the route builder adds a waypoint with it). Null = taps do nothing. */
+    onTap: ((LatLng) -> Unit)? = null,
     /** A road-following route; drawn instead of [route] when it has two or more points. */
     routeLine: List<LatLngD> = emptyList(),
     /** Navigation: while following, point the camera this way (degrees clockwise from north) and tilt it. Null = keep the bearing. */
@@ -100,6 +102,7 @@ fun ConvoyMap(
     val onUserMovedNow by rememberUpdatedState(onUserMoved)
     val onViewportNow by rememberUpdatedState(onViewport)
     val onLongPressNow by rememberUpdatedState(onLongPress)
+    val onTapNow by rememberUpdatedState(onTap)
     val initial3d = remember { buildings3d }
 
     DisposableEffect(lifecycle, mapView) {
@@ -143,6 +146,11 @@ fun ConvoyMap(
             }
             m.addOnMapLongClickListener { latLng ->
                 val handler = onLongPressNow
+                if (handler != null) handler(latLng)
+                handler != null
+            }
+            m.addOnMapClickListener { latLng ->
+                val handler = onTapNow
                 if (handler != null) handler(latLng)
                 handler != null
             }

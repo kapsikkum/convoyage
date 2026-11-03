@@ -43,12 +43,18 @@ export interface RealtimeOptions {
   cruises: CruiseSource;
   restStops: RestStopFinder;
   /** Road-following polyline6 between two [lng, lat] points, or null. Optional: without it a destination carries no routeGeometry. */
-  routeFinder?: (from: [number, number], to: [number, number]) => Promise<string | null>;
+  routeFinder?: (from: [number, number], to: [number, number], via?: [number, number][]) => Promise<string | null>;
   heartbeatMs?: number;
   sweepMs?: number;
   rooms?: Rooms;
   /** Called when a member raises an SOS, so the push layer can reach members who are not connected. */
   onSos?: (event: { code: string; from: string; note: string | undefined; memberIds: string[] }) => void;
+}
+
+/** Rough ground distance in metres between two [lng, lat] points. */
+function metres(a: [number, number], b: [number, number]): number {
+  const k = Math.cos(((a[1] + b[1]) / 2) * Math.PI / 180);
+  return Math.hypot((a[0] - b[0]) * k, a[1] - b[1]) * 111_320;
 }
 
 export interface Realtime {
@@ -135,6 +141,19 @@ export function attachRealtime(server: http.Server, opts: RealtimeOptions): Real
     }).catch(() => { rooms.completeAutomaticRegroup(code, null); });
   }
 
+  /**
+   * The shared route's stops still ahead, when the destination is where the route ends (a saved route or a cruise):
+   * from the stop after the one nearest the leader, up to (not including) the last. Empty otherwise, so a destination
+   * off the route is driven to directly.
+   */
+  function viaStops(stops: [number, number][], from: [number, number], to: [number, number]): [number, number][] {
+    if (stops.length < 3 || metres(stops[stops.length - 1], to) > 150) return [];
+    let nearest = 0;
+    for (let i = 1; i < stops.length - 1; i++) if (metres(stops[i], from) < metres(stops[nearest], from)) nearest = i;
+    const ahead = stops.slice(nearest + (metres(stops[nearest], from) < 150 ? 1 : 0), -1);
+    return ahead.slice(0, 20);
+  }
+
   /** After the leader sets a destination: fetch a road-following route from where they are, and share it if nothing changed meanwhile. */
   function routeToDestination(code: string): void {
     const find = opts.routeFinder;
@@ -142,7 +161,8 @@ export function attachRealtime(server: http.Server, opts: RealtimeOptions): Real
     const leader = room?.members.find((member) => member.id === room.leader)?.position;
     if (!find || !room?.destination || !leader) return;
     const version = rooms.navigationVersion(code)!;
-    void find([leader.lng, leader.lat], [room.destination.lng, room.destination.lat]).then((geometry) => {
+    const via = room.route ? viaStops(room.route.stops, [leader.lng, leader.lat], [room.destination.lng, room.destination.lat]) : [];
+    void find([leader.lng, leader.lat], [room.destination.lng, room.destination.lat], via).then((geometry) => {
       if (!geometry) return;
       if (rooms.setRouteGeometry(code, version, geometry).ok) announce(code);
     }).catch(() => {});

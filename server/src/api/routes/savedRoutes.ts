@@ -42,22 +42,21 @@ function checkGeometry(geometry: string | null | undefined): Pt[] | null {
 }
 
 /**
- * The stops a convoy follows for this route (convoy.route allows 25): the author's waypoints when they fit, else the
- * road line thinned to the vertices that matter. A circuit ends where it starts.
+ * The stops a convoy follows for this route (convoy.route allows 25): the road line thinned to the vertices that
+ * matter when the route follows roads, else the author's waypoints (thinned the same way if there are too many).
+ * A circuit ends where it starts.
  */
 export function convoyStops(r: Pick<Row, 'type' | 'waypoints' | 'geometry'>): Pt[] {
   const way = (typeof r.waypoints === 'string' ? JSON.parse(r.waypoints) : r.waypoints) as Pt[];
   const circuit = r.type === 'circuit';
   const budget = MAX_CONVOY_ROUTE_STOPS - (circuit ? 1 : 0);
-  let line: Pt[];
-  if (way.length <= budget) line = way;
-  else {
-    let road: Pt[] | null = null;
-    try { road = r.geometry ? decodePolyline(r.geometry, 6, 50_000).map(([lat, lng]): Pt => [lng, lat]) : null; } catch { road = null; }
-    line = thinImportant(road && road.length >= 2 ? road : way, budget);
-  }
+  let road: Pt[] | null = null;
+  try { road = r.geometry ? decodePolyline(r.geometry, 6, 50_000).map(([lat, lng]): Pt => [lng, lat]) : null; } catch { road = null; }
+  let line = thinImportant(road && road.length >= 2 ? road : way, budget);
   const first = line[0], last = line[line.length - 1];
-  if (circuit && (first[0] !== last[0] || first[1] !== last[1])) line = [...line, first];
+  if (circuit && (first[0] !== last[0] || first[1] !== last[1])) {
+    line = Math.hypot(first[0] - last[0], first[1] - last[1]) < 2e-4 ? [...line.slice(0, -1), first] : [...line, first];
+  }
   return line;
 }
 

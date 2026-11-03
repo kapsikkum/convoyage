@@ -146,6 +146,25 @@ class ConvoyApi(
 
     suspend fun deleteVehicle(id: String): ApiResult<OkBody> = send("DELETE", "v1/vehicles/$id", null, OkBody.serializer())
 
+    // ---- saved routes ----------------------------------------------------------------------------
+
+    suspend fun listRoutes(): ApiResult<List<SavedRoute>> =
+        send("GET", "v1/routes", null, ListSerializer(SavedRoute.serializer()))
+
+    suspend fun saveRoute(body: SaveRoute): ApiResult<SavedRoute> =
+        send("POST", "v1/routes", ApiJson.encodeToString(SaveRoute.serializer(), body), SavedRoute.serializer())
+
+    suspend fun renameRoute(id: String, name: String): ApiResult<SavedRoute> =
+        send("PATCH", "v1/routes/$id", """{"name":${kotlinx.serialization.json.JsonPrimitive(name)}}""", SavedRoute.serializer())
+
+    suspend fun deleteRoute(id: String): ApiResult<Unit> = send("DELETE", "v1/routes/$id", null, null)
+
+    suspend fun photoscoutRoutes(): ApiResult<List<PsRoute>> =
+        send("GET", "v1/photoscout/routes", null, ListSerializer(PsRoute.serializer()))
+
+    suspend fun importPhotoscoutRoute(id: String): ApiResult<SavedRoute> =
+        send("POST", "v1/photoscout/routes/${java.net.URLEncoder.encode(id, "UTF-8")}/import", null, SavedRoute.serializer())
+
     suspend fun makePrimary(id: String): ApiResult<Vehicle> = send("POST", "v1/vehicles/$id/primary", null, Vehicle.serializer())
 
     suspend fun markSold(id: String): ApiResult<Vehicle> =

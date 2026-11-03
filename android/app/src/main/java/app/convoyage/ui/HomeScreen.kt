@@ -88,7 +88,7 @@ class HomeViewModel(container: AppContainer) : ViewModel() {
 }
 
 @Composable
-fun HomeScreen(onOpenConvoy: (join: Boolean) -> Unit, onOpenNavigation: () -> Unit, onOpenGarage: () -> Unit) {
+fun HomeScreen(onOpenConvoy: (join: Boolean) -> Unit, onOpenNavigation: () -> Unit, onOpenGarage: () -> Unit, onOpenRoutes: () -> Unit = {}) {
     val container = LocalContainer.current
     val vm: HomeViewModel = viewModel(factory = viewModelFactory { initializer { HomeViewModel(container) } })
     val ui by vm.ui.collectAsStateWithLifecycle()
@@ -130,6 +130,18 @@ fun HomeScreen(onOpenConvoy: (join: Boolean) -> Unit, onOpenNavigation: () -> Un
             CvButton(if (ui.room != null) "Convoy" else "Start", { onOpenConvoy(false) }, Modifier.weight(1f), CvButtonKind.Primary, compact = true)
             CvButton("Join", { onOpenConvoy(true) }, Modifier.weight(1f), CvButtonKind.Ghost, compact = true)
             CvButton(if (navState.isOn) "Navigating" else "Navigate", onOpenNavigation, Modifier.weight(1f), CvButtonKind.Ghost, icon = CvIcons.Navigate, compact = true)
+        }
+
+        CvCard(Modifier.fillMaxWidth(), edge = c.line, shape = app.convoyage.design.CutSShape, onClick = onOpenRoutes) {
+            Row(Modifier.padding(Space.s4), horizontalArrangement = Arrangement.spacedBy(Space.s3), verticalAlignment = Alignment.CenterVertically) {
+                CvIcon(CvIcons.Route, c.signal)
+                Column(Modifier.weight(1f)) {
+                    Eyebrow("SAVED ROUTES")
+                    CvText("Routes", Cv.type.bodyStrong, c.ink)
+                    CvText("Draw a sprint or circuit, import from PhotoScout, lead it as a convoy.", Cv.type.bodyS, c.inkMuted)
+                }
+                CvIcon(CvIcons.Chevron, c.inkMuted)
+            }
         }
 
         Column(verticalArrangement = Arrangement.spacedBy(Space.s2)) {

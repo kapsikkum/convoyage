@@ -191,6 +191,9 @@ fun LeaderPanel(
     onHandOver: (RosterEntry) -> Unit,
     onRemove: (RosterEntry) -> Unit,
     modifier: Modifier = Modifier,
+    sharedRoute: app.convoyage.data.SharedSavedRoute? = null,
+    onPickRoute: () -> Unit = {},
+    onRollOut: () -> Unit = {},
 ) {
     val c = Cv.colors
     val room = ui.room ?: return
@@ -208,6 +211,25 @@ fun LeaderPanel(
                     CvText("%.4f, %.4f".format(java.util.Locale.ROOT, d.lat, d.lng), Cv.type.telemetry, c.inkMuted)
                     CvButton("Clear destination", onClearDestination, Modifier.fillMaxWidth(), CvButtonKind.Ghost, compact = true)
                 }
+            }
+        }
+        item(key = "route") {
+            Column(verticalArrangement = Arrangement.spacedBy(Space.s2)) {
+                Eyebrow("ROUTE")
+                val r = room.route
+                if (r == null) {
+                    CvText("No shared route. Drive one of your saved routes, or set a destination.", Cv.type.bodyS, c.inkMuted)
+                } else {
+                    CvText(r.name.ifBlank { "Convoy route" }, Cv.type.bodyStrong, c.ink)
+                    CvText("${r.stops.size} stops", Cv.type.telemetry, c.inkMuted)
+                }
+                val shared = sharedRoute?.takeIf { it.code == room.code }
+                val atStaging = shared?.staging != null && room.destination?.let { d -> d.lat == shared.staging.lat && d.lng == shared.staging.lng } == true
+                if (atStaging) {
+                    CvText("Everyone is heading to the staging point. Roll out when the convoy is together.", Cv.type.bodyS, c.inkMuted)
+                    CvButton("Roll out", onRollOut, Modifier.fillMaxWidth(), compact = true)
+                }
+                CvButton(if (r == null) "Drive a saved route" else "Change route", onPickRoute, Modifier.fillMaxWidth(), CvButtonKind.Ghost, icon = CvIcons.Route, compact = true)
             }
         }
         item(key = "regroup") {

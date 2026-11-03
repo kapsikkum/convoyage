@@ -70,6 +70,7 @@ class AppContainer(private val context: Context) {
     val voice = VoiceChat(context, appScope, { code -> api.voiceToken(code) })
     val garage = GarageRepository(appScope, api)
     val rides = RidesRepository(appScope, api)
+    val savedRoutes = app.convoyage.data.RoutesRepository(appScope, api)
     val images = ImageLoader(appScope, api)
 
     /** Static PS1 vehicle renders (avatar badges, cards): one shared offscreen renderer, cached by build. */

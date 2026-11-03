@@ -221,6 +221,30 @@ test('socket: a destination from a leader with a position brings a road-followin
   l.ws.close();
 });
 
+test('socket: a destination at the end of the shared route is routed through its remaining stops', async () => {
+  const lead = await t.signup('saved');
+  const l = await connected(wsFor(lead));
+  l.send({ t: 'convoy.create', name: 'Saved route' });
+  const code = (await l.next((x) => x.t === 'room')).room.code;
+  l.send({ t: 'pos', lat: -33.4193, lng: 149.5775, heading: 0, speed: 5 });
+  await new Promise((r) => setTimeout(r, 300));
+  const stops = [[149.5775, -33.4193], [149.565, -33.42], [149.56, -33.44], [149.558, -33.447]];
+  l.send({ t: 'convoy.route', room: code, route: { name: 'The Mountain', stops } });
+  await l.next((x) => x.t === 'room' && x.room.route);
+  osrmCalls = [];
+  l.send({ t: 'convoy.dest', room: code, destination: { lat: -33.447, lng: 149.558, label: 'The Mountain' } });
+  await l.next((x) => x.t === 'room' && x.room.routeGeometry);
+  // the leader is at the first stop, so the line goes via the 2nd and 3rd stops to the end
+  assert.match(osrmCalls[0], /149\.5775,-33\.4193;149\.565,-33\.42;149\.56,-33\.44;149\.558,-33\.447\?/);
+
+  // a destination off the route is driven to directly
+  osrmCalls = [];
+  l.send({ t: 'convoy.dest', room: code, destination: { lat: -33.41, lng: 149.6, label: 'Servo' } });
+  await l.next((x) => x.t === 'room' && x.room.destination?.label === 'Servo' && x.room.routeGeometry);
+  assert.match(osrmCalls[0], /149\.5775,-33\.4193;149\.6,-33\.41\?/);
+  l.ws.close();
+});
+
 test('guests: cannot report hazards or register devices, still can use voice and the socket', async () => {
   const guest = (await t.req('POST', '/auth/guest', { body: { name: 'Pete' } })).body.accessToken;
   assert.equal((await t.req('POST', '/v1/hazards', { token: guest, body: { kind: 'hazard', lat: -33.2, lng: 151.2 } })).status, 403);

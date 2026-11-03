@@ -31,6 +31,9 @@ import java.util.UUID
 /** A route the leader fetched itself, kept for the destination it was fetched for. */
 data class LocalRoute(val code: String, val destination: Destination, val points: List<LatLngD>)
 
+/** A saved route the leader shared: [staging] is where everyone gathers, [end] where the route finishes. */
+data class SharedSavedRoute(val code: String, val route: app.convoyage.api.SavedRoute, val staging: Destination?, val end: Destination)
+
 private class PendingStart(val destination: Destination, val route: NavRoute, val from: Fix?, val knownRooms: Set<String>)
 
 /** Who the socket signs in as. [Account] uses the stored JWT; [Dev] is the debug-only `?dev_user=` auth. */
@@ -187,6 +190,7 @@ class ConvoyRepository(
      */
     fun setDestination(destination: Destination?, from: Fix?, route: NavRoute? = null) {
         val code = _state.value.activeCode ?: return
+        _sharedRoute.value = null
         if (destination == null) {
             _localRoute.value = null
             send(ClientMessage.ConvoyDest(code, null))
@@ -222,13 +226,65 @@ class ConvoyRepository(
         createConvoy(name)
     }
 
+    /** Starts a convoy named after a saved route; the route is shared once the server answers and we lead the room. */
+    fun startConvoyWithSavedRoute(route: app.convoyage.api.SavedRoute, from: Fix?) {
+        pendingSaved = Triple(route, from, _state.value.rooms.keys)
+        createConvoy(route.name.take(40))
+    }
+
+    private var pendingSaved: Triple<app.convoyage.api.SavedRoute, Fix?, Set<String>>? = null
+
     private fun startPendingIfReady() {
+        pendingSaved?.let { (route, from, known) ->
+            val s = _state.value
+            val room = s.active
+            if (room != null && room.code !in known && s.meId != null && room.leader == s.meId) {
+                pendingSaved = null
+                shareSavedRoute(route, from)
+            }
+        }
         val p = pendingStart ?: return
         val s = _state.value
         val room = s.active ?: return
         if (room.code in p.knownRooms || s.meId == null || room.leader != s.meId) return
         pendingStart = null
         setDestination(p.destination, p.from, p.route)
+    }
+
+    private val _sharedRoute = MutableStateFlow<SharedSavedRoute?>(null)
+
+    /** The saved route this device (as leader) shared in the active convoy, with its staging point. */
+    val sharedRoute: StateFlow<SharedSavedRoute?> = _sharedRoute.asStateFlow()
+
+    /**
+     * Leader: drive a saved route. The route's convoy stops are shared (route BEFORE destination, see [setDestination]),
+     * then the destination: its staging point when it has one and the leader is not there yet (everyone gathers
+     * first), else where the route ends. The server routes its line through the stops still ahead.
+     */
+    fun shareSavedRoute(route: app.convoyage.api.SavedRoute, from: Fix?) {
+        val code = _state.value.activeCode ?: return
+        if (route.convoyStops.size < 2) return
+        val stops = route.convoyStops
+        val name = route.name.take(40)
+        val staging = route.staging?.let { Destination(it.lat, it.lng, "$name staging".take(80)) }
+        val atStaging = staging != null && from != null && Geo.distanceM(from.lat, from.lng, staging.lat, staging.lng) < 300
+        val end = Destination(stops.last()[1], stops.last()[0], name)
+        val dest = if (staging != null && !atStaging) staging else end
+        val road = route.geometry?.let { runCatching { Polyline.decode(it, 6) }.getOrNull() }.orEmpty()
+        _sharedRoute.value = SharedSavedRoute(code, route, staging, end)
+        _localRoute.value = if (dest == end && road.size >= 2) LocalRoute(code, end, road) else null
+        send(ClientMessage.ConvoyRouteSet(code, ConvoyRoute(name, stops)))
+        send(ClientMessage.ConvoyDest(code, dest))
+    }
+
+    /** Leader: everyone is at the staging point; set off along the shared route to its end. */
+    fun rollOut() {
+        val shared = _sharedRoute.value ?: return
+        val code = _state.value.activeCode ?: return
+        if (shared.code != code) return
+        val road = shared.route.geometry?.let { runCatching { Polyline.decode(it, 6) }.getOrNull() }.orEmpty()
+        _localRoute.value = if (road.size >= 2) LocalRoute(code, shared.end, road) else null
+        send(ClientMessage.ConvoyDest(code, shared.end))
     }
 
     /** Leader: rename the convoy. */

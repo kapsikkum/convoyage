@@ -45,6 +45,8 @@ object Routes {
     const val RIDE = "ride"
     const val REPORT = "report"
     const val NAV = "nav"
+    const val ROUTES = "routes"
+    const val ROUTE_NEW = "routes/new"
 
     fun convoy(join: Boolean) = "convoy?join=$join"
     fun garage(id: String) = "garage/$id"
@@ -116,8 +118,17 @@ fun AppRoot(container: AppContainer) {
                         onOpenConvoy = { join -> nav.navigate(Routes.convoy(join)) },
                         onOpenNavigation = { nav.navigate(Routes.NAV) { launchSingleTop = true } },
                         onOpenGarage = { nav.switchTab(Routes.GARAGE) },
+                        onOpenRoutes = { nav.navigate(Routes.ROUTES) { launchSingleTop = true } },
                     )
                 }
+                composable(Routes.ROUTES) {
+                    RoutesScreen(
+                        onBack = { nav.popBackStack() },
+                        onNew = { nav.navigate(Routes.ROUTE_NEW) },
+                        onOpenConvoy = { nav.navigate(Routes.convoy(false)) { popUpTo(Routes.ROUTES) { inclusive = true } } },
+                    )
+                }
+                composable(Routes.ROUTE_NEW) { RouteBuilderScreen(onBack = { nav.popBackStack() }, onSaved = { nav.popBackStack() }) }
                 composable(Routes.FEED) { FeedScreen() }
                 composable(Routes.GARAGE) {
                     GarageListScreen(onOpen = { nav.navigate(Routes.garage(it)) }, onAdd = { nav.navigate(Routes.garageEdit(null)) })
@@ -154,6 +165,7 @@ fun AppRoot(container: AppContainer) {
                         onRide = { nav.navigate(Routes.RIDE) },
                         onReport = { nav.navigate(Routes.REPORT) },
                         onClose = { nav.popBackStack() },
+                        onBuildRoute = { nav.navigate(Routes.ROUTE_NEW) },
                     )
                 }
                 composable(Routes.RIDE) { RideScreen(onExit = { nav.popBackStack() }, onReport = { nav.navigate(Routes.REPORT) }) }

@@ -45,7 +45,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     auth: config.devAuth ? firstOf(jwt, devAuthenticator) : jwt,
     cruises: deps.cruises ?? (photoscout ? new PhotoScoutCruiseSource(photoscout) : new MemoryCruiseSource()),
     restStops: deps.restStops ?? new OverpassRestStops(config.overpassUrls),
-    routeFinder: (from, to) => osrmGeometry(config, doFetch, from, to),
+    routeFinder: (from, to, via) => osrmGeometry(config, doFetch, from, to, via),
     heartbeatMs: deps.heartbeatMs,
     sweepMs: deps.sweepMs,
     logger: deps.logger,
