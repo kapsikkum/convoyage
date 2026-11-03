@@ -1,0 +1,3 @@
+-keep class app.convoyage.protocol.** { *; }
+-keepclassmembers class app.convoyage.protocol.** { *** Companion; }
+-dontwarn org.maplibre.**
