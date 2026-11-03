@@ -2,8 +2,10 @@ import Foundation
 import CoreLocation
 import Observation
 
-/// Foreground location. Position is sampled by the view model at about 1 Hz.
-/// TODO(background): background location needs UIBackgroundModes plus Always authorisation.
+/// Location. Position is sampled by the view model at about 1 Hz.
+/// Background updates are on only while a convoy or a ride recording needs them (`setBackground`), with the blue
+/// status-bar indicator. "When in use" plus the `location` background mode keeps updates coming once the app was
+/// started in the foreground; "Always" (asked after an explanation screen) also lets iOS wake the app again.
 @Observable
 final class LocationService: NSObject, CLLocationManagerDelegate {
     var latest: CLLocation?
@@ -32,6 +34,23 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
 
     func stop() {
         manager.stopUpdatingLocation()
+        setBackground(false)
+    }
+
+    /// True while background updates are on.
+    var backgroundOn: Bool = false
+
+    /// Background updates, only while a convoy or a recording needs them. Needs UIBackgroundModes `location`.
+    func setBackground(_ on: Bool) {
+        if on == backgroundOn { return }
+        backgroundOn = on
+        manager.allowsBackgroundLocationUpdates = on
+        manager.showsBackgroundLocationIndicator = on
+    }
+
+    /// Asks for "Always". Call only after the explanation screen.
+    func requestAlways() {
+        manager.requestAlwaysAuthorization()
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {

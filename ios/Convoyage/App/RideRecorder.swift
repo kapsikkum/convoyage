@@ -121,6 +121,13 @@ final class RideRecorder {
 
     var isActive: Bool { return phase == .recording || phase == .paused }
 
+    /// Called after every phase change (background location and crash detection follow it).
+    @ObservationIgnored var onPhaseChange: (() -> Void)?
+
+    private func notifyPhase() {
+        onPhaseChange?()
+    }
+
     var avgSpeedMps: Double {
         return movingS > 1 ? min(distanceM / movingS, 120) : 0
     }
@@ -136,6 +143,7 @@ final class RideRecorder {
                           vehicleId: vehicleId, convoyCode: convoyCode, phase: .recording, points: [], distanceM: 0, movingS: 0,
                           activeS: 0, maxSpeedMps: 0, elevationGainM: 0, refAlt: nil, photos: [])
         phase = .recording
+        notifyPhase()
         recap = nil
         showRecap = false
         segmentStart = now
@@ -154,6 +162,7 @@ final class RideRecorder {
         guard phase == .recording else { return }
         closeSegment()
         phase = .paused
+        notifyPhase()
         draft?.phase = .paused
         syncStats()
         persist()
@@ -162,6 +171,7 @@ final class RideRecorder {
     func resume() {
         guard phase == .paused else { return }
         phase = .recording
+        notifyPhase()
         draft?.phase = .recording
         segmentStart = Date()
         breakNext = true
@@ -179,6 +189,7 @@ final class RideRecorder {
         draft?.endedAt = Date()
         draft?.phase = .finishing
         phase = .finishing
+        notifyPhase()
         syncStats()
         persist()
         recap = makeRecap(upload: .uploading)
@@ -194,6 +205,7 @@ final class RideRecorder {
         ticker = nil
         draft = nil
         phase = .idle
+        notifyPhase()
         recap = nil
         showRecap = false
         deleteFile()
@@ -205,6 +217,7 @@ final class RideRecorder {
         showRecap = false
         if phase == .finishing, case .done? = recap?.upload {
             phase = .idle
+            notifyPhase()
             draft = nil
         }
     }
@@ -464,6 +477,7 @@ final class RideRecorder {
         deleteFile()
         if !showRecap {
             phase = .idle
+            notifyPhase()
             draft = nil
         }
     }
@@ -514,6 +528,7 @@ final class RideRecorder {
         if d.phase == .recording { d.phase = .paused }
         draft = d
         phase = d.phase
+        notifyPhase()
         breakNext = true
         lastFixT = nil
         segmentStart = nil

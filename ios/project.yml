@@ -46,8 +46,12 @@ targets:
         NSLocationWhenInUseUsageDescription: Convoyage shows where you are on the map and shares your position with the people in your convoy while the app is open.
         NSMicrophoneUsageDescription: Convoyage uses the microphone for push-to-talk with your convoy.
         NSCameraUsageDescription: Convoyage uses the camera so you can take photos of your ride.
-        # TODO(background): add UIBackgroundModes [location] (and the Always usage strings) once
-        # background position sharing is built. Foreground only for now.
+        NSLocationAlwaysAndWhenInUseUsageDescription: Convoyage keeps sharing your position with your convoy, and keeps recording your ride, while the screen is off or another app is open. It only does this while you are in a convoy or recording a ride.
+        # Background location runs only while a convoy or a ride recording needs it (LocationService.setBackground).
+        # TODO(live-activity): a Live Activity for the convoy needs a widget extension target; not added yet.
+        NSMotionUsageDescription: Convoyage reads the motion sensors for crash detection, only when you turn it on in Ride mode.
+        UIBackgroundModes:
+          - location
         NSLocalNetworkUsageDescription: Convoyage connects to your Convoyage server, which may be on your local network.
         # The server URL is a setting in the app (Welcome and Profile); the default is https://api.convoyage.app.
         # The beta backend runs on a LAN over plain http (e.g. http://192.168.x.x:8080), so ATS must allow it.
