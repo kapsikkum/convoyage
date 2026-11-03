@@ -157,7 +157,14 @@ class ConvoyApi(
     suspend fun renameRoute(id: String, name: String): ApiResult<SavedRoute> =
         send("PATCH", "v1/routes/$id", """{"name":${kotlinx.serialization.json.JsonPrimitive(name)}}""", SavedRoute.serializer())
 
+    /** visibility: "private", "followers" or "public". */
+    suspend fun setRouteVisibility(id: String, visibility: String): ApiResult<SavedRoute> =
+        send("PATCH", "v1/routes/$id", """{"visibility":${kotlinx.serialization.json.JsonPrimitive(visibility)}}""", SavedRoute.serializer())
+
     suspend fun deleteRoute(id: String): ApiResult<Unit> = send("DELETE", "v1/routes/$id", null, null)
+
+    suspend fun discoverRoutes(lat: Double, lng: Double, radiusKm: Int = 50): ApiResult<List<DiscoveredRoute>> =
+        send("GET", "v1/routes/discover", null, ListSerializer(DiscoveredRoute.serializer()), query = mapOf("lat" to lat.toString(), "lng" to lng.toString(), "radiusKm" to radiusKm.toString()))
 
     suspend fun photoscoutRoutes(): ApiResult<List<PsRoute>> =
         send("GET", "v1/photoscout/routes", null, ListSerializer(PsRoute.serializer()))

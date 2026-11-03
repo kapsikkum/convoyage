@@ -34,6 +34,20 @@ data class SavedRoute(
     val isCircuit: Boolean get() = type == "circuit"
 }
 
+@Serializable
+data class RouteOwner(val handle: String = "", val displayName: String = "")
+
+/** GET /v1/routes/discover: a route somebody else shares, starting [distanceM] from where we asked. */
+@Serializable
+data class DiscoveredRoute(
+    val route: SavedRoute,
+    val owner: RouteOwner = RouteOwner(),
+    val distanceM: Double = 0.0,
+    /** "relaxed", "flowing" or "twisty". */
+    val character: String = "relaxed",
+    val turnDegPerKm: Double = 0.0,
+)
+
 /** POST /v1/routes. Nulls are left out of the JSON. */
 @Serializable
 data class SaveRoute(

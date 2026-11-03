@@ -47,6 +47,12 @@ class RoutesRepository(private val scope: CoroutineScope, private val api: Convo
         return r
     }
 
+    suspend fun setVisibility(id: String, visibility: String): ApiResult<SavedRoute> {
+        val r = api.setRouteVisibility(id, visibility)
+        if (r is ApiResult.Ok) _state.update { s -> s.copy(routes = s.routes.map { if (it.id == id) r.value else it }) }
+        return r
+    }
+
     suspend fun delete(id: String): ApiResult<Unit> {
         val r = api.deleteRoute(id)
         if (r is ApiResult.Ok) _state.update { s -> s.copy(routes = s.routes.filterNot { it.id == id }) }

@@ -90,7 +90,22 @@ fun RoutesScreen(onBack: () -> Unit, onNew: () -> Unit, onOpenConvoy: () -> Unit
     val state by container.savedRoutes.state.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { container.savedRoutes.refresh() }
     var open by remember { mutableStateOf<SavedRoute?>(null) }
+    var openFound by remember { mutableStateOf<app.convoyage.api.DiscoveredRoute?>(null) }
     var importing by remember { mutableStateOf(false) }
+    var tab by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(0) }
+    var radiusKm by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(50) }
+    var found by remember { mutableStateOf<List<app.convoyage.api.DiscoveredRoute>?>(null) }
+    var foundError by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(tab, radiusKm) {
+        if (tab != 1) return@LaunchedEffect
+        val here = container.tracker.fix.value ?: container.tracker.lastKnown()
+        if (here == null) { foundError = "Waiting for your location"; return@LaunchedEffect }
+        found = null; foundError = null
+        when (val r = container.api.discoverRoutes(here.lat, here.lng, radiusKm)) {
+            is ApiResult.Ok -> found = r.value
+            is ApiResult.Err -> foundError = r.message
+        }
+    }
 
     Box(Modifier.fillMaxSize().background(c.void)) {
         Column(
@@ -105,22 +120,46 @@ fun RoutesScreen(onBack: () -> Unit, onNew: () -> Unit, onOpenConvoy: () -> Unit
                 }
                 CvIconButton(CvIcons.Plus, "Build a route", onNew, fill = c.surface200)
             }
-            state.error?.let {
-                Banner(BannerTone.Hazard, "Could not load your routes", sub = it, icon = CvIcons.Alert, actionLabel = "Retry", onAction = container.savedRoutes::refresh)
+            app.convoyage.design.Segmented(
+                listOf(app.convoyage.design.SegOption("Mine"), app.convoyage.design.SegOption("Near me")),
+                selected = tab, onSelect = { tab = it }, modifier = Modifier.fillMaxWidth(),
+            )
+            if (tab == 0) {
+                state.error?.let {
+                    Banner(BannerTone.Hazard, "Could not load your routes", sub = it, icon = CvIcons.Alert, actionLabel = "Retry", onAction = container.savedRoutes::refresh)
+                }
+                if (!state.loaded && state.error == null) Eyebrow("LOADING...")
+                state.routes.forEach { r -> RouteRow(r, onClick = { open = r }) }
+                if (state.loaded && state.routes.isEmpty()) {
+                    CvText("No saved routes yet. Draw one on the map, or bring your PhotoScout routes across.", Cv.type.body, c.inkMuted)
+                }
+                CvButton("Build a route", onNew, Modifier.fillMaxWidth(), icon = CvIcons.Route)
+                CvButton("Import from PhotoScout", { importing = true }, Modifier.fillMaxWidth(), CvButtonKind.Ghost)
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(Space.s2)) {
+                    listOf(25, 50, 150).forEach { km -> app.convoyage.design.CvChipToggle("$km km", radiusKm == km, { radiusKm = km }) }
+                }
+                foundError?.let { CvText(it, Cv.type.bodyS, c.pulse) }
+                val list = found
+                when {
+                    list == null && foundError == null -> Eyebrow("LOOKING NEARBY...")
+                    list != null && list.isEmpty() -> CvText("Nobody has shared a route starting within $radiusKm km yet. Make yours public from its sheet and it shows up here for others.", Cv.type.body, c.inkMuted)
+                    list != null -> list.forEach { d -> FoundRow(d, onClick = { openFound = d }) }
+                }
             }
-            if (!state.loaded && state.error == null) Eyebrow("LOADING...")
-            state.routes.forEach { r -> RouteRow(r, onClick = { open = r }) }
-            if (state.loaded && state.routes.isEmpty()) {
-                CvText("No saved routes yet. Draw one on the map, or bring your PhotoScout routes across.", Cv.type.body, c.inkMuted)
-            }
-            CvButton("Build a route", onNew, Modifier.fillMaxWidth(), icon = CvIcons.Route)
-            CvButton("Import from PhotoScout", { importing = true }, Modifier.fillMaxWidth(), CvButtonKind.Ghost)
         }
 
         open?.let { r ->
             RouteDetailSheet(
                 r, onDismiss = { open = null },
                 onDrive = { open = null; onOpenConvoy() },
+            )
+        }
+        openFound?.let { d ->
+            RouteDetailSheet(
+                d.route, onDismiss = { openFound = null },
+                onDrive = { openFound = null; onOpenConvoy() },
+                found = d,
             )
         }
         if (importing) PhotoscoutImportSheet(onDismiss = { importing = false })
@@ -142,6 +181,30 @@ private fun RouteRow(r: SavedRoute, onClick: () -> Unit) {
     }
 }
 
+/** A route somebody shares nearby: name, author, how far, and its character (Konvoi's community route cards). */
+@Composable
+private fun FoundRow(d: app.convoyage.api.DiscoveredRoute, onClick: () -> Unit) {
+    val c = Cv.colors
+    CvCard(Modifier.fillMaxWidth(), edge = c.line, shape = CutSShape, onClick = onClick) {
+        Row(Modifier.padding(Space.s4), horizontalArrangement = Arrangement.spacedBy(Space.s3), verticalAlignment = Alignment.CenterVertically) {
+            app.convoyage.design.CvIcon(CvIcons.Route, characterColor(d.character))
+            Column(Modifier.weight(1f)) {
+                CvText(d.route.name, Cv.type.bodyStrong, c.ink, maxLines = 1)
+                CvText("@${d.owner.handle} · ${routeStats(d.route)}", Cv.type.bodyS, c.inkMuted, maxLines = 2)
+                Eyebrow("${d.character.uppercase()} · ${app.convoyage.data.Geo.formatDistance(d.distanceM).uppercase()} AWAY", color = characterColor(d.character))
+            }
+            app.convoyage.design.CvIcon(CvIcons.Chevron, c.inkMuted)
+        }
+    }
+}
+
+@Composable
+private fun characterColor(character: String) = when (character) {
+    "twisty" -> Cv.colors.pulse
+    "flowing" -> Cv.colors.hazard
+    else -> Cv.colors.go
+}
+
 /**
  * Leader action shared by Routes and the convoy's leader tools: in a convoy you lead, the route is shared; with no
  * convoy, one is started for it. Returns an error to show, or null when it went ahead.
@@ -159,7 +222,7 @@ internal fun driveSavedRoute(container: app.convoyage.AppContainer, r: SavedRout
 }
 
 @Composable
-private fun RouteDetailSheet(r: SavedRoute, onDismiss: () -> Unit, onDrive: () -> Unit) {
+private fun RouteDetailSheet(r: SavedRoute, onDismiss: () -> Unit, onDrive: () -> Unit, found: app.convoyage.api.DiscoveredRoute? = null) {
     val c = Cv.colors
     val container = LocalContainer.current
     val scope = rememberCoroutineScope()
@@ -173,6 +236,7 @@ private fun RouteDetailSheet(r: SavedRoute, onDismiss: () -> Unit, onDrive: () -
         CvSheet(Modifier.clickableNoRipple {}) {
             Column(Modifier.padding(bottom = Space.s4), verticalArrangement = Arrangement.spacedBy(Space.s3)) {
                 CvText(r.name, Cv.type.title, c.ink, maxLines = 2)
+                if (found != null) Eyebrow("BY @${found.owner.handle.uppercase()} · ${found.character.uppercase()}", color = characterColor(found.character))
                 CvText(routeStats(r), Cv.type.bodyS, c.inkMuted)
                 if (r.notes.isNotBlank()) CvText(r.notes, Cv.type.body, c.ink)
                 ConvoyMap(
@@ -193,7 +257,38 @@ private fun RouteDetailSheet(r: SavedRoute, onDismiss: () -> Unit, onDrive: () -
                     Modifier.fillMaxWidth(), icon = CvIcons.Convoy,
                 )
                 if (r.staging != null) CvText("Everyone is sent to the staging point first. Roll out from the leader tools when you're all there.", Cv.type.bodyS, c.inkMuted)
-                if (confirmDelete) {
+                var saved by remember { mutableStateOf(false) }
+                if (found == null) {
+                    var vis by remember(r.id) { mutableStateOf(r.visibility) }
+                    Eyebrow("WHO CAN SEE IT")
+                    Row(horizontalArrangement = Arrangement.spacedBy(Space.s2)) {
+                        listOf("private" to "Only me", "followers" to "Followers", "public" to "Everyone").forEach { (v, label) ->
+                            app.convoyage.design.CvChipToggle(label, vis == v, {
+                                scope.launch {
+                                    when (val u = container.savedRoutes.setVisibility(r.id, v)) {
+                                        is ApiResult.Ok -> vis = u.value.visibility
+                                        is ApiResult.Err -> error = u.message
+                                    }
+                                }
+                            })
+                        }
+                    }
+                    if (vis == "public") CvText("Drivers nearby find it under Routes, Near me.", Cv.type.bodyS, c.inkMuted)
+                }
+                if (found != null) {
+                    CvButton(if (saved) "Saved to your routes" else "Save to my routes", {
+                        scope.launch {
+                            val body = app.convoyage.api.SaveRoute(
+                                name = r.name, waypoints = r.waypoints, type = r.type, notes = r.notes.ifBlank { null },
+                                geometry = r.geometry, distanceM = r.distanceM, durationS = r.durationS, staging = r.staging, visibility = "private",
+                            )
+                            when (val s = container.savedRoutes.save(body)) {
+                                is ApiResult.Ok -> saved = true
+                                is ApiResult.Err -> error = s.message
+                            }
+                        }
+                    }, Modifier.fillMaxWidth(), CvButtonKind.Ghost, enabled = !saved, compact = true)
+                } else if (confirmDelete) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.s2)) {
                         CvButton("Keep it", { confirmDelete = false }, Modifier.weight(1f), CvButtonKind.Ghost, compact = true)
                         CvButton("Delete", {
