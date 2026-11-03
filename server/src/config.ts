@@ -1,6 +1,19 @@
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 
+/** The PhotoScout connection. Absent (null in Config) until PHOTOSCOUT_URL is set. */
+export interface PhotoScoutConfig {
+  /** PhotoScout base URL, no trailing slash. */
+  url: string;
+  clientId: string;
+  /** Sent as client_secret when set; PhotoScout's connected apps are public clients, so normally null. */
+  clientSecret: string | null;
+  /** Where PhotoScout sends the browser back: `<publicBaseUrl>/v1/photoscout/callback`. */
+  publicBaseUrl: string;
+  /** 32-byte AES-256-GCM key sealing the stored PhotoScout tokens. */
+  tokenKey: Buffer;
+}
+
 export interface Config {
   production: boolean;
   port: number;
@@ -29,6 +42,7 @@ export interface Config {
   /** Push notifications: each is null (no-op) unless configured. */
   fcmServiceAccountPath: string | null;
   apns: { keyPath: string; keyId: string; teamId: string; topic: string; sandbox: boolean } | null;
+  photoscout: PhotoScoutConfig | null;
   guestTtlS: number;
   rateLimit: { enabled: boolean; authMax: number; writeMax: number; windowMs: number };
   /** Human-readable notes about insecure/dev fallbacks, logged once at start. */
@@ -41,6 +55,28 @@ const int = (v: string | undefined, fallback: number) => {
   const n = Number(v);
   return v !== undefined && v !== '' && Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 };
+
+/** 64 hex characters, or base64 / base64url of 32 bytes. */
+export function parseTokenKey(raw: string): Buffer {
+  const v = raw.trim();
+  const key = /^[0-9a-fA-F]{64}$/.test(v) ? Buffer.from(v, 'hex') : Buffer.from(v, /^[A-Za-z0-9_-]+={0,2}$/.test(v) ? 'base64url' : 'base64');
+  if (key.length !== 32) throw new Error('PHOTOSCOUT_TOKEN_KEY must be 32 bytes: 64 hex characters or base64 (generate with: openssl rand -hex 32)');
+  return key;
+}
+
+function photoscoutConfig(env: NodeJS.ProcessEnv): PhotoScoutConfig | null {
+  const url = (env.PHOTOSCOUT_URL ?? '').trim().replace(/\/+$/, '');
+  if (!url) return null;
+  if (!/^https?:\/\/[^/]/i.test(url)) throw new Error('PHOTOSCOUT_URL must be an http(s) URL');
+  const publicBaseUrl = (env.PUBLIC_BASE_URL ?? '').trim().replace(/\/+$/, '');
+  if (!/^https?:\/\/[^/]/i.test(publicBaseUrl)) throw new Error('PUBLIC_BASE_URL (the address PhotoScout redirects the browser back to) is required when PHOTOSCOUT_URL is set');
+  if (!env.PHOTOSCOUT_TOKEN_KEY) throw new Error('PHOTOSCOUT_TOKEN_KEY is required when PHOTOSCOUT_URL is set');
+  return {
+    url, publicBaseUrl, tokenKey: parseTokenKey(env.PHOTOSCOUT_TOKEN_KEY),
+    clientId: (env.PHOTOSCOUT_CLIENT_ID ?? '').trim() || 'convoyage',
+    clientSecret: (env.PHOTOSCOUT_CLIENT_SECRET ?? '').trim() || null,
+  };
+}
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const production = env.NODE_ENV === 'production';
@@ -96,6 +132,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     apns: env.APNS_KEY_PATH && env.APNS_KEY_ID && env.APNS_TEAM_ID && env.APNS_TOPIC
       ? { keyPath: env.APNS_KEY_PATH, keyId: env.APNS_KEY_ID, teamId: env.APNS_TEAM_ID, topic: env.APNS_TOPIC, sandbox: env.APNS_ENV !== 'production' }
       : null,
+    photoscout: photoscoutConfig(env),
     guestTtlS: int(env.GUEST_TTL_SECONDS, 24 * 3600),
     rateLimit: {
       enabled: !flag(env.RATE_LIMIT_DISABLED),

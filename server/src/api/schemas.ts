@@ -49,7 +49,14 @@ const models: Record<string, object> = {
     isNewUser: { ...bool, description: 'True when this sign-in created the account (prompt for a handle).' },
   }),
   Build: BuildSchema,
-  UserRef: obj({ id: uuid, handle: string, displayName: string, avatarMediaId: nUuid }),
+  VehicleBadge: obj({
+    kind: { type: 'string', enum: [...VEHICLE_KINDS] },
+    build: obj({ paint: BuildSchema.properties.paint, finish: BuildSchema.properties.finish, wheel: BuildSchema.properties.wheel, rideHeightMm: BuildSchema.properties.rideHeightMm }, []),
+  }),
+  UserRef: obj({
+    id: uuid, handle: string, displayName: string, avatarMediaId: nUuid,
+    primaryVehicle: { ...nullableRef('VehicleBadge'), description: 'Their primary vehicle, for the avatar badge. Null when they have none or the viewer may not see it (private account not followed, blocked).' },
+  }, ['id', 'handle', 'displayName', 'avatarMediaId']),
   Vehicle: obj({
     id: uuid, ownerId: uuid, kind: { type: 'string', enum: [...VEHICLE_KINDS] }, make: string, model: string, year: nInt, nickname: string,
     build: ref('Build'), isPrimary: bool, soldAt: nDate, createdAt: dateTime, updatedAt: dateTime,
@@ -117,6 +124,32 @@ const models: Record<string, object> = {
   FollowResult: obj({ status: { type: 'string', enum: ['none', 'pending', 'accepted'] } }),
   FollowRequest: obj({ user: ref('UserRef'), createdAt: dateTime }),
   Ok: obj({ ok: bool }),
+  PhotoScoutStatus: obj({
+    configured: { ...bool, description: 'False when this server has no PHOTOSCOUT_URL: every other PhotoScout route answers 503.' },
+    linked: bool, username: { ...nString, description: 'The PhotoScout username, when PhotoScout told us at link time.' },
+    scope: { ...string, description: 'The scopes PhotoScout granted.' }, linkedAt: nDate,
+  }),
+  PhotoScoutAuthorizeUrl: obj({ authorizeUrl: { ...string, description: 'Open in a browser or custom tab. It ends at convoyage://photoscout/linked (or ?error=...).' } }),
+  PsCruise: obj({ routeName: string, meet: obj({ lat: num, lng: num, note: string }), rollOut: string }),
+  PsEvent: obj({
+    id: { ...string, description: 'A community event id, or a crawled event group key.' }, source: { type: 'string', enum: ['community', 'scout'] },
+    title: string, description: string, startTime: string, endTime: nString, venue: string, address: string, lat: nNum, lng: nNum,
+    imageUrl: string, url: string, going: int, interested: int,
+    myRsvp: { anyOf: [{ type: 'string', enum: ['going', 'interested'] }, { type: 'null' }] },
+    cruise: { anyOf: [ref('PsCruise'), { type: 'null' }], description: 'Set on a community event with a cruise: open its convoy with socket `convoy.cruise {eventId: id}`.' },
+    distanceKm: { ...nNum, description: 'From `near`, when given.' },
+  }),
+  PsSpot: obj({
+    id: string, name: string, notes: string, lat: num, lng: num, tags: arrayOf(string), facingDeg: nNum, fovDeg: nNum,
+    goodTimes: obj({ phases: arrayOf(string), months: arrayOf(int), days: string, conditions: arrayOf(string), avoid: string, notes: string }),
+    photoCount: int,
+    photo: { anyOf: [obj({ id: string, thumbUrl: string, url: string }), { type: 'null' }], description: 'Cover photo. The URLs are served by Convoyage and need the bearer token, like /v1/media.' },
+  }),
+  PsCheckin: obj({ id: string, createdAt: string, placeName: string, lat: nNum, lng: nNum, body: string }),
+  PsRsvp: obj({
+    eventId: string, source: { type: 'string', enum: ['community', 'scout'] }, going: int, interested: int,
+    myRsvp: { anyOf: [{ type: 'string', enum: ['going', 'interested'] }, { type: 'null' }] },
+  }),
 };
 
 export function registerSchemas(app: FastifyInstance): void {

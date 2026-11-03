@@ -182,3 +182,53 @@ Everything under `/v1` is JSON with `Authorization: Bearer <access token>`. Erro
   Nothing in Windows networking, WSL config or the firewall is changed by the scripts. A phone still needs inbound TCP 7880 and 7881
   allowed, from an admin shell:
   `New-NetFirewallRule -DisplayName "Convoyage LiveKit" -Direction Inbound -Protocol TCP -LocalPort 7880,7881 -Action Allow -Profile Private`
+
+## Wave C additions: PhotoScout link
+
+A member can link their PhotoScout account (OAuth 2 authorization code + PKCE; PhotoScout's "connect an app" flow) and the server
+then proxies PhotoScout events, spots, RSVPs and check-ins as that member, in small Convoyage-shaped DTOs (see `openapi.json`).
+
+| route (bearer) | what |
+| --- | --- |
+| `GET /v1/photoscout/status` | `{configured, linked, username, scope, linkedAt}`. Always 200. `username` is null unless PhotoScout puts `username` in its token response (it does not today). |
+| `GET /v1/photoscout/connect` | `{authorizeUrl}`: open it in a browser or custom tab. Guests: 403. |
+| `GET /v1/photoscout/callback` | (no bearer) PhotoScout sends the browser here; the server swaps the code, stores the tokens and 302s to `convoyage://photoscout/linked` or `...linked?error=<code>`. |
+| `DELETE /v1/photoscout/link` | revoke at PhotoScout (`/oauth/revoke`), then delete the tokens. |
+| `GET /v1/photoscout/events?from&to&near=lat,lng&radiusKm` | community events (cruises carry `cruise.meet`) and crawled events, merged, soonest first. |
+| `GET /v1/photoscout/spots?bbox=s,w,n,e` | spots with good times and a cover `photo`; photo bytes via `GET /v1/photoscout/photos/:id/thumb\|file` (bearer needed, like `/v1/media`). |
+| `POST /v1/photoscout/events/:id/rsvp` | `{}` / `{status: going\|interested}` / `{going:false}`. A uuid id is a community event (going only), anything else a crawled event. |
+| `POST /v1/photoscout/checkins` | `{spotId}`, `{eventId}` or `{lat,lng,placeName}`, plus optional `body`. |
+
+Errors are `{statusCode, error, message}` with a stable `error`: `photoscout_not_configured` (503), `photoscout_not_linked` (409),
+`photoscout_not_found`, `photoscout_forbidden`, `photoscout_rejected` (PhotoScout's 400/409/429), `photoscout_unavailable` (502).
+
+- **Tokens** are sealed with AES-256-GCM (`PHOTOSCOUT_TOKEN_KEY`, bound to user and field) in `photoscout_links`; the PKCE verifier is sealed
+  in `photoscout_oauth_states` (state stored as SHA-256, 10 minute life, single use). The access token is refreshed 30 s before expiry and
+  once on a 401; refreshes are serialised per user because PhotoScout rotates refresh tokens (a replay ends the connection). If PhotoScout
+  says the grant is gone, the link is deleted and the member gets 409 `photoscout_not_linked`.
+- **Cruise convoys**: socket `convoy.cruise {eventId}` (already in the v1 schema) now reads the PhotoScout community event with the member's
+  own token (`PhotoScoutCruiseSource`): name, meet point and route line (thinned to 25 stops, a circuit closed). The organiser opens the
+  convoy, other linked members join. PhotoScout does not tell a connected app who the member is, so unless its token response carries
+  `user_id` / `username`, any linked member who can read the event may open it (the leader can hand over with `convoy.lead`).
+- **Badges**: every `UserRef` (post and comment authors, follow requests, blocks) has `primaryVehicle: {kind, build:{paint,finish,wheel,rideHeightMm}} | null`,
+  hidden under the profile rules (private account not followed, either way of a block). `/v1/me` and `/v1/users/:handle` already return the full primary vehicle. Convoy `members[].vehicle` is the same
+  badge from the member's account, refreshed live when they edit vehicles or toggle `isPrivate`; a private account shows none in rooms
+  (rooms mix people who may not follow it). There is no followers/following list endpoint yet, so none to extend.
+
+| variable | meaning |
+| --- | --- |
+| `PHOTOSCOUT_URL` | PhotoScout base URL. Unset = the feature is off (503). |
+| `PUBLIC_BASE_URL` | this server's address as the phone's browser reaches it; the redirect URI is `<PUBLIC_BASE_URL>/v1/photoscout/callback`. Required with `PHOTOSCOUT_URL`. |
+| `PHOTOSCOUT_TOKEN_KEY` | 32 bytes (64 hex, or base64): `openssl rand -hex 32`. Required with `PHOTOSCOUT_URL`; losing it unlinks everyone. |
+| `PHOTOSCOUT_CLIENT_ID`, `PHOTOSCOUT_CLIENT_SECRET` | default `convoyage`, none (PhotoScout's connected apps are public clients; a secret is only sent if set). |
+
+**Registering Convoyage on PhotoScout** (operator, PhotoScout's environment; there is no admin page):
+
+```
+OAUTH_CLIENTS=[{"clientId":"convoyage","name":"Convoyage","redirectUris":["<PUBLIC_BASE_URL>/v1/photoscout/callback"]}]
+CONVOYAGE_URL=<where the Convoyage web/app link should point>   # optional: "Open in Convoyage" links
+PUBLIC_URL=<PhotoScout's own address>                            # must match what members use
+```
+
+Scopes asked: `events:read events:rsvp spots:read checkins:write`. Then set the three variables above in Convoyage's `.env` and redeploy
+(`scripts/down.ps1`, `scripts/up.ps1`). A member can also end the link from PhotoScout's Settings.

@@ -85,6 +85,15 @@ export interface HazardAcksTable { hazard_id: string; user_id: string; action: '
 
 export interface DeviceTokensTable { token: string; user_id: string; platform: 'ios' | 'android'; created_at: Ts; updated_at: Ts }
 
+export interface PhotoscoutLinksTable {
+  user_id: string; access_token_enc: string; refresh_token_enc: string; access_expires_at: Date | string; scope: Opt<string>;
+  ps_user_id: OptNull<string>; ps_username: OptNull<string>; created_at: Ts; updated_at: Ts;
+}
+
+export interface PhotoscoutOauthStatesTable {
+  state_hash: string; user_id: string; verifier_enc: string; created_at: Ts; expires_at: Date | string;
+}
+
 export interface SchemaMigrationsTable { name: string; applied_at: Ts }
 
 export interface DB {
@@ -107,5 +116,7 @@ export interface DB {
   hazard_reports: HazardReportsTable;
   hazard_acks: HazardAcksTable;
   device_tokens: DeviceTokensTable;
+  photoscout_links: PhotoscoutLinksTable;
+  photoscout_oauth_states: PhotoscoutOauthStatesTable;
   schema_migrations: SchemaMigrationsTable;
 }

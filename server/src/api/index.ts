@@ -6,6 +6,9 @@ import { STATUS_CODES } from 'node:http';
 import { HttpError } from '../errors.js';
 import type { ApiContext } from './common.js';
 import { MAX_UPLOAD_BYTES } from '../media/process.js';
+import { roomBadge } from './common.js';
+import { PhotoScoutError } from '../photoscout/service.js';
+import { photoscoutRoutes } from './routes/photoscout.js';
 import { authRoutes } from './routes/auth.js';
 import { catalogueRoutes } from './routes/catalogue.js';
 import { deviceRoutes } from './routes/devices.js';
@@ -34,7 +37,7 @@ function patchOpenApi(doc: Record<string, any>): void {
   const text: Record<string, string> = {
     200: 'OK', 201: 'Created', 202: 'Accepted', 400: 'Bad request', 401: 'Missing, invalid or expired credentials', 403: 'Forbidden',
     404: 'Not found (also used when the viewer may not see the thing)', 409: 'Conflict with the current state', 413: 'Too large',
-    415: 'Unsupported media type', 429: 'Rate limited', 501: 'Not configured on this server', 502: 'Upstream (routing) server failed',
+    415: 'Unsupported media type', 429: 'Rate limited', 501: 'Not configured on this server', 502: 'Upstream (routing or PhotoScout) server failed', 503: 'Not configured on this server (PhotoScout)',
   };
   for (const item of Object.values(doc.paths ?? {}) as Record<string, any>[]) {
     for (const op of Object.values(item)) {
@@ -58,7 +61,9 @@ export async function registerApi(app: FastifyInstance, ctx: ApiContext, version
       request.log.error({ err: error }, 'request failed');
       return reply.code(500).send({ statusCode: 500, error: STATUS_CODES[500], message: 'Something went wrong' });
     }
-    return reply.code(status).send({ statusCode: status, error: STATUS_CODES[status] ?? 'Error', message: error.message });
+    // PhotoScout failures carry a stable code (photoscout_not_linked, ...) in `error`, which is what apps switch on.
+    const label = error instanceof PhotoScoutError ? error.code : STATUS_CODES[status] ?? 'Error';
+    return reply.code(status).send({ statusCode: status, error: label, message: error.message });
   });
   app.addHook('onSend', async (_req, reply) => {
     if (!reply.hasHeader('cache-control')) reply.header('cache-control', 'no-store');
@@ -76,7 +81,7 @@ export async function registerApi(app: FastifyInstance, ctx: ApiContext, version
       tags: [
         { name: 'auth' }, { name: 'users' }, { name: 'vehicles' }, { name: 'rides' }, { name: 'media' },
         { name: 'posts' }, { name: 'feed' }, { name: 'moderation' }, { name: 'hazards' },
-        { name: 'catalogue' }, { name: 'navigation' }, { name: 'voice' }, { name: 'devices' },
+        { name: 'catalogue' }, { name: 'navigation' }, { name: 'voice' }, { name: 'devices' }, { name: 'photoscout' },
       ],
     },
     refResolver: { buildLocalReference: (json, _base, _fragment, i) => (typeof json.$id === 'string' ? json.$id : `def-${i}`) },
@@ -86,6 +91,15 @@ export async function registerApi(app: FastifyInstance, ctx: ApiContext, version
     },
   });
   registerSchemas(app);
+
+  // A change to my vehicles (or to my account's privacy) changes the badge my convoy mates see.
+  app.addHook('onResponse', async (req, reply) => {
+    if (req.method === 'GET' || req.method === 'HEAD' || reply.statusCode >= 300 || !req.userId) return;
+    const url = req.routeOptions.url ?? '';
+    if (!url.startsWith('/v1/vehicles') && url !== '/v1/me') return;
+    if (!ctx.convoy.roomsOf(req.userId).length) return;
+    try { ctx.convoy.setVehicle(req.userId, await roomBadge(ctx.db, req.userId)); } catch { /* a stale badge is not worth failing for */ }
+  });
 
   app.get('/v1/openapi.json', { schema: { hide: true } }, async () => app.swagger());
 
@@ -102,5 +116,6 @@ export async function registerApi(app: FastifyInstance, ctx: ApiContext, version
     await navigationRoutes(api, ctx);
     await voiceRoutes(api, ctx);
     await deviceRoutes(api, ctx);
+    await photoscoutRoutes(api, ctx);
   });
 }

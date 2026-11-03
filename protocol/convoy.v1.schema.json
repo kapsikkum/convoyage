@@ -61,6 +61,24 @@
         "ts": { "type": "integer", "description": "Server receive time, ms since the epoch." }
       }
     },
+    "MemberVehicle": {
+      "type": "object",
+      "required": ["kind", "build"],
+      "properties": {
+        "kind": { "enum": ["car", "motorcycle", "ute", "4wd"] },
+        "build": {
+          "type": "object",
+          "properties": {
+            "paint": { "type": "string", "description": "#RRGGBB" },
+            "finish": { "enum": ["gloss", "satin", "matte", "metallic", "pearl"] },
+            "wheel": { "type": "string" },
+            "rideHeightMm": { "type": "integer" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "Member": {
       "type": "object",
       "required": ["id", "username", "avatar", "online", "lastSeen", "position"],
@@ -68,6 +86,7 @@
         "id": { "type": "string" },
         "username": { "type": "string" },
         "avatar": { "type": "string" },
+        "vehicle": { "oneOf": [{ "$ref": "#/$defs/MemberVehicle" }, { "type": "null" }], "description": "Optional. The member's primary vehicle, for their avatar badge: from their account at connect, updated when they change it. Null or absent when they have none or their account is private." },
         "online": { "type": "boolean" },
         "lastSeen": { "type": "integer" },
         "position": { "oneOf": [{ "$ref": "#/$defs/Position" }, { "type": "null" }] }

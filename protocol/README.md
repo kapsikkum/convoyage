@@ -28,3 +28,7 @@ Also added to v1 additively, nothing existing changed:
 - Server `status` `{ t, room, id, status, note?, position? }`, sent to every member of the room including the sender. `id` is the
   member id. For `sos`, `position` is the sender's last known position (a `Position`, or `null`); other statuses omit it.
   An `sos` also sends a push notification to the other members' registered devices.
+
+Also added to v1 additively: `Member.vehicle` (optional `MemberVehicle` `{kind, build:{paint?, finish?, wheel?, rideHeightMm?}}` or null), the
+member's primary vehicle for their avatar badge. REST: `UserRef.primaryVehicle` (optional `VehicleBadge` or null) and the `/v1/photoscout/*`
+routes, all in `openapi.json`. `convoy.cruise` is unchanged on the wire; the cruise now comes from PhotoScout.

@@ -4,6 +4,7 @@ import type { PostsTable } from '../../db/types.js';
 import { badRequest, conflict, forbidden, notFound } from '../../errors.js';
 import {
   afterCursor, authenticate, beforeCursor, decodeCursor, encodeCursor, iso, page, visibleTo, type ApiContext,
+  vehicleBadges, type VehicleBadge,
 } from '../common.js';
 import { mediaDto, rideSummaryDto, vehicleDto } from '../dto.js';
 import { limits } from '../limits.js';
@@ -40,7 +41,8 @@ export async function postRoutes(app: FastifyInstance, ctx: ApiContext): Promise
       db.selectFrom('comments').select(['post_id', (eb) => eb.fn.countAll<number>().as('n')]).where('post_id', 'in', ids).groupBy('post_id').execute(),
       db.selectFrom('post_likes').select('post_id').where('post_id', 'in', ids).where('user_id', '=', viewer).execute(),
     ]);
-    const authorBy = new Map(authors.map((a) => [a.user_id, { id: a.user_id, handle: a.handle, displayName: a.display_name, avatarMediaId: a.avatar_media_id }]));
+    const badges = await vehicleBadges(db, viewer, authorIds);
+    const authorBy = new Map(authors.map((a) => [a.user_id, { id: a.user_id, handle: a.handle, displayName: a.display_name, avatarMediaId: a.avatar_media_id, primaryVehicle: badges.get(a.user_id) ?? null }]));
     const rideBy = new Map(rides.filter((r) => r.can_view).map((r) => [r.id, { ...rideSummaryDto(r), preview: routePreview(r.polyline, r.polyline_precision) }]));
     const vehicleBy = new Map(vehicles.map((v) => [v.id, vehicleDto(v)]));
     const likeBy = new Map(likes.map((l) => [l.post_id, Number(l.n)]));
@@ -219,9 +221,9 @@ export async function postRoutes(app: FastifyInstance, ctx: ApiContext): Promise
 
   // ---- comments ----------------------------------------------------------------------------------------------
 
-  const commentDto = (c: { id: string; post_id: string; body: string; created_at: Date | string; author_id: string; handle: string; display_name: string; avatar_media_id: string | null }) => ({
+  const commentDto = (badges: Map<string, VehicleBadge | null>) => (c: { id: string; post_id: string; body: string; created_at: Date | string; author_id: string; handle: string; display_name: string; avatar_media_id: string | null }) => ({
     id: c.id, postId: c.post_id, body: c.body, createdAt: iso(c.created_at),
-    author: { id: c.author_id, handle: c.handle, displayName: c.display_name, avatarMediaId: c.avatar_media_id },
+    author: { id: c.author_id, handle: c.handle, displayName: c.display_name, avatarMediaId: c.avatar_media_id, primaryVehicle: badges.get(c.author_id) ?? null },
   });
   const commentRows = () => db.selectFrom('comments').innerJoin('profiles', 'profiles.user_id', 'comments.author_id')
     .select(['comments.id', 'comments.post_id', 'comments.body', 'comments.created_at', 'comments.author_id', 'profiles.handle', 'profiles.display_name', 'profiles.avatar_media_id']);
@@ -240,7 +242,8 @@ export async function postRoutes(app: FastifyInstance, ctx: ApiContext): Promise
       .where(sql<boolean>`not exists (select 1 from blocks bl where (bl.blocker_id = ${req.userId}::uuid and bl.blocked_id = comments.author_id) or (bl.blocker_id = comments.author_id and bl.blocked_id = ${req.userId}::uuid))`)
       .orderBy('comments.created_at').orderBy('comments.id').limit(limit + 1).execute();
     const p = page(rows, limit, (r) => encodeCursor(r.created_at, r.id));
-    return { items: p.items.map(commentDto), nextCursor: p.nextCursor };
+    const badges = await vehicleBadges(db, req.userId, p.items.map((r) => r.author_id));
+    return { items: p.items.map(commentDto(badges)), nextCursor: p.nextCursor };
   });
 
   app.post('/v1/posts/:id/comments', {
@@ -255,7 +258,7 @@ export async function postRoutes(app: FastifyInstance, ctx: ApiContext): Promise
     if (!text) throw badRequest('Empty comment');
     const row = await db.insertInto('comments').values({ post_id: post.id, author_id: req.userId, body: text }).returning('id').executeTakeFirstOrThrow();
     ctx.notifier.comment(post.id, req.userId, text);
-    return reply.code(201).send(commentDto(await commentRows().where('comments.id', '=', row.id).executeTakeFirstOrThrow()));
+    return reply.code(201).send(commentDto(await vehicleBadges(db, req.userId, [req.userId]))(await commentRows().where('comments.id', '=', row.id).executeTakeFirstOrThrow()));
   });
 
   app.delete('/v1/comments/:id', {

@@ -14,6 +14,8 @@ import type { Fetch } from './http.js';
 import { MemoryCruiseSource } from './stubs.js';
 import { OverpassRestStops } from './convoy/overpass.js';
 import { osrmGeometry } from './convoy/osrm.js';
+import { PhotoScoutService } from './photoscout/service.js';
+import { PhotoScoutCruiseSource } from './photoscout/cruiseSource.js';
 
 export interface ServerDeps {
   config: Config;
@@ -24,7 +26,7 @@ export interface ServerDeps {
   cruises?: CruiseSource;
   restStops?: RestStopFinder;
   push?: PushSender;
-  /** Used for OSRM; tests hand in a fake. */
+  /** Used for OSRM and PhotoScout; tests hand in a fake. */
   fetch?: Fetch;
   logger?: boolean;
   heartbeatMs?: number;
@@ -38,9 +40,10 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   const jwt = jwtAuthenticator(tokens, database.db);
   const doFetch: Fetch = deps.fetch ?? ((url, init) => fetch(url, init));
   const notifier = new Notifier(database.db, deps.push ?? pushFromConfig(config));
+  const photoscout = config.photoscout ? new PhotoScoutService(database.db, config.photoscout, doFetch) : null;
   const app = await buildApp({
     auth: config.devAuth ? firstOf(jwt, devAuthenticator) : jwt,
-    cruises: deps.cruises ?? new MemoryCruiseSource(),
+    cruises: deps.cruises ?? (photoscout ? new PhotoScoutCruiseSource(photoscout) : new MemoryCruiseSource()),
     restStops: deps.restStops ?? new OverpassRestStops(config.overpassUrls),
     routeFinder: (from, to) => osrmGeometry(config, doFetch, from, to),
     heartbeatMs: deps.heartbeatMs,
@@ -55,6 +58,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       media: deps.media ?? new LocalDiskMediaStore(config.mediaDir),
       notifier,
       fetch: doFetch,
+      photoscout,
     },
   });
   // Expired guest accounts (and everything they own) are removed hourly.

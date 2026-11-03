@@ -9,6 +9,7 @@ import type { Providers } from './providers.js';
 import type { Notifier } from '../push/notifier.js';
 import type { Fetch } from '../http.js';
 import type { Tokens } from './tokens.js';
+import type { PhotoScoutService } from '../photoscout/service.js';
 
 declare module 'fastify' {
   interface FastifyRequest { userId: string; userKind: 'user' | 'guest' }
@@ -22,6 +23,8 @@ export interface ConvoyLink {
   offlineMemberIds(code: string): string[];
   /** A connected user changed their display name. */
   renameUser(userId: string, name: string): void;
+  /** A connected user's primary vehicle changed: update the badge in their rooms. */
+  setVehicle(userId: string, vehicle: VehicleBadge | null): void;
 }
 
 export interface ApiContext {
@@ -34,6 +37,8 @@ export interface ApiContext {
   convoy: ConvoyLink;
   notifier: Notifier;
   fetch: Fetch;
+  /** Null until PHOTOSCOUT_URL is configured. */
+  photoscout: PhotoScoutService | null;
 }
 
 export const iso = (d: Date | string): string => new Date(d).toISOString();
@@ -139,4 +144,55 @@ export async function relationship(db: Kysely<DB>, viewer: string, target: strin
   const followedBy = follows.some((f) => f.follower_id === target && f.status === 'accepted');
   const canViewContent = self || (!blockedByMe && !blockedMe && (!profile.is_private || following === 'accepted'));
   return { self, blockedByMe, blockedMe, following, followedBy, isPrivate: profile.is_private, canViewContent };
+}
+
+// ---- vehicle badges ------------------------------------------------------------------------------------------
+
+/** What an avatar badge needs of a user's primary vehicle: its kind and the four build fields that change how it looks. */
+export interface VehicleBadge {
+  kind: 'car' | 'motorcycle' | 'ute' | '4wd';
+  build: { paint?: string; finish?: string; wheel?: string; rideHeightMm?: number };
+}
+
+export function badgeOf(kind: VehicleBadge['kind'], build: unknown): VehicleBadge {
+  const b = (typeof build === 'object' && build !== null ? build : {}) as Record<string, unknown>;
+  const out: VehicleBadge['build'] = {};
+  if (typeof b.paint === 'string') out.paint = b.paint;
+  if (typeof b.finish === 'string') out.finish = b.finish;
+  if (typeof b.wheel === 'string') out.wheel = b.wheel;
+  if (typeof b.rideHeightMm === 'number') out.rideHeightMm = b.rideHeightMm;
+  return { kind, build: out };
+}
+
+/**
+ * The primary (unsold) vehicle of each user, as a badge, for the users `viewer` may see it for. The same rule as a profile's
+ * `primaryVehicle`: the owner always; nobody across a block; a private account only to an accepted follower. Others map to null.
+ */
+export async function vehicleBadges(db: Kysely<DB>, viewer: string, userIds: string[]): Promise<Map<string, VehicleBadge | null>> {
+  const ids = [...new Set(userIds)];
+  const out = new Map<string, VehicleBadge | null>(ids.map((id) => [id, null]));
+  if (!ids.length) return out;
+  const [vehicles, profiles, follows, blocks] = await Promise.all([
+    db.selectFrom('vehicles').select(['owner_id', 'kind', 'build']).where('owner_id', 'in', ids).where('is_primary', '=', true).where('sold_at', 'is', null).execute(),
+    db.selectFrom('profiles').select(['user_id', 'is_private']).where('user_id', 'in', ids).execute(),
+    db.selectFrom('follows').select('followee_id').where('follower_id', '=', viewer).where('followee_id', 'in', ids).where('status', '=', 'accepted').execute(),
+    db.selectFrom('blocks').select(['blocker_id', 'blocked_id'])
+      .where((eb) => eb.or([eb.and([eb('blocker_id', '=', viewer), eb('blocked_id', 'in', ids)]), eb.and([eb('blocked_id', '=', viewer), eb('blocker_id', 'in', ids)])])).execute(),
+  ]);
+  const priv = new Set(profiles.filter((p) => p.is_private).map((p) => p.user_id));
+  const followed = new Set(follows.map((f) => f.followee_id));
+  const blocked = new Set(blocks.map((b) => (b.blocker_id === viewer ? b.blocked_id : b.blocker_id)));
+  for (const v of vehicles) {
+    const ok = v.owner_id === viewer || (!blocked.has(v.owner_id) && (!priv.has(v.owner_id) || followed.has(v.owner_id)));
+    if (ok) out.set(v.owner_id, badgeOf(v.kind, v.build));
+  }
+  return out;
+}
+
+/** Nobody: a viewer id that follows no one and is blocked by no one, i.e. what a stranger sees. */
+const STRANGER = '00000000-0000-0000-0000-000000000000';
+
+/** The badge anyone in a convoy room may see: a private account shows none (rooms are shared with people who may not follow it). */
+export async function roomBadge(db: Kysely<DB>, userId: string): Promise<VehicleBadge | null> {
+  return (await vehicleBadges(db, STRANGER, [userId])).get(userId) ?? null;
 }

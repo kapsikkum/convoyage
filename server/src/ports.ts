@@ -13,9 +13,14 @@ export interface Cruise {
   canStart: boolean;
   /** May join it once it exists. */
   canJoin: boolean;
+  /** The line the cruise drives, as [lng, lat] stops (at most MAX_CONVOY_ROUTE_STOPS). The convoy opens with it shared. */
+  route?: { name: string; stops: [number, number][] } | null;
 }
 
-/** Where cruises (events with a convoy) come from. PhotoScout reads its database here. */
+/** A cruise lookup that failed for a reason the person should read ("link your PhotoScout account"). */
+export class CruiseError extends Error {}
+
+/** Where cruises (events with a convoy) come from: PhotoScout events, read with the member's own linked token. */
 export interface CruiseSource {
   getCruise(eventId: string, userId: string): Promise<Cruise | null> | Cruise | null;
 }

@@ -11,6 +11,14 @@ function EnvVal($name, $default) {
   $line = Get-Content $envFile | Where-Object { $_ -match "^$name=.+" } | Select-Object -First 1
   if ($line) { return ($line -replace "^$name=", '').Trim() } else { return $default }
 }
+# PhotoScout link: only passed to the container when PHOTOSCOUT_URL is set in .env (partial config refuses to start).
+$psArgs = @()
+$psUrl = EnvVal 'PHOTOSCOUT_URL' ''
+if ($psUrl) {
+  $psArgs += '-e', "PHOTOSCOUT_URL=$psUrl", '-e', "PUBLIC_BASE_URL=$(EnvVal 'PUBLIC_BASE_URL' '')", '-e', "PHOTOSCOUT_TOKEN_KEY=$(EnvVal 'PHOTOSCOUT_TOKEN_KEY' '')", '-e', "PHOTOSCOUT_CLIENT_ID=$(EnvVal 'PHOTOSCOUT_CLIENT_ID' 'convoyage')"
+  $psSecret = EnvVal 'PHOTOSCOUT_CLIENT_SECRET' ''
+  if ($psSecret) { $psArgs += '-e', "PHOTOSCOUT_CLIENT_SECRET=$psSecret" }
+}
 $lkKey = EnvVal 'LIVEKIT_API_KEY' 'devkey'
 $lkSecret = EnvVal 'LIVEKIT_API_SECRET' 'convoyage-dev-livekit-secret-0123456789'
 $osrm = EnvVal 'OSRM_URL' 'https://router.project-osrm.org'
@@ -52,6 +60,7 @@ podman run -d --name convoyage-server --network host --restart unless-stopped `
   -e DATABASE_URL=postgres://convoyage:convoyage@127.0.0.1:5432/convoyage `
   -e AUTO_MIGRATE=1 -e MAIL_DEV=1 -e "JWT_SECRET=$secret" -e PORT=8080 -e HOST=0.0.0.0 `
   -e "LIVEKIT_URL=$lkUrl" -e "LIVEKIT_API_KEY=$lkKey" -e "LIVEKIT_API_SECRET=$lkSecret" -e "OSRM_URL=$osrm" -e "OVERPASS_URL=$overpass" `
+  @psArgs `
   -v convoyage-media:/data/media `
   convoyage-server:local
 if ($LASTEXITCODE) { throw 'server start failed' }

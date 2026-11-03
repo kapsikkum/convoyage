@@ -154,6 +154,59 @@
         "required": [],
         "additionalProperties": false
       },
+      "VehicleBadge": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "car",
+              "motorcycle",
+              "ute",
+              "4wd"
+            ]
+          },
+          "build": {
+            "type": "object",
+            "properties": {
+              "paint": {
+                "type": "string",
+                "pattern": "^#[0-9a-fA-F]{6}$",
+                "description": "Body colour as #RRGGBB."
+              },
+              "finish": {
+                "type": "string",
+                "enum": [
+                  "gloss",
+                  "satin",
+                  "matte",
+                  "metallic",
+                  "pearl"
+                ]
+              },
+              "wheel": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "description": "Wheel model id from the garage catalogue."
+              },
+              "rideHeightMm": {
+                "type": "integer",
+                "minimum": -200,
+                "maximum": 200,
+                "description": "Offset from stock ride height, millimetres."
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "kind",
+          "build"
+        ],
+        "additionalProperties": false
+      },
       "UserRef": {
         "type": "object",
         "properties": {
@@ -173,6 +226,17 @@
               "string"
             ],
             "format": "uuid"
+          },
+          "primaryVehicle": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VehicleBadge"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Their primary vehicle, for the avatar badge. Null when they have none or the viewer may not see it (private account not followed, blocked)."
           }
         },
         "required": [
@@ -1481,6 +1545,412 @@
         },
         "required": [
           "ok"
+        ],
+        "additionalProperties": false
+      },
+      "PhotoScoutStatus": {
+        "type": "object",
+        "properties": {
+          "configured": {
+            "type": "boolean",
+            "description": "False when this server has no PHOTOSCOUT_URL: every other PhotoScout route answers 503."
+          },
+          "linked": {
+            "type": "boolean"
+          },
+          "username": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The PhotoScout username, when PhotoScout told us at link time."
+          },
+          "scope": {
+            "type": "string",
+            "description": "The scopes PhotoScout granted."
+          },
+          "linkedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "configured",
+          "linked",
+          "username",
+          "scope",
+          "linkedAt"
+        ],
+        "additionalProperties": false
+      },
+      "PhotoScoutAuthorizeUrl": {
+        "type": "object",
+        "properties": {
+          "authorizeUrl": {
+            "type": "string",
+            "description": "Open in a browser or custom tab. It ends at convoyage://photoscout/linked (or ?error=...)."
+          }
+        },
+        "required": [
+          "authorizeUrl"
+        ],
+        "additionalProperties": false
+      },
+      "PsCruise": {
+        "type": "object",
+        "properties": {
+          "routeName": {
+            "type": "string"
+          },
+          "meet": {
+            "type": "object",
+            "properties": {
+              "lat": {
+                "type": "number"
+              },
+              "lng": {
+                "type": "number"
+              },
+              "note": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "lat",
+              "lng",
+              "note"
+            ],
+            "additionalProperties": false
+          },
+          "rollOut": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "routeName",
+          "meet",
+          "rollOut"
+        ],
+        "additionalProperties": false
+      },
+      "PsEvent": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "A community event id, or a crawled event group key."
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "community",
+              "scout"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "startTime": {
+            "type": "string"
+          },
+          "endTime": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "venue": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "lat": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "lng": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "imageUrl": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "going": {
+            "type": "integer"
+          },
+          "interested": {
+            "type": "integer"
+          },
+          "myRsvp": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "going",
+                  "interested"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cruise": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PsCruise"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set on a community event with a cruise: open its convoy with socket `convoy.cruise {eventId: id}`."
+          },
+          "distanceKm": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "description": "From `near`, when given."
+          }
+        },
+        "required": [
+          "id",
+          "source",
+          "title",
+          "description",
+          "startTime",
+          "endTime",
+          "venue",
+          "address",
+          "lat",
+          "lng",
+          "imageUrl",
+          "url",
+          "going",
+          "interested",
+          "myRsvp",
+          "cruise",
+          "distanceKm"
+        ],
+        "additionalProperties": false
+      },
+      "PsSpot": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "lat": {
+            "type": "number"
+          },
+          "lng": {
+            "type": "number"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "facingDeg": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "fovDeg": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "goodTimes": {
+            "type": "object",
+            "properties": {
+              "phases": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "months": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              },
+              "days": {
+                "type": "string"
+              },
+              "conditions": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "avoid": {
+                "type": "string"
+              },
+              "notes": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "phases",
+              "months",
+              "days",
+              "conditions",
+              "avoid",
+              "notes"
+            ],
+            "additionalProperties": false
+          },
+          "photoCount": {
+            "type": "integer"
+          },
+          "photo": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "thumbUrl": {
+                    "type": "string"
+                  },
+                  "url": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "thumbUrl",
+                  "url"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cover photo. The URLs are served by Convoyage and need the bearer token, like /v1/media."
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "notes",
+          "lat",
+          "lng",
+          "tags",
+          "facingDeg",
+          "fovDeg",
+          "goodTimes",
+          "photoCount",
+          "photo"
+        ],
+        "additionalProperties": false
+      },
+      "PsCheckin": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "placeName": {
+            "type": "string"
+          },
+          "lat": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "lng": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "body": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "createdAt",
+          "placeName",
+          "lat",
+          "lng",
+          "body"
+        ],
+        "additionalProperties": false
+      },
+      "PsRsvp": {
+        "type": "object",
+        "properties": {
+          "eventId": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "community",
+              "scout"
+            ]
+          },
+          "going": {
+            "type": "integer"
+          },
+          "interested": {
+            "type": "integer"
+          },
+          "myRsvp": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "going",
+                  "interested"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "eventId",
+          "source",
+          "going",
+          "interested",
+          "myRsvp"
         ],
         "additionalProperties": false
       }
@@ -8275,7 +8745,7 @@
             }
           },
           "502": {
-            "description": "Upstream (routing) server failed",
+            "description": "Upstream (routing or PhotoScout) server failed",
             "content": {
               "application/json": {
                 "schema": {
@@ -8649,6 +9119,1064 @@
           }
         }
       }
+    },
+    "/v1/photoscout/status": {
+      "get": {
+        "summary": "Is my PhotoScout account linked?",
+        "tags": [
+          "photoscout"
+        ],
+        "description": "Always 200. `configured: false` means this server has no PhotoScout (every other PhotoScout route is then 503 `photoscout_not_configured`).",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhotoScoutStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (also used when the viewer may not see the thing)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict with the current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream (routing or PhotoScout) server failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Not configured on this server (PhotoScout)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/photoscout/connect": {
+      "get": {
+        "summary": "Start linking my PhotoScout account",
+        "tags": [
+          "photoscout"
+        ],
+        "description": "Returns the PhotoScout consent URL (OAuth 2 authorization code + PKCE). Open it in a browser or custom tab. When the person has allowed it, PhotoScout redirects to this server's `/v1/photoscout/callback`, which stores the tokens and sends the browser on to `convoyage://photoscout/linked` (or `convoyage://photoscout/linked?error=<code>`). Connecting again replaces the earlier link. Guests cannot link.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhotoScoutAuthorizeUrl"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (also used when the viewer may not see the thing)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict with the current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream (routing or PhotoScout) server failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Not configured on this server (PhotoScout)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/photoscout/callback": {
+      "get": {
+        "summary": "PhotoScout redirects the browser here after consent",
+        "tags": [
+          "photoscout"
+        ],
+        "description": "Not called by apps. Exchanges the code, stores the tokens (sealed), and redirects (302) to `convoyage://photoscout/linked`, or `convoyage://photoscout/linked?error=<invalid_state|access_denied|exchange_failed|exchange_rejected|not_configured|...>`. Register `<PUBLIC_BASE_URL>/v1/photoscout/callback` as the redirect URI at PhotoScout.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 500
+            },
+            "in": "query",
+            "name": "code",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 500
+            },
+            "in": "query",
+            "name": "state",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "in": "query",
+            "name": "error",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 500
+            },
+            "in": "query",
+            "name": "error_description",
+            "required": false
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirect to the app."
+          }
+        }
+      }
+    },
+    "/v1/photoscout/link": {
+      "delete": {
+        "summary": "Unlink my PhotoScout account",
+        "tags": [
+          "photoscout"
+        ],
+        "description": "Revokes the connection at PhotoScout (best effort) and deletes the stored tokens. Idempotent.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (also used when the viewer may not see the thing)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict with the current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream (routing or PhotoScout) server failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Not configured on this server (PhotoScout)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/photoscout/events": {
+      "get": {
+        "summary": "Upcoming PhotoScout events",
+        "tags": [
+          "photoscout"
+        ],
+        "description": "Community events (some are cruises, with their meet point) and crawled events, soonest first, merged into one list. `from` defaults to now. With `near` each event gets `distanceKm` (null without a position), and `radiusKm` drops the farther ones. At most 200. 409 `photoscout_not_linked` when I have not linked.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "in": "query",
+            "name": "from",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "in": "query",
+            "name": "to",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "in": "query",
+            "name": "near",
+            "required": false,
+            "description": "lat,lng"
+          },
+          {
+            "schema": {
+              "type": "number",
+              "minimum": 0.1,
+              "maximum": 20000
+            },
+            "in": "query",
+            "name": "radiusKm",
+            "required": false
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PsEvent"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (also used when the viewer may not see the thing)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict with the current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream (routing or PhotoScout) server failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Not configured on this server (PhotoScout)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/photoscout/spots": {
+      "get": {
+        "summary": "PhotoScout spots in a box",
+        "tags": [
+          "photoscout"
+        ],
+        "description": "The spots I can see in PhotoScout inside `bbox` = south,west,north,east, with their good times and cover photo. Photo URLs are served by this server (`/v1/photoscout/photos/:id/thumb|file`) and need the bearer token.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "in": "query",
+            "name": "bbox",
+            "required": true,
+            "description": "south,west,north,east"
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PsSpot"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (also used when the viewer may not see the thing)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict with the current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream (routing or PhotoScout) server failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Not configured on this server (PhotoScout)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/photoscout/photos/{id}/{variant}": {
+      "get": {
+        "summary": "A spot photo from PhotoScout",
+        "tags": [
+          "photoscout"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "thumb",
+                "file"
+              ]
+            },
+            "in": "path",
+            "name": "variant",
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The image bytes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "The image bytes.",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (also used when the viewer may not see the thing)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict with the current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream (routing or PhotoScout) server failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Not configured on this server (PhotoScout)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/photoscout/events/{id}/rsvp": {
+      "post": {
+        "summary": "Say I am going to (or interested in) an event, or take it back",
+        "tags": [
+          "photoscout"
+        ],
+        "description": "The event id as listed: a uuid is a community event (going only), anything else a crawled event (going or interested). `{}` or `{status}` sets my answer (default going); `{going: false}` clears it.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "going",
+                      "interested"
+                    ]
+                  },
+                  "going": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PsRsvp"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (also used when the viewer may not see the thing)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict with the current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream (routing or PhotoScout) server failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Not configured on this server (PhotoScout)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/photoscout/checkins": {
+      "post": {
+        "summary": "Check in on PhotoScout",
+        "tags": [
+          "photoscout"
+        ],
+        "description": "Exactly one of `spotId` (a public spot), `eventId` (a public community event) or `lat` + `lng` + `placeName`. Shows on the PhotoScout feed. PhotoScout allows 30 a day (429 `photoscout_rejected`).",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "spotId": {
+                    "type": "string",
+                    "maxLength": 64
+                  },
+                  "eventId": {
+                    "type": "string",
+                    "maxLength": 64
+                  },
+                  "lat": {
+                    "type": "number",
+                    "minimum": -90,
+                    "maximum": 90
+                  },
+                  "lng": {
+                    "type": "number",
+                    "minimum": -180,
+                    "maximum": 180
+                  },
+                  "placeName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  },
+                  "body": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                },
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PsCheckin"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (also used when the viewer may not see the thing)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict with the current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream (routing or PhotoScout) server failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Not configured on this server (PhotoScout)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "servers": [
@@ -8696,6 +10224,9 @@
     },
     {
       "name": "devices"
+    },
+    {
+      "name": "photoscout"
     }
   ]
 }

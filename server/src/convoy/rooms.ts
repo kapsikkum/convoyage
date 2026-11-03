@@ -48,7 +48,9 @@ export function newCode(): string {
 /** What a client may type for a code: case and spaces forgiven. */
 export const normalizeCode = (raw: string): string => raw.replace(/[\s-]/g, '').toUpperCase();
 
-export interface Who { id: string; username: string; avatar: string }
+/** Avatar-badge data from a member's primary vehicle (see VehicleBadge in api/common.ts). */
+export interface MemberVehicle { kind: 'car' | 'motorcycle' | 'ute' | '4wd'; build: { paint?: string; finish?: string; wheel?: string; rideHeightMm?: number } }
+export interface Who { id: string; username: string; avatar: string; vehicle?: MemberVehicle | null }
 export interface Position { lat: number; lng: number; heading: number | null; speed: number | null; ts: number }
 export interface Destination { lat: number; lng: number; label: string }
 /** A shared driving itinerary. A circuit includes its first stop again at the end. */
@@ -111,7 +113,7 @@ export interface RoomView {
   /** Only present while the server holds a road-following route (polyline6) to the destination. */
   routeGeometry?: string;
   automaticRegroup: AutomaticRegroup;
-  members: { id: string; username: string; avatar: string; online: boolean; lastSeen: number; position: Position | null }[];
+  members: { id: string; username: string; avatar: string; vehicle: MemberVehicle | null; online: boolean; lastSeen: number; position: Position | null }[];
 }
 
 export type Outcome<T = RoomView> = { ok: true; value: T } | { ok: false; error: string };
@@ -139,7 +141,7 @@ export class Rooms {
       route: room.route && { name: room.route.name, stops: room.route.stops.map((p) => [...p] as [number, number]) },
       automaticRegroup: { ...room.automaticRegroup },
       members: [...room.members.values()].sort((a, b) => a.joinedAt - b.joinedAt).map((m) => ({
-        id: m.id, username: m.username, avatar: m.avatar, online: m.online, lastSeen: m.lastSeen, position: m.online ? m.position : null,
+        id: m.id, username: m.username, avatar: m.avatar, vehicle: m.vehicle ?? null, online: m.online, lastSeen: m.lastSeen, position: m.online ? m.position : null,
       })),
     };
   }
@@ -212,7 +214,7 @@ export class Rooms {
     if (room.removed.has(who.id)) return fail('The leader removed you from this convoy');
     const have = room.members.get(who.id);
     if (have) {
-      Object.assign(have, { username: who.username, avatar: who.avatar });
+      Object.assign(have, { username: who.username, avatar: who.avatar, vehicle: who.vehicle ?? null });
       return { ok: true, value: this.view(code)! };
     }
     if (room.members.size >= MAX_MEMBERS) return fail(`That convoy is full (${MAX_MEMBERS} members)`);
@@ -296,6 +298,16 @@ export class Rooms {
     room.automaticRegroup = { enabled: setting.enabled, separationM: setting.separationM };
     room.separatedSince = null;
     return { ok: true, value: this.view(code)! };
+  }
+
+  /** A member's primary vehicle changed (or became hidden): update it in every room they are in. Returns the rooms that changed. */
+  setMemberVehicle(userId: string, vehicle: MemberVehicle | null): string[] {
+    const changed: string[] = [];
+    for (const code of this.roomsOf(userId)) {
+      const m = this.room(code)?.members.get(userId);
+      if (m && JSON.stringify(m.vehicle ?? null) !== JSON.stringify(vehicle)) { m.vehicle = vehicle; changed.push(code); }
+    }
+    return changed;
   }
 
   /** A connected user changed their display name: update it in every room they are in. Returns those rooms. */

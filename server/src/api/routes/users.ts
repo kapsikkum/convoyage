@@ -3,7 +3,7 @@ import { sql, type Kysely, type Updateable } from 'kysely';
 import type { ProfilesTable } from '../../db/types.js';
 import type { DB } from '../../db/index.js';
 import { badRequest, conflict, notFound } from '../../errors.js';
-import { authenticate, iso, relationship, type ApiContext } from '../common.js';
+import { authenticate, iso, relationship, vehicleBadges, type ApiContext } from '../common.js';
 import { handleProblem, isUniqueViolation, vehicleDto } from '../dto.js';
 import { limits } from '../limits.js';
 import { arrayOf, bearer, bodyObj, errorResponses, nullable, ref, uuid } from '../schemas.js';
@@ -180,7 +180,8 @@ export async function userRoutes(app: FastifyInstance, ctx: ApiContext): Promise
       .where('follows.followee_id', '=', req.userId).where('follows.status', '=', 'pending')
       .where(sql<boolean>`not exists (select 1 from blocks b where (b.blocker_id = ${req.userId}::uuid and b.blocked_id = follows.follower_id) or (b.blocker_id = follows.follower_id and b.blocked_id = ${req.userId}::uuid))`)
       .orderBy('follows.created_at', 'desc').limit(200).execute();
-    return rows.map((r) => ({ user: { id: r.id, handle: r.handle, displayName: r.display_name, avatarMediaId: r.avatar_media_id }, createdAt: iso(r.created_at) }));
+    const badges = await vehicleBadges(db, req.userId, rows.map((r) => r.id));
+    return rows.map((r) => ({ user: { id: r.id, handle: r.handle, displayName: r.display_name, avatarMediaId: r.avatar_media_id, primaryVehicle: badges.get(r.id) ?? null }, createdAt: iso(r.created_at) }));
   });
 
   const requestParams = bodyObj({ userId: uuid });
@@ -238,6 +239,7 @@ export async function userRoutes(app: FastifyInstance, ctx: ApiContext): Promise
   }, async (req) => {
     const rows = await db.selectFrom('blocks').innerJoin('profiles', 'profiles.user_id', 'blocks.blocked_id')
       .select(['profiles.user_id as id', 'handle', 'display_name', 'avatar_media_id']).where('blocks.blocker_id', '=', req.userId).orderBy('blocks.created_at', 'desc').execute();
-    return rows.map((r) => ({ id: r.id, handle: r.handle, displayName: r.display_name, avatarMediaId: r.avatar_media_id }));
+    const badges = await vehicleBadges(db, req.userId, rows.map((r) => r.id));
+    return rows.map((r) => ({ id: r.id, handle: r.handle, displayName: r.display_name, avatarMediaId: r.avatar_media_id, primaryVehicle: badges.get(r.id) ?? null }));
   });
 }

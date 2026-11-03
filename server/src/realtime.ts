@@ -1,9 +1,9 @@
 import type http from 'node:http';
 import type { Duplex } from 'node:stream';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { MAX_LABEL, MAX_NAME, MissLimiter, Rooms, type Who } from './convoy/rooms.js';
+import { MAX_LABEL, MAX_NAME, MissLimiter, Rooms, type MemberVehicle, type Who } from './convoy/rooms.js';
 import { parseClientMessage, type ClientMessage } from './convoy/messages.js';
-import type { Authenticator, CruiseSource, RestStopFinder } from './ports.js';
+import { CruiseError, type Authenticator, type Cruise, type CruiseSource, type RestStopFinder } from './ports.js';
 
 /**
  * The one WebSocket endpoint, `/ws`: convoy rooms.
@@ -56,6 +56,8 @@ export interface Realtime {
   sendToRoom(code: string, message: unknown): void;
   /** A connected user changed their display name: update it in their rooms and tell the members. */
   renameUser(userId: string, name: string): void;
+  /** A user's primary vehicle changed: update the badge in their rooms and tell the members. */
+  setVehicle(userId: string, vehicle: MemberVehicle | null): void;
 }
 
 /** Subprotocol a client offers (alongside `bearer.<access token>`) so the token never lands in a URL. */
@@ -156,7 +158,13 @@ export function attachRealtime(server: http.Server, opts: RealtimeOptions): Real
       done = rooms.join(m.code, who);
       if (!done.ok && done.error.startsWith('No convoy')) misses.miss(conn.userId);
     } else {
-      const cruise = await opts.cruises.getCruise(m.eventId, conn.userId);
+      let cruise: Cruise | null;
+      try {
+        cruise = await opts.cruises.getCruise(m.eventId, conn.userId);
+      } catch (e) {
+        if (e instanceof CruiseError) return error(e.message);
+        throw e;
+      }
       if (!cruise) return error('No such cruise');
       const code = rooms.forEvent(m.eventId);
       if (code) {
@@ -168,6 +176,7 @@ export function attachRealtime(server: http.Server, opts: RealtimeOptions): Real
         done = rooms.create(who, {
           name: cruise.name,
           eventId: m.eventId,
+          route: cruise.route ?? null,
           destination: { lat: cruise.meet.lat, lng: cruise.meet.lng, label: (cruise.meet.label || 'Meeting point').slice(0, MAX_LABEL) },
         });
       }
@@ -343,6 +352,10 @@ export function attachRealtime(server: http.Server, opts: RealtimeOptions): Real
     renameUser(userId, name) {
       for (const conn of byUser.get(userId) ?? []) conn.who = { ...conn.who, username: name.trim().slice(0, MAX_NAME) || conn.who.username };
       for (const code of rooms.renameMember(userId, name)) announce(code);
+    },
+    setVehicle(userId, vehicle) {
+      for (const conn of byUser.get(userId) ?? []) conn.who = { ...conn.who, vehicle };
+      for (const code of rooms.setMemberVehicle(userId, vehicle)) announce(code);
     },
     close() {
       clearInterval(beat);

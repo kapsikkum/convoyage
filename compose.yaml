@@ -45,6 +45,12 @@ services:
       OSRM_URL: ${OSRM_URL:-https://router.project-osrm.org}
       # Rest-stop search (convoy.rest) reads OpenStreetMap through Overpass.
       OVERPASS_URL: ${OVERPASS_URL:-https://overpass-api.de/api/interpreter,https://overpass.openstreetmap.fr/api/interpreter}
+      # PhotoScout link: set all three in .env, or leave unset (the routes then answer 503).
+      PHOTOSCOUT_URL: ${PHOTOSCOUT_URL:-}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+      PHOTOSCOUT_TOKEN_KEY: ${PHOTOSCOUT_TOKEN_KEY:-}
+      PHOTOSCOUT_CLIENT_ID: ${PHOTOSCOUT_CLIENT_ID:-convoyage}
+      PHOTOSCOUT_CLIENT_SECRET: ${PHOTOSCOUT_CLIENT_SECRET:-}
     ports:
       - "0.0.0.0:8080:8080"
     volumes:
