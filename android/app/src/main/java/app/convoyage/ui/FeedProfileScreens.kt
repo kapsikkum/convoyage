@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -14,12 +15,31 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import app.convoyage.AppContainer
+import app.convoyage.api.ApiResult
+import app.convoyage.data.AuthKind
 import app.convoyage.data.Roster
+import app.convoyage.design.Banner
+import app.convoyage.design.BannerTone
+import app.convoyage.design.CvTextField
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import app.convoyage.design.CutLShape
 import app.convoyage.design.CutMShape
 import app.convoyage.design.CutSShape
@@ -122,34 +142,95 @@ private fun PostCard(
     }
 }
 
-/** Profile with the signed-in name; stats and posts are placeholders. TODO(profile): server-backed profile. */
+data class ProfileUi(val saving: Boolean = false, val saveError: String? = null, val loadError: String? = null)
+
+class ProfileViewModel(private val container: AppContainer) : ViewModel() {
+    private val _ui = MutableStateFlow(ProfileUi())
+    val ui: StateFlow<ProfileUi> = _ui.asStateFlow()
+
+    init {
+        load()
+    }
+
+    fun load() {
+        if (container.session.kind.value != AuthKind.Account) return
+        viewModelScope.launch {
+            _ui.update { it.copy(loadError = null) }
+            when (val r = container.account.loadMe()) {
+                is ApiResult.Err -> if (!r.isUnauthorized) _ui.update { it.copy(loadError = r.message) } // 401 = signed out, AppRoot reacts
+                is ApiResult.Ok -> Unit
+            }
+        }
+    }
+
+    fun clearSaveState() = _ui.update { it.copy(saveError = null) }
+
+    fun saveName(name: String, onDone: () -> Unit) {
+        val clean = name.trim()
+        if (clean.isEmpty() || _ui.value.saving) return
+        _ui.update { it.copy(saving = true, saveError = null) }
+        viewModelScope.launch {
+            when (val r = container.account.updateDisplayName(clean)) {
+                is ApiResult.Ok -> { _ui.update { it.copy(saving = false) }; onDone() }
+                is ApiResult.Err -> _ui.update { it.copy(saving = false, saveError = r.message) }
+            }
+        }
+    }
+}
+
+/** Profile: display name and handle come from `GET /v1/me` (editable); the stats and posts are placeholders. */
 @Composable
 fun ProfileScreen(onOpenGarage: () -> Unit, onSignOut: () -> Unit) {
     val c = Cv.colors
     val container = LocalContainer.current
+    val vm: ProfileViewModel = viewModel(factory = viewModelFactory { initializer { ProfileViewModel(container) } })
+    val ui by vm.ui.collectAsStateWithLifecycle()
+    val me by container.account.me.collectAsStateWithLifecycle()
     val name by container.session.name.collectAsState()
+    val kind by container.session.kind.collectAsState()
     val serverUrl by container.session.serverUrl.collectAsState()
     val night by container.session.night.collectAsState()
     var section by remember { mutableIntStateOf(1) }
+    var editing by rememberSaveable { mutableStateOf(false) }
+    var draft by rememberSaveable { mutableStateOf("") }
+    val shownName = me?.displayName?.ifBlank { null } ?: me?.handle ?: name ?: "Guest"
+    val handle = me?.handle?.let { "@$it" } ?: if (kind == AuthKind.Dev) "dev sign-in, no account" else "@..."
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).screenGutters().padding(top = Space.s6, bottom = TabBarClearance),
+        Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).screenGutters().padding(top = Space.s6, bottom = TabBarClearance),
         verticalArrangement = Arrangement.spacedBy(Space.s4),
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                CvIcon(CvIcons.Lock, c.inkMuted, size = 16.dp); Eyebrow("PRIVATE ACCOUNT")
+                CvIcon(CvIcons.Lock, c.inkMuted, size = 16.dp); Eyebrow(if (me?.isPrivate == false) "PUBLIC ACCOUNT" else "PRIVATE ACCOUNT")
             }
             CvIconButton(CvIcons.Settings, "Settings", {})
         }
         Row(horizontalArrangement = Arrangement.spacedBy(Space.s4), verticalAlignment = Alignment.CenterVertically) {
-            CvAvatar(Roster.initials(name.orEmpty()), null, size = 64.dp)
+            CvAvatar(Roster.initials(shownName), null, size = 64.dp)
             Column(verticalArrangement = Arrangement.spacedBy(Space.s1)) {
-                CvText(name ?: "Guest", Cv.type.displayL, c.ink)
-                CvText("@${(name ?: "guest").lowercase().replace(' ', '_')} · drives + rides", Cv.type.bodyS, c.inkMuted)
+                CvText(shownName, Cv.type.displayL, c.ink, maxLines = 2)
+                CvText("$handle · drives + rides", Cv.type.bodyS, c.inkMuted)
                 Row(horizontalArrangement = Arrangement.spacedBy(Space.s4)) {
-                    CvText("0 followers", Cv.type.bodyS, c.ink); CvText("0 following", Cv.type.bodyS, c.ink)
+                    CvText("${me?.followerCount ?: 0} followers", Cv.type.bodyS, c.ink); CvText("${me?.followingCount ?: 0} following", Cv.type.bodyS, c.ink)
                 }
             }
+        }
+        if (ui.loadError != null) Banner(BannerTone.Hazard, "Could not load your profile", sub = ui.loadError, icon = CvIcons.Alert, actionLabel = "Retry", onAction = vm::load)
+        if (kind == AuthKind.Account) {
+            if (!editing) {
+                CvButton("Edit display name", { draft = shownName; editing = true; vm.clearSaveState() }, Modifier.fillMaxWidth(), CvButtonKind.Ghost)
+            } else {
+                CvTextField(draft, { draft = it.take(60) }, "Display name", placeholder = "Alex")
+                Row(horizontalArrangement = Arrangement.spacedBy(Space.s3)) {
+                    CvButton("Cancel", { editing = false }, Modifier.weight(1f), CvButtonKind.Ghost, enabled = !ui.saving)
+                    CvButton(
+                        if (ui.saving) "Saving..." else "Save",
+                        { vm.saveName(draft) { editing = false } },
+                        Modifier.weight(1f), enabled = !ui.saving && draft.isNotBlank(),
+                    )
+                }
+            }
+            ui.saveError?.let { Banner(BannerTone.Pulse, it) }
         }
         CvCard(Modifier.fillMaxWidth(), edge = c.lineStrong, shape = CutMShape, onClick = onOpenGarage) {
             Row(Modifier.gridBackdrop(c.line.copy(alpha = 0.4f)).padding(Space.s4), horizontalArrangement = Arrangement.spacedBy(Space.s3), verticalAlignment = Alignment.CenterVertically) {
