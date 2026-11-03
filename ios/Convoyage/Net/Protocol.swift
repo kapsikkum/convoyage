@@ -37,6 +37,8 @@ struct Member: Codable, Equatable, Identifiable {
     var position: MemberPosition?
     /// Not in the v1 snapshot yet; read tolerantly in case the server adds it ("moving", "stopping", "sos").
     var status: String?
+    /// The member's primary vehicle, for their avatar badge. Absent or null when they have none or the account is private.
+    var vehicle: VehicleBadgeDto?
 }
 
 struct ConvoyChatMessage: Codable, Equatable, Identifiable {

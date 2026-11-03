@@ -21,9 +21,11 @@ struct MapPin: Identifiable, Equatable {
     let coordinate: CLLocationCoordinate2D
     /// An SF Symbol drawn instead of the initials.
     var symbol: String? = nil
+    /// The member's primary vehicle, drawn as a small badge on the pin.
+    var vehicle: VehicleBuild? = nil
 
     static func == (a: MapPin, b: MapPin) -> Bool {
-        return a.id == b.id && a.initials == b.initials && a.kind == b.kind && a.symbol == b.symbol
+        return a.id == b.id && a.initials == b.initials && a.kind == b.kind && a.symbol == b.symbol && a.vehicle == b.vehicle
             && a.coordinate.latitude == b.coordinate.latitude
             && a.coordinate.longitude == b.coordinate.longitude
     }
@@ -35,12 +37,15 @@ final class PinAnnotation: MLNPointAnnotation {
     var initials: String = ""
     var kind: MapPin.Kind = .member
     var symbol: String?
+    var vehicle: VehicleBuild?
 }
 
 /// A round pin: avatar initials (or a symbol) on a coloured disc.
 final class PinAnnotationView: MLNAnnotationView {
     private let label: UILabel = UILabel()
     private let icon: UIImageView = UIImageView()
+    private let badge: UIImageView = UIImageView()
+    private var badgeKey: String?
 
     override init(annotation: MLNAnnotation?, reuseIdentifier: String?) {
         super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
@@ -54,10 +59,41 @@ final class PinAnnotationView: MLNAnnotationView {
         icon.frame = CGRect(x: 8, y: 8, width: 20, height: 20)
         icon.contentMode = .scaleAspectFit
         addSubview(icon)
+        badge.frame = CGRect(x: 21, y: 21, width: 18, height: 18)
+        badge.layer.cornerRadius = 9
+        badge.layer.borderWidth = 1.5
+        badge.layer.borderColor = UIColor(white: 0.04, alpha: 1).cgColor
+        badge.layer.magnificationFilter = CALayerContentsFilter.nearest
+        badge.layer.masksToBounds = true
+        badge.backgroundColor = UIColor(white: 0.09, alpha: 1)
+        badge.contentMode = .scaleAspectFit
+        badge.isHidden = true
+        addSubview(badge)
     }
 
     required init?(coder aDecoder: NSCoder) {
         fatalError("init(coder:) is not used")
+    }
+
+    /// A small render of the member's vehicle at the pin's bottom right.
+    func setVehicle(_ build: VehicleBuild?) {
+        guard let b = build else {
+            badge.isHidden = true
+            badge.image = nil
+            badgeKey = nil
+            return
+        }
+        let key: String = b.key("Badge")
+        if key == badgeKey && badge.image != nil { return }
+        badgeKey = key
+        badge.isHidden = false
+        badge.image = Ps1Thumbs.cached(b, Ps1ThumbSize.badge)
+        if badge.image == nil {
+            Task { @MainActor in
+                let img: UIImage? = await Ps1Thumbs.shared.image(b, Ps1ThumbSize.badge)
+                if self.badgeKey == key { self.badge.image = img }
+            }
+        }
     }
 
     func apply(initials: String, symbol: String?, fill: UIColor, edge: UIColor, text: UIColor) {
@@ -491,7 +527,8 @@ struct ConvoyMapView: UIViewRepresentable {
             for pin in pins {
                 if let ann = annotations[pin.id] {
                     ann.coordinate = pin.coordinate
-                    if ann.kind != pin.kind || ann.initials != pin.initials || ann.symbol != pin.symbol {
+                    if ann.kind != pin.kind || ann.initials != pin.initials || ann.symbol != pin.symbol || ann.vehicle != pin.vehicle {
+                        ann.vehicle = pin.vehicle
                         ann.kind = pin.kind
                         ann.initials = pin.initials
                         ann.symbol = pin.symbol
@@ -505,6 +542,7 @@ struct ConvoyMapView: UIViewRepresentable {
                     ann.initials = pin.initials
                     ann.kind = pin.kind
                     ann.symbol = pin.symbol
+                    ann.vehicle = pin.vehicle
                     ann.coordinate = pin.coordinate
                     annotations[pin.id] = ann
                     map.addAnnotation(ann)
@@ -546,6 +584,7 @@ struct ConvoyMapView: UIViewRepresentable {
                        fill: UIColor(fill),
                        edge: UIColor(edge),
                        text: UIColor(text))
+            view.setVehicle(ann.symbol == nil ? ann.vehicle : nil)
         }
 
         func mapView(_ mapView: MLNMapView, viewFor annotation: MLNAnnotation) -> MLNAnnotationView? {

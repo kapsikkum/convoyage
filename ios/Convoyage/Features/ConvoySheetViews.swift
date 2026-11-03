@@ -308,6 +308,8 @@ struct RosterPanel: View {
                        detail: detail,
                        distance: dist,
                        distanceCaption: dist == nil ? nil : "away",
+                       photoURL: m.avatar.hasPrefix("/v1/media/") ? m.avatar : nil,
+                       vehicle: m.vehicle.map { (v: VehicleBadgeDto) -> VehicleBuild in return VehicleBuild(badge: v) } ?? (isMe ? app.myVehicleBuild : nil),
                        state: state)
             if vm.isLeader && !isMe {
                 Menu {
@@ -515,6 +517,8 @@ struct RoutePanel: View {
     @Environment(AppState.self) private var app
     @Environment(\.theme) private var theme
     @State private var newName: String = ""
+    @State private var regroupOn: Bool = true
+    @State private var regroupKm: Double = 2
 
     var body: some View {
         let vm: ConvoyViewModel = app.convoy
@@ -544,7 +548,7 @@ struct RoutePanel: View {
                         } else {
                             Text("Automatic regroup is off").font(CvFont.text(14, weight: .bold))
                         }
-                        Text("Set when the convoy started. The route line below is needed for rest stops.")
+                        Text(vm.isLeader ? "Change it under Leader tools. The route line is needed for rest stops." : "Only the leader changes it. The route line is needed for rest stops.")
                             .font(CvFont.text(12))
                             .foregroundStyle(theme.inkMuted)
                     }
@@ -559,6 +563,42 @@ struct RoutePanel: View {
                 }
                 .padding(.bottom, 8)
             }
+        }
+    }
+
+    /// Leader: switch automatic regroup on or off and set how far apart the convoy may get (1 to 20 km).
+    private func regroupEditor(_ vm: ConvoyViewModel, _ room: Room) -> some View {
+        let current: AutomaticRegroup = room.automaticRegroup
+        let currentKm: Double = min(20, max(1, (current.separationM / 1000).rounded()))
+        let changed: Bool = regroupOn != current.enabled || (regroupOn && abs(regroupKm - currentKm) > 0.01)
+        return VStack(alignment: .leading, spacing: 8) {
+            SectionLabel(text: "Automatic regroup")
+            Toggle(isOn: $regroupOn) {
+                Text("Call a rest stop when the group splits").font(CvFont.text(14, weight: .bold))
+            }
+            .tint(theme.signal)
+            if regroupOn {
+                HStack {
+                    Text("Split distance").font(CvFont.text(13)).foregroundStyle(theme.inkMuted)
+                    Spacer()
+                    Text(String(format: "%.0f km", regroupKm)).font(CvFont.mono(14))
+                }
+                Slider(value: $regroupKm, in: 1...20, step: 1)
+                    .tint(theme.signal)
+            }
+            CvButton(title: "Apply regroup", icon: "checkmark", kind: .ghost) {
+                vm.setAutomaticRegroup(enabled: regroupOn, separationM: regroupKm * 1000)
+            }
+            .opacity(changed ? 1 : 0.5)
+            .disabled(!changed)
+        }
+        .onAppear {
+            regroupOn = current.enabled
+            regroupKm = currentKm
+        }
+        .onChange(of: room.automaticRegroup) { (_: AutomaticRegroup, new: AutomaticRegroup) in
+            regroupOn = new.enabled
+            regroupKm = min(20, max(1, (new.separationM / 1000).rounded()))
         }
     }
 
@@ -589,6 +629,7 @@ struct RoutePanel: View {
                     .accessibilityLabel("Rename the convoy")
                 }
             }
+            regroupEditor(vm, room)
             if room.destination != nil {
                 CvButton(title: "Clear destination", icon: "xmark", kind: .ghost) { vm.clearDestination() }
                 if room.route == nil {

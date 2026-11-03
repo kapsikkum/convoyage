@@ -472,15 +472,60 @@ final class ConvoyViewModel {
         }
     }
 
-    /// At most `maxPoints` points of a line, evenly spaced along it, keeping the first and the last.
+    /// At most `maxPoints` points of a line, both ends kept, for `convoy.route` (25 stops at most). They are the vertices
+    /// that matter: the one furthest off the chord of the stops chosen so far is added until the budget is spent or the
+    /// line is within a metre. Evenly spaced points cut every corner and roundabout (Android's NavMath.sampleStops).
     static func simplify(_ line: [CLLocationCoordinate2D], maxPoints: Int) -> [CLLocationCoordinate2D] {
-        if line.count <= maxPoints || maxPoints < 2 { return line }
-        var out: [CLLocationCoordinate2D] = []
-        let step: Double = Double(line.count - 1) / Double(maxPoints - 1)
-        for i in 0..<maxPoints {
-            out.append(line[Int((Double(i) * step).rounded())])
+        if line.count <= max(maxPoints, 2) || maxPoints < 2 { return line }
+        struct Span {
+            var from: Int
+            var to: Int
+            var at: Int
+            var offM: Double
         }
-        return out
+        func worst(_ from: Int, _ to: Int) -> Span? {
+            if to - from < 2 { return nil }
+            var bi: Int = -1
+            var bd: Double = 0
+            for i in (from + 1)..<to {
+                let d: Double = ConvoyViewModel.offSegmentM(line[i], line[from], line[to])
+                if d > bd {
+                    bd = d
+                    bi = i
+                }
+            }
+            if bi < 0 { return nil }
+            return Span(from: from, to: to, at: bi, offM: bd)
+        }
+        var keep: Set<Int> = [0, line.count - 1]
+        var open: [Span] = []
+        if let w = worst(0, line.count - 1) { open.append(w) }
+        while keep.count < maxPoints && !open.isEmpty {
+            var best: Int = 0
+            for k in 0..<open.count where open[k].offM > open[best].offM { best = k }
+            let w: Span = open.remove(at: best)
+            if w.offM < 1.0 { break }
+            keep.insert(w.at)
+            if let l = worst(w.from, w.at) { open.append(l) }
+            if let r = worst(w.at, w.to) { open.append(r) }
+        }
+        return keep.sorted().map { (i: Int) -> CLLocationCoordinate2D in return line[i] }
+    }
+
+    /// Distance from `p` to the segment `a`-`b`, metres (flat-earth, fine at route scale).
+    static func offSegmentM(_ p: CLLocationCoordinate2D, _ a: CLLocationCoordinate2D, _ b: CLLocationCoordinate2D) -> Double {
+        let mPerDeg: Double = 111_320.0
+        let cosLat: Double = cos(p.latitude * Double.pi / 180)
+        let ax: Double = (a.longitude - p.longitude) * cosLat * mPerDeg
+        let ay: Double = (a.latitude - p.latitude) * mPerDeg
+        let bx: Double = (b.longitude - p.longitude) * cosLat * mPerDeg
+        let by: Double = (b.latitude - p.latitude) * mPerDeg
+        let dx: Double = bx - ax
+        let dy: Double = by - ay
+        let len2: Double = dx * dx + dy * dy
+        var t: Double = 0
+        if len2 > 1e-9 { t = min(1, max(0, -(ax * dx + ay * dy) / len2)) }
+        return (((ax + t * dx) * (ax + t * dx)) + ((ay + t * dy) * (ay + t * dy))).squareRoot()
     }
 
     func handOver(to id: String) {
@@ -716,7 +761,8 @@ final class ConvoyViewModel {
             return MapPin(id: m.id,
                           initials: Formatters.initials(Formatters.shownName(m.username)),
                           kind: kind,
-                          coordinate: CLLocationCoordinate2D(latitude: p.lat, longitude: p.lng))
+                          coordinate: CLLocationCoordinate2D(latitude: p.lat, longitude: p.lng),
+                          vehicle: m.vehicle.map { (v: VehicleBadgeDto) -> VehicleBuild in return VehicleBuild(badge: v) })
         }
         if let r = room, let d = r.destination {
             out.append(MapPin(id: "convoy-destination",

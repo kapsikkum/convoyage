@@ -175,6 +175,11 @@ final class ApiClient: @unchecked Sendable {
 
     // MARK: Vehicles
 
+    /// `GET /v1/catalogue`: the ids paint, finish, wheel and decal fields carry. Public.
+    func catalogue() async -> ApiResult<CatalogueDto> {
+        return await send("GET", "/v1/catalogue", auth: false, as: CatalogueDto.self)
+    }
+
     func vehicles() async -> ApiResult<[VehicleDto]> {
         return await send("GET", "/v1/vehicles", as: [VehicleDto].self)
     }

@@ -13,60 +13,71 @@ extension Color {
     }
 }
 
-/// PLACEHOLDER for the PS1-style 3D renderer: a chamfered card in the vehicle's paint colour.
+/// A vehicle on a card: its PS1 render (a cached thumbnail) with the name over the bottom.
 struct VehicleCard: View {
     let vehicle: VehicleDto
     var height: CGFloat = 180
     @Environment(\.theme) private var theme
 
-    private var paintHex: String { return vehicle.build?.paint ?? "#9aa3ad" }
-
-    private var sheen: Double {
-        switch vehicle.build?.finish ?? "gloss" {
-        case "matte": return 0
-        case "satin": return 0.12
-        case "metallic": return 0.28
-        case "pearl": return 0.32
-        default: return 0.22
-        }
-    }
-
     var body: some View {
-        let light: Bool = Color.isLightHex(paintHex)
-        let fg: Color = light ? Color(hex: 0x06121e) : Color.white
         ZStack(alignment: .bottomLeading) {
-            ChamferShape(cut: Cut.l).fill(Color(hexString: paintHex))
-            LinearGradient(colors: [Color.white.opacity(sheen), Color.clear, Color.black.opacity(0.30)],
-                           startPoint: .top, endPoint: .bottom)
-                .clipShape(ChamferShape(cut: Cut.l))
-            VStack(alignment: .leading, spacing: 2) {
-                HStack {
-                    Text(GarageCatalog.name(of: vehicle.kind, in: GarageCatalog.kinds).uppercased())
-                        .font(CvFont.label(10))
-                        .tracking(1.4)
-                    Spacer()
-                    // PLACEHOLDER: the 3D renderer replaces this card.
-                    Text("3D RENDER SOON")
-                        .font(CvFont.label(9))
-                        .tracking(1.2)
-                        .opacity(0.7)
-                }
-                Spacer()
-                Text(vehicle.title).font(CvFont.display(22))
-                Text(detailLine).font(CvFont.text(12, weight: .semibold)).opacity(0.85)
-            }
-            .foregroundStyle(fg)
-            .padding(14)
+            ChamferShape(cut: Cut.l).fill(theme.void)
+            Ps1Thumb(build: VehicleBuild(vehicle: vehicle), size: Ps1ThumbSize.card)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            VehicleCaption(vehicle: vehicle)
         }
         .frame(height: height)
+        .clipShape(ChamferShape(cut: Cut.l))
         .overlay(ChamferShape(cut: Cut.l).stroke(theme.lineStrong, lineWidth: 1))
     }
+}
+
+/// The garage detail hero: the live PS1 renderer, turning on its own and under a finger.
+struct VehicleHero: View {
+    let vehicle: VehicleDto
+    var height: CGFloat = 260
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            ChamferShape(cut: Cut.l).fill(theme.void)
+            Ps1LiveView(build: VehicleBuild(vehicle: vehicle))
+            VehicleCaption(vehicle: vehicle).allowsHitTesting(false)
+        }
+        .frame(height: height)
+        .clipShape(ChamferShape(cut: Cut.l))
+        .overlay(ChamferShape(cut: Cut.l).stroke(theme.lineStrong, lineWidth: 1))
+    }
+}
+
+/// Kind label at the top, name and details at the bottom, over a fade so they read on the render.
+struct VehicleCaption: View {
+    let vehicle: VehicleDto
+    @Environment(\.theme) private var theme
 
     private var detailLine: String {
         var parts: [String] = [vehicle.subtitle]
         if let f = vehicle.build?.finish { parts.append(f.capitalized) }
-        if let w = vehicle.build?.wheel { parts.append(GarageCatalog.name(of: w, in: GarageCatalog.wheels)) }
+        if let w = vehicle.build?.wheel { parts.append(GarageCatalog.name(of: Ps1Wheels.of(w).id, in: GarageCatalog.wheels)) }
         return parts.joined(separator: " / ")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(GarageCatalog.name(of: vehicle.kind, in: GarageCatalog.kinds).uppercased())
+                .font(CvFont.label(10))
+                .tracking(1.4)
+                .foregroundStyle(theme.signal)
+            Spacer()
+            Text(vehicle.title).font(CvFont.display(22))
+            Text(detailLine).font(CvFont.text(12, weight: .semibold)).foregroundStyle(theme.inkMuted)
+        }
+        .foregroundStyle(theme.ink)
+        .padding(14)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(
+            LinearGradient(colors: [Color.clear, theme.void.opacity(0.85)], startPoint: .center, endPoint: .bottom)
+        )
     }
 }
 
@@ -104,7 +115,7 @@ struct GarageView: View {
             }
 
             if let v = selected {
-                VehicleCard(vehicle: v, height: 200)
+                VehicleHero(vehicle: v, height: 260)
                 actions(v)
             } else if garage.loaded {
                 VStack(spacing: 6) {
@@ -138,6 +149,7 @@ struct GarageView: View {
             }
         }
         .task {
+            await garage.loadCatalogue()
             await garage.load()
         }
         .refreshable {
@@ -168,9 +180,10 @@ struct GarageView: View {
     private func row(_ v: VehicleDto) -> some View {
         let isSel: Bool = (v.id == selected?.id)
         return HStack(spacing: 12) {
-            Circle()
-                .fill(Color(hexString: v.build?.paint ?? "#9aa3ad"))
-                .frame(width: 32, height: 32)
+            Ps1Thumb(build: VehicleBuild(vehicle: v), size: Ps1ThumbSize.badge)
+                .frame(width: 44, height: 44)
+                .background(Circle().fill(theme.surface300))
+                .clipShape(Circle())
                 .overlay(Circle().stroke(theme.lineStrong, lineWidth: 1))
             VStack(alignment: .leading, spacing: 2) {
                 Text(v.title).font(CvFont.display(18))
@@ -349,10 +362,19 @@ struct VehicleFormView: View {
             .padding(20)
         }
         .scrollDismissesKeyboard(.interactively)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            Ps1LiveView(build: VehicleBuild(draft: draft))
+                .frame(height: 190)
+                .frame(maxWidth: .infinity)
+                .background(theme.void)
+        }
         .background(theme.surface100.ignoresSafeArea())
         .foregroundStyle(theme.ink)
         .onAppear {
             if let v = vehicle { draft = VehicleDraft(from: v) }
+        }
+        .task {
+            await app.garage.loadCatalogue()
         }
     }
 

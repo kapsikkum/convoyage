@@ -170,7 +170,7 @@ struct PostCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
-                CvAvatar(initials: Formatters.initials(post.author.shownName), size: 40)
+                CvAvatar(photoURL: post.author.avatarPath, vehicle: post.author.vehicleBuild, initials: Formatters.initials(post.author.shownName), size: 40)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(post.author.shownName).font(CvFont.text(15, weight: .bold))
                     Text(Iso.ago(post.createdAt)).font(CvFont.text(12)).foregroundStyle(theme.inkMuted)
@@ -315,7 +315,7 @@ struct CommentsView: View {
                     }
                     ForEach(items) { (c: CommentDto) in
                         HStack(alignment: .top, spacing: 10) {
-                            CvAvatar(initials: Formatters.initials(c.author.shownName), size: 32)
+                            CvAvatar(photoURL: c.author.avatarPath, vehicle: c.author.vehicleBuild, initials: Formatters.initials(c.author.shownName), size: 32)
                             VStack(alignment: .leading, spacing: 2) {
                                 HStack(spacing: 6) {
                                     Text(c.author.shownName).font(CvFont.text(13, weight: .bold))

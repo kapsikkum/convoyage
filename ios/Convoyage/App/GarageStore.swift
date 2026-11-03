@@ -5,6 +5,7 @@ import Observation
 struct CatalogItem: Identifiable, Hashable {
     let id: String
     let name: String
+    var slot: String = "body"
 }
 
 enum GarageCatalog {
@@ -15,7 +16,7 @@ enum GarageCatalog {
         CatalogItem(id: "4wd", name: "4WD")
     ]
 
-    static let finishes: [CatalogItem] = [
+    static var finishes: [CatalogItem] = [
         CatalogItem(id: "gloss", name: "Gloss"),
         CatalogItem(id: "satin", name: "Satin"),
         CatalogItem(id: "matte", name: "Matte"),
@@ -23,32 +24,57 @@ enum GarageCatalog {
         CatalogItem(id: "pearl", name: "Pearl")
     ]
 
-    /// Paint swatches: (name, #RRGGBB). Same set as the garage mockup.
-    static let paints: [(name: String, hex: String)] = [
-        (name: "Pearl white", hex: "#e9edf2"),
-        (name: "Emotional red", hex: "#c8102e"),
-        (name: "Precious black", hex: "#17191c"),
-        (name: "Platinum grey", hex: "#9aa3ad"),
-        (name: "Sonic blue", hex: "#2a5bd7"),
-        (name: "Acid lime", hex: "#b7e33b"),
-        (name: "Signal cyan", hex: "#2de2e6"),
-        (name: "Sunset orange", hex: "#ff7a1a")
+    /// Paint swatches: (name, #RRGGBB). The server's catalogue replaces these through `apply`.
+    static var paints: [(name: String, hex: String)] = [
+        (name: "Convoy Cyan", hex: "#2de2e6"),
+        (name: "Pearl White", hex: "#f4f1ea"),
+        (name: "Black", hex: "#0b0b0d"),
+        (name: "Race Red", hex: "#c8102e"),
+        (name: "Cobalt Blue", hex: "#1f4fd8"),
+        (name: "Forest Green", hex: "#1e7b45"),
+        (name: "Solar Yellow", hex: "#f2c230"),
+        (name: "Silver", hex: "#b8bcc2")
     ]
 
-    static let wheels: [CatalogItem] = [
+    /// The six wheel looks the renderer draws, keyed by the server's catalogue ids.
+    static var wheels: [CatalogItem] = [
         CatalogItem(id: "stock", name: "Stock"),
-        CatalogItem(id: "forged_5spoke", name: "Forged 5-spoke"),
-        CatalogItem(id: "mesh_gold", name: "Mesh gold"),
-        CatalogItem(id: "deep_dish", name: "Deep dish"),
-        CatalogItem(id: "steelie", name: "Steelie")
+        CatalogItem(id: "sport5", name: "Sport 5-Spoke"),
+        CatalogItem(id: "mesh", name: "Mesh"),
+        CatalogItem(id: "split_spoke", name: "Split Spoke"),
+        CatalogItem(id: "deep_dish", name: "Deep Dish"),
+        CatalogItem(id: "steelie", name: "Steel Wheel")
     ]
 
-    static let decals: [CatalogItem] = [
-        CatalogItem(id: "stripe_dual", name: "Dual stripe"),
-        CatalogItem(id: "race_number", name: "Race number"),
-        CatalogItem(id: "sponsor_strip", name: "Sponsor strip"),
-        CatalogItem(id: "side_flames", name: "Side flames")
+    static var decals: [CatalogItem] = [
+        CatalogItem(id: "twin_stripe", name: "Twin Stripe", slot: "body"),
+        CatalogItem(id: "racing_number", name: "Racing Number", slot: "door"),
+        CatalogItem(id: "flames", name: "Flames", slot: "side"),
+        CatalogItem(id: "hood_stripe", name: "Hood Stripe", slot: "hood"),
+        CatalogItem(id: "sponsor_band", name: "Sponsor Band", slot: "windscreen"),
+        CatalogItem(id: "checker_flag", name: "Chequered Flag", slot: "rear")
     ]
+
+    /// Replaces the lists with what `GET /v1/catalogue` says. Lists the server leaves out keep their defaults.
+    static func apply(_ c: CatalogueDto) {
+        if let list = c.paints, !list.isEmpty {
+            var out: [(name: String, hex: String)] = []
+            for p in list {
+                guard let hex = p.hex else { continue }
+                out.append((name: p.name ?? hex, hex: hex))
+            }
+            if !out.isEmpty { paints = out }
+        }
+        if let list = c.wheels, !list.isEmpty {
+            wheels = list.map { (e: CatalogueDto.Entry) -> CatalogItem in return CatalogItem(id: e.id, name: e.name ?? e.id) }
+        }
+        if let list = c.decals, !list.isEmpty {
+            decals = list.map { (e: CatalogueDto.Entry) -> CatalogItem in return CatalogItem(id: e.id, name: e.name ?? e.id, slot: e.slot ?? "body") }
+        }
+        if let list = c.finishes, !list.isEmpty {
+            finishes = list.map { (e: CatalogueDto.Entry) -> CatalogItem in return CatalogItem(id: e.id, name: e.name ?? e.id) }
+        }
+    }
 
     static func name(of id: String?, in list: [CatalogItem]) -> String {
         guard let id = id else { return "" }
@@ -104,7 +130,7 @@ struct VehicleDraft {
         var build: [String: Any] = ["paint": paint, "finish": finish, "wheel": wheel, "rideHeightMm": rideHeightMm]
         var decals: [[String: Any]] = []
         for item in GarageCatalog.decals where decalIds.contains(item.id) {
-            decals.append(["id": item.id, "slot": "body", "color": "#2de2e6"])
+            decals.append(["id": item.id, "slot": item.slot, "color": "#2de2e6"])
         }
         build["decals"] = decals
         b["build"] = build
@@ -123,6 +149,7 @@ final class GarageStore {
     var error: String?
 
     @ObservationIgnored private let api: ApiClient
+    @ObservationIgnored private var catalogueLoaded: Bool = false
 
     init(api: ApiClient) {
         self.api = api
@@ -144,6 +171,17 @@ final class GarageStore {
             error = nil
         case .failure(let f):
             if !f.isUnauthorized { error = f.message }
+        }
+    }
+
+    /// The garage catalogue (paints, finishes, wheels, decals) into `GarageCatalog`; once per launch.
+    func loadCatalogue() async {
+        if catalogueLoaded { return }
+        catalogueLoaded = true
+        let r: ApiResult<CatalogueDto> = await api.catalogue()
+        switch r {
+        case .ok(let c): GarageCatalog.apply(c)
+        case .failure: catalogueLoaded = false
         }
     }
 

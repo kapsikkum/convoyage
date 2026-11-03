@@ -25,7 +25,7 @@ struct HomeView: View {
                             .font(CvFont.display(28))
                     }
                     Spacer()
-                    CvAvatar(initials: Formatters.initials(app.displayName), size: 44)
+                    CvAvatar(photoURL: app.me?.avatarPath, vehicle: app.myVehicleBuild, initials: Formatters.initials(app.displayName), size: 44)
                 }
 
                 convoyCard(vm)

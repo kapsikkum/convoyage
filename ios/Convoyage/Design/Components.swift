@@ -99,19 +99,83 @@ struct Segmented<T: Hashable>: View {
 
 // MARK: - Avatar
 
+/// The one avatar every person in the app gets. Round.
+/// - `photoURL` (a server media path such as `/v1/media/<id>/thumb`) is the main picture once it has loaded.
+/// - `vehicle`, their primary vehicle, is its PS1 render: a badge at the bottom right (about 42% of the diameter,
+///   overlapping the edge, ringed in surface-100) when there is a photo, and the main picture when there is not.
+/// - With neither, the initials.
 struct CvAvatar: View {
+    var photoURL: String? = nil
+    var vehicle: VehicleBuild? = nil
     let initials: String
     var size: CGFloat = 40
     var ring: Color? = nil
+    @Environment(AppState.self) private var app
     @Environment(\.theme) private var theme
+    @State private var photo: UIImage?
+
+    private var shownPhoto: UIImage? {
+        if (photoURL ?? "").isEmpty { return nil }
+        return photo
+    }
 
     var body: some View {
-        Text(initials.uppercased())
-            .font(CvFont.display(size * 0.36))
-            .foregroundStyle(theme.ink)
-            .frame(width: size, height: size)
-            .background(Circle().fill(theme.surface300))
-            .overlay(Circle().stroke(ring ?? theme.lineStrong, lineWidth: ring == nil ? 1 : 2.5))
+        let hasPhoto: Bool = shownPhoto != nil
+        ZStack {
+            Circle().fill(theme.surface300)
+            if let img = shownPhoto {
+                Image(uiImage: img).resizable().scaledToFill()
+            } else if let v = vehicle {
+                Ps1Thumb(build: v, size: Ps1ThumbSize.badge).padding(size * 0.04)
+            } else {
+                Text(initials.uppercased())
+                    .font(CvFont.display(size * 0.36))
+                    .foregroundStyle(theme.ink)
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+        .overlay(Circle().stroke(ring ?? theme.lineStrong, lineWidth: ring == nil ? 1 : 2.5))
+        .overlay(alignment: .topLeading) {
+            if hasPhoto, let v = vehicle {
+                badge(v)
+            }
+        }
+        .task(id: photoURL ?? "") {
+            await loadPhoto()
+        }
+    }
+
+    /// The vehicle badge: its centre sits on the circle's edge at 45 degrees, bottom right.
+    private func badge(_ v: VehicleBuild) -> some View {
+        let ringWidth: CGFloat = 2
+        let inner: CGFloat = size * 0.42
+        let whole: CGFloat = inner + ringWidth * 2
+        let at: CGFloat = size / 2 + size / 2 * 0.7071 - whole / 2
+        return ZStack {
+            Circle().fill(theme.surface100)
+            Circle().fill(theme.surface300).padding(ringWidth)
+            Ps1Thumb(build: v, size: Ps1ThumbSize.badge).padding(ringWidth + 1)
+        }
+        .frame(width: whole, height: whole)
+        .clipShape(Circle())
+        .offset(x: at, y: at)
+    }
+
+    private func loadPhoto() async {
+        guard let path = photoURL, !path.isEmpty else {
+            photo = nil
+            return
+        }
+        let key: String = app.serverURL + path
+        if let hit = ImageCache.shared.image(for: key) {
+            photo = hit
+            return
+        }
+        if let data = await app.api.fetchBytes(path: path), let img = UIImage(data: data) {
+            ImageCache.shared.store(img, for: key)
+            photo = img
+        }
     }
 }
 
@@ -131,6 +195,8 @@ struct RosterChip: View {
     let detail: String
     var distance: String? = nil
     var distanceCaption: String? = nil
+    var photoURL: String? = nil
+    var vehicle: VehicleBuild? = nil
     var state: RosterState = .online
     @Environment(\.theme) private var theme
 
@@ -148,7 +214,7 @@ struct RosterChip: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            CvAvatar(initials: initials, size: 40, ring: ring)
+            CvAvatar(photoURL: photoURL, vehicle: vehicle, initials: initials, size: 40, ring: ring)
             VStack(alignment: .leading, spacing: 2) {
                 Text(name)
                     .font(CvFont.text(15, weight: .bold))

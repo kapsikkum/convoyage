@@ -26,16 +26,52 @@ struct AuthResultDto: Decodable {
     var isNewUser: Bool?
 }
 
+/// What an avatar badge needs of a vehicle: its kind and the build fields that change how it looks
+/// (`VehicleBadge` in the API, `MemberVehicle` in the convoy protocol). Decoded tolerantly.
+struct VehicleBadgeDto: Codable, Equatable {
+    var kind: String
+    var build: BadgeBuildDto?
+
+    private enum Keys: String, CodingKey {
+        case kind
+        case build
+    }
+
+    init(from decoder: Decoder) throws {
+        let c: KeyedDecodingContainer<Keys> = try decoder.container(keyedBy: Keys.self)
+        kind = (try? c.decodeIfPresent(String.self, forKey: .kind)) ?? "car"
+        build = try? c.decodeIfPresent(BadgeBuildDto.self, forKey: .build)
+    }
+}
+
+struct BadgeBuildDto: Codable, Equatable {
+    var paint: String?
+    var finish: String?
+    var wheel: String?
+    var rideHeightMm: Int?
+}
+
 struct UserRefDto: Decodable, Equatable {
     var id: String
     var handle: String?
     var displayName: String?
     var avatarMediaId: String?
+    var primaryVehicle: VehicleBadgeDto?
 
     var shownName: String {
         let n: String = displayName ?? ""
         if !n.isEmpty { return n }
         return handle ?? "Driver"
+    }
+
+    var avatarPath: String? {
+        guard let m = avatarMediaId, !m.isEmpty else { return nil }
+        return "/v1/media/\(m)/thumb"
+    }
+
+    var vehicleBuild: VehicleBuild? {
+        guard let v = primaryVehicle else { return nil }
+        return VehicleBuild(badge: v)
     }
 }
 
@@ -90,6 +126,11 @@ struct MeDto: Decodable, Equatable {
     var followerCount: Int?
     var followingCount: Int?
     var primaryVehicle: VehicleDto?
+
+    var avatarPath: String? {
+        guard let m = avatarMediaId, !m.isEmpty else { return nil }
+        return "/v1/media/\(m)/thumb"
+    }
 }
 
 struct MediaDto: Decodable, Identifiable, Equatable {
@@ -311,4 +352,22 @@ struct VoiceTokenDto: Decodable, Equatable {
     var room: String?
     var identity: String?
     var expiresIn: Int?
+}
+
+// MARK: - Garage catalogue
+
+/// `GET /v1/catalogue`: public and static; the ids the build fields carry.
+struct CatalogueDto: Decodable {
+    struct Entry: Decodable {
+        var id: String
+        var name: String?
+        var hex: String?
+        var slot: String?
+    }
+
+    var version: Int?
+    var paints: [Entry]?
+    var finishes: [Entry]?
+    var wheels: [Entry]?
+    var decals: [Entry]?
 }

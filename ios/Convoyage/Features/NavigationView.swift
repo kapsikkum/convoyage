@@ -260,6 +260,7 @@ struct NavigationScreen: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
             VStack(spacing: 10) {
+                railButton("chevron.down", tint: theme.ink, label: "Minimise navigation") { app.showNav = false }
                 railButton(nav.muted ? "speaker.slash.fill" : "speaker.wave.2.fill",
                            tint: nav.muted ? theme.inkMuted : theme.ink,
                            label: nav.muted ? "Unmute voice" : "Mute voice") { nav.setMuted(!nav.muted) }

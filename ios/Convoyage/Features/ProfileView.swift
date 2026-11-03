@@ -21,7 +21,7 @@ struct ProfileView: View {
     var body: some View {
         PageScaffold(eyebrow: (app.me?.isPrivate ?? false) ? "Private account" : "You", title: shownName) {
             HStack(spacing: 14) {
-                CvAvatar(initials: Formatters.initials(shownName), size: 64)
+                CvAvatar(photoURL: app.me?.avatarPath, vehicle: app.myVehicleBuild, initials: Formatters.initials(shownName), size: 64)
                 VStack(alignment: .leading, spacing: 4) {
                     if let handle = app.me?.handle, !handle.isEmpty {
                         Text("@\(handle)").font(CvFont.text(14, weight: .bold))
