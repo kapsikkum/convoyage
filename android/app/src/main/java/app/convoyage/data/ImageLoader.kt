@@ -101,17 +101,35 @@ class ImageLoader(private val scope: CoroutineScope, private val api: ConvoyApi)
 
         fun upright(bmp: Bitmap, file: File): Bitmap {
             val degrees = try {
-                when (ExifInterface(file.path).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
-                    ExifInterface.ORIENTATION_ROTATE_90 -> 90f
-                    ExifInterface.ORIENTATION_ROTATE_180 -> 180f
-                    ExifInterface.ORIENTATION_ROTATE_270 -> 270f
-                    else -> 0f
-                }
+                degreesOf(ExifInterface(file.path).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL))
             } catch (_: Exception) {
                 0f
             }
-            if (degrees == 0f) return bmp
-            return Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, Matrix().apply { postRotate(degrees) }, true)
+            return rotated(bmp, degrees)
+        }
+
+        fun degreesOf(exifOrientation: Int): Float = when (exifOrientation) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+            ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+            ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+            else -> 0f
+        }
+
+        fun rotated(bmp: Bitmap, degrees: Float): Bitmap =
+            if (degrees == 0f) bmp else Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, Matrix().apply { postRotate(degrees) }, true)
+
+        /**
+         * A picture chosen from the gallery, as a JPEG file the server will take: any format Android can decode (HEIC
+         * included, which the server refuses), turned upright, at most 2560 px on the long edge.
+         */
+        fun importPicked(resolver: android.content.ContentResolver, uri: android.net.Uri, outDir: File): File? = try {
+            val bytes = resolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
+            val degrees = degreesOf(ExifInterface(java.io.ByteArrayInputStream(bytes)).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL))
+            val bmp = decodeBytes(bytes, 2560)?.let { rotated(it, degrees) } ?: return null
+            outDir.mkdirs()
+            File(outDir, "pick-${System.currentTimeMillis()}.jpg").also { f -> f.outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 90, it) } }
+        } catch (_: Exception) {
+            null
         }
 
         /**

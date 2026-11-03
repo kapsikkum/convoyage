@@ -82,6 +82,11 @@ class Pager<T>(
         _state.update { s -> s.copy(items = s.items.filter { key(it) != id }) }
     }
 
+    /** Adds [item] at the end unless one with the same key is already there (a comment I just sent). */
+    fun append(item: T) {
+        _state.update { s -> if (s.items.any { key(it) == key(item) }) s else s.copy(items = s.items + item) }
+    }
+
     fun prepend(item: T) {
         _state.update { s -> s.copy(items = listOf(item) + s.items.filter { key(it) != key(item) }) }
     }
