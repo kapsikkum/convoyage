@@ -83,6 +83,9 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
     var sheetOpen by rememberSaveable { mutableStateOf(true) }
     val room = ui.room
     val hazards by container.hazards.active.collectAsStateWithLifecycle()
+    val rec by container.recorder.state.collectAsStateWithLifecycle()
+    val capture = rememberRidePhotoCapture()
+    var showRecord by remember { mutableStateOf(false) }
 
     // Load the hazards for what the map shows now, and again every 30 s while the screen is on.
     var viewport by remember { mutableStateOf<Bbox?>(null) }
@@ -158,6 +161,7 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
             }
             if (ui.removed) Banner(BannerTone.Pulse, "The leader removed you from the convoy", icon = CvIcons.Alert, actionLabel = "OK", onAction = vm::dismissError)
             HazardAlertBanner()
+            PhotoHint(capture)
             ui.alert?.let { a ->
                 Banner(
                     tone = if (a.kind == AlertKind.Stopped) BannerTone.Pulse else BannerTone.Hazard,
@@ -168,6 +172,7 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
             }
             Row(horizontalArrangement = Arrangement.spacedBy(Space.s2)) {
                 CvChipToggle("3D", local.buildings3d, vm::toggle3d)
+                if (rec.isActive) CvChipToggle("REC ${Fmt.clock(rec.elapsedS)}${if (rec.isPaused) " II" else ""}", true, { showRecord = true })
                 // TODO(layers): SPOTS / EVENTS / WAZE overlays are not in this version.
             }
         }
@@ -179,6 +184,11 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
         ) {
             CvIconButton(CvIcons.Locate, "Recentre", vm::recenter, tint = if (local.follow) c.signal else c.ink)
             CvIconButton(CvIcons.Alert, "Report hazard", onReport, tint = c.hazard, edge = c.hazard)
+            CvIconButton(
+                CvIcons.Rec, if (rec.isActive) "Recording controls" else "Record a ride", { showRecord = true },
+                tint = if (rec.isActive) c.pulse else c.ink, edge = if (rec.isActive) c.pulse else c.lineStrong,
+            )
+            CvIconButton(CvIcons.Camera, "Take a photo", { capture.shoot(rec.isActive) }, tint = c.signal, edge = c.signal)
         }
 
         if (room != null) {
@@ -200,6 +210,9 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
                 RosterSheet(ui, sheetOpen, onRide, vm::leave)
             }
         }
+
+        if (showRecord) RecordSheet(onDismiss = { showRecord = false })
+        PhotoConfirmSheet(capture)
     }
 }
 

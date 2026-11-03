@@ -71,6 +71,10 @@ fun ConvoyMap(
     bottomPadding: Dp = 0.dp,
     /** Called when the camera comes to rest, with the visible lat/lng box (for loading hazards). */
     onViewport: (Bbox) -> Unit = {},
+    /** When two or more points are given, the camera frames them (the ride recap's route) instead of following [me]. */
+    fitTo: List<LatLng> = emptyList(),
+    /** False for a map inside a scrolling page: no pan/zoom/rotate gestures. */
+    interactive: Boolean = true,
 ) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -112,7 +116,8 @@ fun ConvoyMap(
             map = m
             m.uiSettings.isLogoEnabled = false
             m.uiSettings.isCompassEnabled = false
-            m.uiSettings.isRotateGesturesEnabled = true
+            m.uiSettings.isRotateGesturesEnabled = interactive
+            if (!interactive) m.uiSettings.setAllGesturesEnabled(false)
             m.uiSettings.attributionGravity = Gravity.BOTTOM or Gravity.START
             m.setCameraPosition(CameraPosition.Builder().target(me ?: DEFAULT_CENTER).zoom(if (me != null) 15.0 else 11.0).tilt(if (initial3d) 60.0 else 0.0).build())
             m.addOnCameraMoveListener { tick++ }
@@ -152,6 +157,7 @@ fun ConvoyMap(
         val s = style ?: return@LaunchedEffect
         MapNightStyle.setBuildings3d(s, extrusions, buildings3d)
         val m = map ?: return@LaunchedEffect
+        if (fitTo.size >= 2) return@LaunchedEffect // a framed route (the recap) keeps its camera
         val cam = m.cameraPosition
         m.animateCamera(CameraUpdateFactory.newCameraPosition(CameraPosition.Builder(cam).tilt(if (buildings3d) 60.0 else 0.0).build()), 600)
     }
@@ -161,6 +167,16 @@ fun ConvoyMap(
         if (follow && me != null) {
             val zoom = m.cameraPosition.zoom.coerceAtLeast(14.0)
             m.easeCamera(CameraUpdateFactory.newCameraPosition(CameraPosition.Builder(m.cameraPosition).target(me).zoom(zoom).build()), 700)
+        }
+    }
+
+    LaunchedEffect(map, style, fitTo, size) {
+        val m = map ?: return@LaunchedEffect
+        if (style == null || fitTo.size < 2 || size.width == 0 || size.height == 0) return@LaunchedEffect
+        runCatching {
+            val bounds = org.maplibre.android.geometry.LatLngBounds.Builder().includes(fitTo).build()
+            val pad = with(density) { 48.dp.toPx() }.toInt()
+            m.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, pad, pad, pad, pad))
         }
     }
 

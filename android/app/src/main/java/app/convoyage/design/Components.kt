@@ -531,6 +531,9 @@ fun CvTextField(
     enabled: Boolean = true,
     /** Called when the field gains focus (e.g. to scroll its form above the keyboard). */
     onFocused: () -> Unit = {},
+    /** False for notes and posts: the field grows to [maxLines] and Enter starts a new line. */
+    singleLine: Boolean = true,
+    maxLines: Int = if (singleLine) 1 else 6,
 ) {
     val c = Cv.colors
     var focused by remember { mutableStateOf(false) }
@@ -539,7 +542,8 @@ fun CvTextField(
         BasicTextField(
             value = value,
             onValueChange = onValueChange,
-            singleLine = true,
+            singleLine = singleLine,
+            maxLines = maxLines,
             enabled = enabled,
             keyboardOptions = keyboardOptions,
             textStyle = (if (mono) Cv.type.telemetry.copy(fontSize = 16.sp) else Cv.type.body).copy(color = c.ink),
@@ -614,7 +618,7 @@ fun CvTabBar(selected: Tab?, onSelect: (Tab) -> Unit, modifier: Modifier = Modif
 
 // ---- Map pins (Compose overlays) ---------------------------------------------------------------
 
-enum class PinKind { Me, Member, Lead, Stopped, Offline, Destination, Hazard, Police }
+enum class PinKind { Me, Member, Lead, Stopped, Offline, Destination, Hazard, Police, Start, End, Photo }
 
 /**
  * Round map pin: heading wedge behind a round dot ringed by state. Only physically round things are round.
@@ -638,6 +642,9 @@ fun MapPin(
         PinKind.Destination -> c.ink
         PinKind.Hazard -> c.hazard
         PinKind.Police -> c.police
+        PinKind.Start -> c.go
+        PinKind.End -> c.pulse
+        PinKind.Photo -> c.hazard
     }
     Box(modifier.size(56.dp), contentAlignment = Alignment.Center) {
         if (heading != null) {
@@ -664,6 +671,7 @@ fun MapPin(
             if (kind == PinKind.Me) CvIcon(CvIcons.Navigate, c.signalInk, size = 16.dp)
             else if (kind == PinKind.Destination) CvIcon(CvIcons.Route, c.ink, size = 18.dp)
             else if (kind == PinKind.Hazard || kind == PinKind.Police) CvIcon(CvIcons.Alert, ring, size = 18.dp)
+            else if (kind == PinKind.Photo) CvIcon(CvIcons.Camera, ring, size = 18.dp)
             else CvText(label, Cv.type.label.copy(fontSize = 11.sp, letterSpacing = 0.sp), if (kind == PinKind.Offline) c.inkMuted else c.ink)
         }
         if (tag != null) {

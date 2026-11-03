@@ -62,12 +62,28 @@ object CvIcons {
     val Locate = stroke("locate", circle(12f, 12f, 6f), "M12 2v4M12 18v4M2 12h4M18 12h4")
     val Settings = stroke("settings", circle(12f, 12f, 3f), "M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1")
     val Heart = stroke("heart", "M12 20S4 15 4 9.5A4.2 4.2 0 0 1 12 8a4.2 4.2 0 0 1 8 1.5C20 15 12 20 12 20z")
+    val HeartFilled = stroke("heart_fill", "M12 20S4 15 4 9.5A4.2 4.2 0 0 1 12 8a4.2 4.2 0 0 1 8 1.5C20 15 12 20 12 20z", fill = true)
     val Comment = stroke("comment", "M4 5h16v11H9l-5 4z")
     val Camera = stroke("camera", "M3 8h4l2-3h6l2 3h4v11H3z", circle(12f, 13.5f, 3.5f))
     val Lock = stroke("lock", "M5 11h14v10H5z", "M8 11V8a4 4 0 0 1 8 0v3")
     val Mail = stroke("mail", "M3 6h18v13H3z", "m3 7 9 7 9-7")
     val Cube = stroke("cube", "M12 3 4 7.5v9L12 21l8-4.5v-9z", "M4 7.5 12 12l8-4.5M12 12v9")
     val Share = stroke("share", "M12 4v12M7 9l5-5 5 5M5 20h14")
+    val Minus = stroke("minus", "M5 12h14")
+    val Rec = stroke("rec", circle(12f, 12f, 7f), fill = true)
+    val Pause = stroke("pause", "M8.5 5v14M15.5 5v14")
+    val Play = stroke("play", "M7 4.5v15l12.5-7.5z", fill = true)
+    val Trash = stroke("trash", "M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6")
+    val Edit = stroke("edit", "M4 20l1-5L16 4l4 4L9 19z", "M13.5 6.5l4 4")
+    val Flag = stroke("flag", "M5 21V4M5 5h13l-2.5 4L18 13H5")
+    val Check = stroke("check", "M5 12.5l4.5 4.5L19 7")
+    val Image = stroke("image", "M3 5h18v14H3z", circle(8.5f, 10f, 1.8f), "M3 17l5-5 4 4 3-3 6 5")
+    val Ute = stroke(
+        "ute", "M2.5 17v-4.5L6 11l2.5-4H13v4h8.5V17M2.5 17h19", circle(7f, 17.5f, 1.8f), circle(17f, 17.5f, 1.8f),
+    )
+    val Fourwd = stroke(
+        "fourwd", "M3 17V11l2-4.5h11l3.5 4.5H21v6M3 17h18M5 11h14.5M10.5 6.5V11", circle(7.5f, 17.5f, 2.2f), circle(16.5f, 17.5f, 2.2f),
+    )
     val Route = stroke("route", circle(6f, 18f, 2.5f), circle(18f, 6f, 2.5f), "M8.5 18H15a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h6.5")
 }
 

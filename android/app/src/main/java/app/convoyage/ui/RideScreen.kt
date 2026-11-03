@@ -11,6 +11,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import app.convoyage.design.Banner
+import app.convoyage.design.BannerTone
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -53,20 +60,33 @@ fun RideScreen(onExit: () -> Unit, onReport: () -> Unit) {
     val permission = rememberLocationPermission()
     TrackWhileVisible(permission)
     val c = Cv.colors
+    val rec by LocalContainer.current.recorder.state.collectAsStateWithLifecycle()
+    val capture = rememberRidePhotoCapture()
+    var showRecord by remember { mutableStateOf(false) }
 
     val speed = ConvoyViewModel.speedKmh(ui.fix)
     val toLeader = vm.metersToLeader(ui)
     val last = ui.lastRider
 
+    Box(Modifier.fillMaxSize()) {
     Column(
         Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .screenGutters()
             .navigationBarsPadding()
             .padding(top = Space.s2, bottom = Space.s4),
         verticalArrangement = Arrangement.spacedBy(Space.s4),
     ) {
         HazardAlertBanner()
+        if (local.iAmStopping) {
+            // Local banner; the same words also went to the convoy chat (see ConvoyViewModel.toggleStopping).
+            Banner(
+                BannerTone.Pulse, "You're stopping",
+                sub = if (ui.room != null) "The convoy has been told in chat" else "Not in a convoy, so nobody was told",
+                icon = CvIcons.Stop, actionLabel = "Moving", onAction = vm::toggleStopping,
+            )
+        }
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.s3), verticalAlignment = Alignment.CenterVertically) {
             CvIconButton(CvIcons.Back, "Exit Ride mode", onExit, fill = c.surface200, size = Space.targetRide)
@@ -134,8 +154,11 @@ fun RideScreen(onExit: () -> Unit, onReport: () -> Unit) {
             }
         }
 
+        RecordStrip(onOpenSheet = { showRecord = true }, onShutter = { capture.shoot(rec.isActive) })
+        PhotoHint(capture)
+
         Row(
-            Modifier.fillMaxWidth().weight(1f),
+            Modifier.fillMaxWidth().padding(vertical = Space.s2),
             horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically,
         ) {
             // TODO(eta): needs routing.
@@ -143,5 +166,8 @@ fun RideScreen(onExit: () -> Unit, onReport: () -> Unit) {
             PushToTalk(local.ptt, size = 128.dp, onPress = vm::pttDown, onRelease = vm::pttUp)
             Readout("Heading", ui.fix?.headingDeg?.let { "%03d°".format(it.toInt()) } ?: "---", Modifier.width(96.dp), align = Alignment.End)
         }
+    }
+    if (showRecord) RecordSheet(onDismiss = { showRecord = false })
+    PhotoConfirmSheet(capture)
     }
 }

@@ -2,6 +2,7 @@ package app.convoyage
 
 import android.content.Intent
 import android.os.Bundle
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -9,6 +10,8 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.lifecycleScope
 import app.convoyage.data.SignInOutcome
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.getValue
 import app.convoyage.design.CvTheme
@@ -20,6 +23,14 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         val container = (application as ConvoyageApp).container
         handleAuthLink(intent)
+        // A ride being recorded keeps the screen on: with no background service yet, a dark screen means no GPS fixes.
+        // TODO(background): drop this once recording runs in a foreground service.
+        lifecycleScope.launch {
+            container.recorder.state.map { it.isRecording }.distinctUntilChanged().collect { on ->
+                if (on) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+        }
         setContent {
             val night by container.session.night.collectAsState()
             CvTheme(night = night) {

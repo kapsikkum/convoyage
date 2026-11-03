@@ -88,8 +88,15 @@ class ConvoyViewModel(private val container: AppContainer) : ViewModel() {
     fun pttDown() = _local.update { it.copy(ptt = PttState.Live) }
     fun pttUp() = _local.update { it.copy(ptt = PttState.Idle) }
 
-    /** "I'm stopping": local flag only. TODO(protocol): the v1 schema has no stopped signal; speed ~0 is what others see. */
-    fun toggleStopping() = _local.update { it.copy(iAmStopping = !it.iAmStopping) }
+    /**
+     * "I'm stopping": a local banner, plus a convoy chat message (`convoy.message`) because the v1 protocol has chat
+     * but no dedicated stopped signal. Others also see the speed drop to ~0 on the roster.
+     */
+    fun toggleStopping() {
+        val stopping = !_local.value.iAmStopping
+        _local.update { it.copy(iAmStopping = stopping) }
+        repo.sendChat(if (stopping) "I'm stopping" else "Moving again")
+    }
 
 
     fun metersToLeader(ui: ConvoyUi): Double? = ui.leader?.takeIf { !it.isMe }?.distanceM
