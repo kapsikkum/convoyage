@@ -1,6 +1,6 @@
 #include <metal_stdlib>
-#include <SceneKit/scn_metal>
 using namespace metal;
+#include <SceneKit/scn_metal>
 
 // PS1-style shading for the vehicles (port of android/.../render/Ps1Gl.kt, itself a port of design-tools/ps1.html):
 //   - vertex snap to the low-resolution pixel grid
