@@ -42,7 +42,10 @@ object MapNightStyle {
     const val HALO = "#0b0f16"
     const val HALO_WIDTH = 1.4f
     const val MOOD_COLOR = "#0a0c1a"
-    const val MOOD_OPACITY = 0.62f
+    const val MOOD_OPACITY = 0.72f
+
+    /** Flat layers that end up above the mood (boundaries) are faded to this. */
+    const val ABOVE_MOOD_OPACITY = 0.35f
     const val EXTRUSION_COLOR = "#3b4357"
     const val EXTRUSION_OPACITY = 0.9f
     const val LIGHT_COLOR = "#9aa4c8"
@@ -57,6 +60,24 @@ object MapNightStyle {
     const val ROUTE_LAYER = "convoy-route"
     const val ROUTE_HALO_LAYER = "convoy-route-halo"
     const val DEST_SOURCE = "convoy-dest"
+
+    /** Just enough of a style layer to decide where the mood goes (so the rule is unit-testable). */
+    data class LayerKind(val id: String, val isExtrusion: Boolean, val isSymbol: Boolean)
+
+    /**
+     * Id of the layer the mood tint must sit directly below, or null to put it on top.
+     *
+     * The mood has to cover every fill and line layer (landuse, parks, water, all roads, bridges) and sit
+     * below only the 3D buildings and the labels. Liberty has symbol layers in the middle of the roads
+     * (`road_one_way_arrow`, then the `bridge_*` lines above it), so "below the first symbol" leaves the
+     * yellow bridges and motorways untinted. Instead: below the first fill-extrusion if there is one,
+     * otherwise below the first symbol that comes after the last fill/line/raster layer.
+     */
+    fun moodInsertBefore(layers: List<LayerKind>): String? {
+        layers.firstOrNull { it.isExtrusion }?.let { return it.id }
+        val lastFlat = layers.indexOfLast { !it.isSymbol }
+        return layers.drop(lastFlat + 1).firstOrNull()?.id
+    }
 
     fun shouldHide(layerId: String) = HIDDEN_LAYERS.containsMatchIn(layerId)
     fun labelColor(layerId: String) = if (layerId.contains("water")) TEXT_WATER else TEXT
@@ -97,8 +118,18 @@ object MapNightStyle {
         )
         style.addSource(GeoJsonSource(MOOD_SOURCE, Feature.fromGeometry(world)))
         val mood = FillLayer(MOOD_LAYER, MOOD_SOURCE).withProperties(fillColor(MOOD_COLOR), fillOpacity(MOOD_OPACITY))
-        val firstAbove = layers.firstOrNull { it is FillExtrusionLayer || it is SymbolLayer }
-        if (firstAbove != null) style.addLayerBelow(mood, firstAbove.id) else style.addLayer(mood)
+        val above = moodInsertBefore(layers.map { LayerKind(it.id, it is FillExtrusionLayer, it is SymbolLayer) })
+        if (above != null) style.addLayerBelow(mood, above) else style.addLayer(mood)
+        // Whatever flat layers still sit above the mood (liberty's boundary lines come after building-3d)
+        // would stay bright, so push them back.
+        val aboveIdx = if (above == null) layers.size else layers.indexOfFirst { it.id == above }
+        for (layer in layers.drop(aboveIdx)) {
+            when (layer) {
+                is LineLayer -> layer.setProperties(lineOpacity(ABOVE_MOOD_OPACITY))
+                is FillLayer -> layer.setProperties(fillOpacity(ABOVE_MOOD_OPACITY))
+                else -> Unit
+            }
+        }
 
         addRoute(style)
         return extrusions
