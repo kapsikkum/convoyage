@@ -397,11 +397,29 @@ class RouteLineTest {
         assertEquals(2, RouteLine.pick(room("!!not a polyline!!"), null).size)
     }
 
+    /**
+     * Regression: evenly spaced stops cut corners and roundabouts on the real Bathurst to Mount Panorama route, so
+     * the shared convoy line ran across blocks. Every point of the real route must stay close to the 25-stop line.
+     */
+    @Test
+    fun sampledStopsFollowTheRealBathurstRoute() {
+        val text = javaClass.classLoader!!.getResource("route_bathurst_mount_panorama.json")!!.readText()
+        val geometry = Regex("\"geometry\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"").find(text)!!.groupValues[1]
+            .replace("\\\\", "\\")
+        val pts = Polyline.decode(geometry, 6)
+        assertTrue("fixture should be a real road route", pts.size > 100)
+        val r = NavRoute("car", pts, 3820.0, 345.0, emptyList())
+        val stops = NavMath.sampleStops(r, 25).map { LatLngD(it[1], it[0]) }
+        assertTrue(stops.size <= 25)
+        val worst = pts.maxOf { p -> stops.zipWithNext().minOf { (a, b) -> NavMath.offSegmentM(p, a, b) } }
+        assertTrue("shared line strays ${worst.toInt()} m from the road", worst < 15.0)
+    }
+
     @Test
     fun sampledStopsKeepBothEnds() {
         val r = Fixture.route()
         val stops = NavMath.sampleStops(r, 25)
-        assertEquals(25, stops.size)
+        assertTrue(stops.size in 2..25)
         assertEquals(r.points.first().lng, stops.first()[0], 1e-9)
         assertEquals(r.points.last().lat, stops.last()[1], 1e-9)
     }

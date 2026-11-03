@@ -90,12 +90,54 @@ object NavMath {
         return Geo.bearingDeg(back.lat, back.lng, here.lat, here.lng)
     }
 
-    /** At most [max] points from the line, both ends included, spaced evenly by distance. For `convoy.route` (25 stops at most). */
+    /**
+     * At most [max] points from the line, both ends included, for `convoy.route` (25 stops at most). The points are
+     * the vertices that matter: the one that strays furthest from the chord of the stops chosen so far is added until
+     * the budget is spent or the line is within [TOL_M]. Points spaced evenly by distance cut every corner and
+     * roundabout by up to 50 m, which drew the shared route diagonally across blocks.
+     */
     fun sampleStops(route: NavRoute, max: Int = 25): List<List<Double>> {
-        val n = max.coerceAtLeast(2)
-        return (0 until n).map { i ->
-            val p = if (i == n - 1) route.points.last() else pointAt(route, route.length * i / (n - 1))
-            listOf(p.lng, p.lat)
+        val pts = route.points
+        val keep = java.util.TreeSet<Int>()
+        keep.add(0)
+        keep.add(pts.lastIndex)
+        // Each span remembers its worst vertex, so a round is one scan of the span that was just split.
+        class Worst(val from: Int, val to: Int, val at: Int, val offM: Double)
+        fun worst(from: Int, to: Int): Worst? {
+            var bi = -1
+            var bd = 0.0
+            for (i in from + 1 until to) {
+                val d = offSegmentM(pts[i], pts[from], pts[to])
+                if (d > bd) { bd = d; bi = i }
+            }
+            return if (bi < 0) null else Worst(from, to, bi, bd)
         }
+        val open = java.util.PriorityQueue<Worst>(compareByDescending { it.offM })
+        worst(0, pts.lastIndex)?.let { open += it }
+        while (keep.size < max.coerceAtLeast(2) && open.isNotEmpty()) {
+            val w = open.poll()
+            if (w.offM < TOL_M) break
+            keep.add(w.at)
+            worst(w.from, w.at)?.let { open += it }
+            worst(w.at, w.to)?.let { open += it }
+        }
+        return keep.map { listOf(pts[it].lng, pts[it].lat) }
+    }
+
+    /** Stops within this far of the line are not worth a slot. */
+    const val TOL_M = 1.0
+
+    /** Distance from [p] to the segment [a]-[b], metres. */
+    fun offSegmentM(p: LatLngD, a: LatLngD, b: LatLngD): Double {
+        val cosLat = cos(Math.toRadians(p.lat))
+        val ax = (a.lng - p.lng) * cosLat * M_PER_DEG
+        val ay = (a.lat - p.lat) * M_PER_DEG
+        val bx = (b.lng - p.lng) * cosLat * M_PER_DEG
+        val by = (b.lat - p.lat) * M_PER_DEG
+        val dx = bx - ax
+        val dy = by - ay
+        val len2 = dx * dx + dy * dy
+        val t = if (len2 <= 1e-9) 0.0 else (-(ax * dx + ay * dy) / len2).coerceIn(0.0, 1.0)
+        return hypot(ax + t * dx, ay + t * dy)
     }
 }
