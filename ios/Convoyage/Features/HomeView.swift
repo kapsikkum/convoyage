@@ -9,9 +9,11 @@ struct HomeView: View {
 
     private var greeting: String {
         let hour: Int = Calendar.current.component(.hour, from: Date())
+        if hour < 5 { return "Late one" }
         if hour < 12 { return "Morning" }
         if hour < 18 { return "Afternoon" }
-        return "Evening"
+        if hour < 22 { return "Evening" }
+        return "Late one"
     }
 
     var body: some View {

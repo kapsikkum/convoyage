@@ -91,6 +91,12 @@ class ConvoyApi(
 
     suspend fun updateMe(body: UpdateMe): ApiResult<Me> = send("PATCH", "v1/me", ApiJson.encodeToString(UpdateMe.serializer(), body), Me.serializer())
 
+    /** Sets my profile photo to an uploaded media id, or clears it with null (sent as an explicit JSON null). */
+    suspend fun setAvatar(mediaId: String?): ApiResult<Me> {
+        val value = mediaId?.let { kotlinx.serialization.json.JsonPrimitive(it).toString() } ?: "null"
+        return send("PATCH", "v1/me", """{"avatarMediaId":$value}""", Me.serializer())
+    }
+
     // ---- hazards ---------------------------------------------------------------------------------
 
     override suspend fun createHazard(body: CreateHazard): ApiResult<Hazard> =

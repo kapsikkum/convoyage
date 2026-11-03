@@ -96,6 +96,17 @@ class AccountRepository(
         return r
     }
 
+    /** Uploads [photo] and makes it my profile picture; null removes the picture. */
+    suspend fun updateAvatar(photo: java.io.File?): ApiResult<Me> {
+        val mediaId = if (photo == null) null else when (val up = api.uploadMedia(photo)) {
+            is ApiResult.Ok -> up.value.id
+            is ApiResult.Err -> return up
+        }
+        val r = api.setAvatar(mediaId)
+        if (r is ApiResult.Ok) _me.value = r.value
+        return r
+    }
+
     /** The onboarding step: display name plus an optional handle, in one PATCH. */
     suspend fun saveProfile(displayName: String, handle: String?): ApiResult<Me> {
         val r = api.updateMe(UpdateMe(displayName = displayName.trim(), handle = handle?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }))

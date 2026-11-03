@@ -28,6 +28,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -55,6 +57,7 @@ import app.convoyage.design.CvButtonKind
 import app.convoyage.design.CvCard
 import app.convoyage.design.CvIcon
 import app.convoyage.design.CvIconButton
+import app.convoyage.design.CvSheet
 import app.convoyage.design.CvIcons
 import app.convoyage.design.CvText
 import app.convoyage.design.CvTextField
@@ -94,6 +97,17 @@ class ProfileViewModel(private val container: AppContainer) : ViewModel() {
 
     fun clearSaveState() = _ui.update { it.copy(saveError = null) }
 
+    /** Uploads [photo] as my profile picture, or removes the picture when null. */
+    fun setPhoto(photo: java.io.File?) {
+        if (_ui.value.saving) return
+        _ui.update { it.copy(saving = true, saveError = null) }
+        viewModelScope.launch {
+            val r = container.account.updateAvatar(photo)
+            photo?.delete()
+            _ui.update { it.copy(saving = false, saveError = (r as? ApiResult.Err)?.message) }
+        }
+    }
+
     fun saveName(name: String, onDone: () -> Unit) {
         val clean = name.trim()
         if (clean.isEmpty() || _ui.value.saving) return
@@ -130,6 +144,19 @@ fun ProfileScreen(
     var editing by rememberSaveable { mutableStateOf(false) }
     var draft by rememberSaveable { mutableStateOf("") }
     var viewing by remember { mutableStateOf<ImageSource?>(null) }
+    var photoMenu by remember { mutableStateOf(false) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val picker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia(),
+    ) { uri: android.net.Uri? ->
+        if (uri != null) scope.launch {
+            val file = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                app.convoyage.data.ImageLoader.importPicked(context.contentResolver, uri, java.io.File(context.cacheDir, "avatar"))
+            }
+            vm.setPhoto(file ?: return@launch)
+        }
+    }
     val shownName = me?.displayName?.ifBlank { null } ?: me?.handle ?: name ?: "Guest"
     val handle = me?.handle?.takeIf { it.isNotBlank() }
     val totals = remember(rides.rides) { container.rides.totals() }
@@ -154,7 +181,12 @@ fun ProfileScreen(
                 CvIconButton(CvIcons.Settings, "Settings", onOpenSettings)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(Space.s4), verticalAlignment = Alignment.CenterVertically) {
-                CvAvatar(me?.avatarPath, garage.primary?.badge() ?: me?.primaryVehicle?.badge(), Roster.initials(shownName), size = 64.dp)
+                Box(
+                    Modifier.clickableNoRipple { if (kind == AuthKind.Account && !ui.saving) photoMenu = true }
+                        .semantics { contentDescription = "Profile photo. Tap to change." },
+                ) {
+                    CvAvatar(me?.avatarPath, garage.primary?.badge() ?: me?.primaryVehicle?.badge(), Roster.initials(shownName), size = 64.dp)
+                }
                 Column(verticalArrangement = Arrangement.spacedBy(Space.s1)) {
                     CvText(shownName, Cv.type.displayL, c.ink, maxLines = 2)
                     CvText((handle?.let { "@$it" } ?: if (kind == AuthKind.Dev) "dev sign-in, no account" else "@...") + " · drives + rides", Cv.type.bodyS, c.inkMuted)
@@ -212,6 +244,24 @@ fun ProfileScreen(
                 Eyebrow("THIS DEVICE")
                 CvButton("Settings", onOpenSettings, Modifier.fillMaxWidth(), CvButtonKind.Ghost, icon = CvIcons.Settings)
                 CvButton("Sign out", onSignOut, Modifier.fillMaxWidth(), CvButtonKind.Ghost)
+            }
+        }
+        if (photoMenu) {
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)).clickableNoRipple { photoMenu = false })
+            CvSheet(Modifier.align(Alignment.BottomCenter).padding(bottom = TabBarClearance).clickableNoRipple {}) {
+                Column(Modifier.fillMaxWidth().padding(bottom = Space.s4), verticalArrangement = Arrangement.spacedBy(Space.s3)) {
+                    CvText("Profile photo", Cv.type.title, c.ink)
+                    CvText("Your primary vehicle shows as a badge on it.", Cv.type.bodyS, c.inkMuted)
+                    CvButton(
+                        "Choose a photo",
+                        { photoMenu = false; picker.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                        Modifier.fillMaxWidth(), icon = CvIcons.Image,
+                    )
+                    if (me?.avatarMediaId != null) {
+                        CvButton("Remove photo", { photoMenu = false; vm.setPhoto(null) }, Modifier.fillMaxWidth(), CvButtonKind.Ghost)
+                    }
+                    CvButton("Cancel", { photoMenu = false }, Modifier.fillMaxWidth(), CvButtonKind.Ghost)
+                }
             }
         }
         viewing?.let { src ->

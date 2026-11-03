@@ -101,7 +101,7 @@ fun HomeScreen(onOpenConvoy: (join: Boolean) -> Unit, onOpenNavigation: () -> Un
     val me by container.account.me.collectAsStateWithLifecycle()
 
     val now = remember { LocalDateTime.now() }
-    val greeting = when (now.hour) { in 5..11 -> "Morning"; in 12..17 -> "Afternoon"; else -> "Evening" }
+    val greeting = when (now.hour) { in 5..11 -> "Morning"; in 12..17 -> "Afternoon"; in 18..21 -> "Evening"; else -> "Late one" }
     val stamp = now.format(DateTimeFormatter.ofPattern("EEEE · h:mm a", Locale.ENGLISH)).uppercase()
 
     Box(Modifier.fillMaxSize()) {
