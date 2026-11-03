@@ -152,6 +152,24 @@ fun SettingsScreen(onBack: () -> Unit) {
         }
         CvButton("Test voice", { container.navVoice.test() }, Modifier.fillMaxWidth(), CvButtonKind.Ghost)
 
+        Eyebrow("CONVOY AUDIO")
+        val announce by session.convoyAnnounce.collectAsStateWithLifecycle()
+        val readChat by session.convoyReadChat.collectAsStateWithLifecycle()
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f).padding(end = Space.s3)) {
+                CvText("Announce convoy events", Cv.type.bodyStrong, c.ink)
+                CvText("Joins and leaves, a new leader, destination, rest stop and route changes, stopping and SOS. Plays through your headset.", Cv.type.bodyS, c.inkMuted)
+            }
+            CvChipToggle(if (announce) "On" else "Off", announce, { session.setConvoyAnnounce(!announce) })
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f).padding(end = Space.s3)) {
+                CvText("Read convoy messages aloud", Cv.type.bodyStrong, c.ink)
+                CvText("Other members' chat, as it arrives.", Cv.type.bodyS, c.inkMuted)
+            }
+            CvChipToggle(if (readChat) "On" else "Off", readChat, { session.setConvoyReadChat(!readChat) })
+        }
+
         Eyebrow("RECORDING")
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f).padding(end = Space.s3)) {

@@ -84,6 +84,16 @@ class NavVoice(context: Context, private val session: SessionStore) : Speaker {
         say(text)
     }
 
+    /**
+     * Convoy announcements (joins, destination changes, chat read aloud). Queued after whatever is playing rather
+     * than cutting a turn prompt off, and independent of the turn-by-turn mute.
+     */
+    fun announce(text: String) {
+        prepare()
+        if (!ready) { queued.add(text); return }
+        say(text, TextToSpeech.QUEUE_ADD)
+    }
+
     /** Plays [text] now even if guidance is muted (the Settings "Test voice" button). */
     fun test(text: String = "In 200 metres, turn right onto Mount Panorama Circuit") {
         prepare()
@@ -95,14 +105,14 @@ class NavVoice(context: Context, private val session: SessionStore) : Speaker {
         }
     }
 
-    private fun say(text: String) {
+    private fun say(text: String, mode: Int = TextToSpeech.QUEUE_FLUSH) {
         val engine = tts ?: return
         engine.setSpeechRate(session.navVoiceRate.value.coerceIn(0.5f, 2f))
         session.navVoiceName.value?.let { wanted -> engine.voices?.firstOrNull { it.name == wanted }?.let { engine.voice = it } }
         requestFocus()
         speaking++
         // QUEUE_FLUSH: a newer prompt replaces an older one that has not finished (we are past that turn).
-        val rc = engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "nav-${System.nanoTime()}")
+        val rc = engine.speak(text, mode, null, "nav-${System.nanoTime()}")
         if (rc != TextToSpeech.SUCCESS) spoken()
     }
 

@@ -64,6 +64,21 @@ class AppContainer(private val context: Context) {
     /** Turn-by-turn: spoken prompts, the route and where we are on it. */
     val navVoice = NavVoice(context, session)
     val nav = NavigationController(appScope, api, tracker.fix, hazards.active, navVoice, routeProfile)
+
+    init {
+        // Speak convoy events and (optionally) chat, as PhotoScout's convoy did, through the navigation voice.
+        appScope.launch {
+            var prev = convoy.state.value
+            convoy.state.collect { next ->
+                val notices = app.convoyage.data.ConvoyEvents.between(prev, next)
+                prev = next
+                notices.forEach { n ->
+                    val on = if (n.message) session.convoyReadChat.value else session.convoyAnnounce.value
+                    if (on) navVoice.announce(n.text)
+                }
+            }
+        }
+    }
     val places: PlaceSearch = NominatimSearch()
 
     /** Push-to-talk to the convoy (LiveKit). Connects while a convoy is on. */

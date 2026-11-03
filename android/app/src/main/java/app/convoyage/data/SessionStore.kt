@@ -74,6 +74,26 @@ class SessionStore(context: Context) {
     /** The chosen text-to-speech voice, or null for the engine's default. */
     val navVoiceName: StateFlow<String?> = _navVoiceName.asStateFlow()
 
+    private val _announce = MutableStateFlow(prefs.getBoolean("convoyAnnounce", true))
+
+    /** Speak convoy events: joins and leaves, a new leader, destination, rest stop and route changes, stopping, SOS. */
+    val convoyAnnounce: StateFlow<Boolean> = _announce.asStateFlow()
+
+    private val _readChat = MutableStateFlow(prefs.getBoolean("convoyReadChat", false))
+
+    /** Read other members' convoy messages aloud. */
+    val convoyReadChat: StateFlow<Boolean> = _readChat.asStateFlow()
+
+    fun setConvoyAnnounce(on: Boolean) {
+        prefs.edit().putBoolean("convoyAnnounce", on).apply()
+        _announce.value = on
+    }
+
+    fun setConvoyReadChat(on: Boolean) {
+        prefs.edit().putBoolean("convoyReadChat", on).apply()
+        _readChat.value = on
+    }
+
     val signedIn: Boolean get() = !_name.value.isNullOrBlank()
 
     init {

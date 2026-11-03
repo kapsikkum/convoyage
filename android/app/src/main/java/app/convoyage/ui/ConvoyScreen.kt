@@ -97,6 +97,9 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
     val sessionName by container.session.name.collectAsStateWithLifecycle()
     var showRecord by remember { mutableStateOf(false) }
     var pickRoute by remember { mutableStateOf(false) }
+    // "Show everyone": a snapshot of positions the camera frames once; cleared when following again.
+    var fitAll by remember { mutableStateOf<List<LatLng>>(emptyList()) }
+    LaunchedEffect(local.follow) { if (local.follow) fitAll = emptyList() }
     val sharedRoute by container.convoy.sharedRoute.collectAsStateWithLifecycle()
 
     // Sheet state: peek while in a convoy; a pre-start sheet opens to half when Start or Join is chosen.
@@ -135,9 +138,22 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
         }
     }
 
-    val pins = remember(ui.roster, ui.fix, hazards, room?.destination, local.pendingDest) {
+    // Members glide between fixes and are carried forward along their heading (display only).
+    val motion = remember { app.convoyage.data.ConvoyMotion() }
+    var motionNow by remember { androidx.compose.runtime.mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(room?.members) {
+        motion.update(room?.members.orEmpty(), System.currentTimeMillis())
+        do {
+            motionNow = System.currentTimeMillis()
+            kotlinx.coroutines.delay(50)
+        } while (motion.isAnimating(System.currentTimeMillis()))
+        motionNow = System.currentTimeMillis()
+    }
+
+    val pins = remember(ui.roster, ui.fix, hazards, room?.destination, local.pendingDest, motionNow) {
         ui.roster.mapNotNull { e ->
             if (e.isMe || e.lat == null || e.lng == null) return@mapNotNull null
+            val pose = motion.pose(e.id, motionNow)
             MapPinData(
                 id = e.id,
                 kind = when (e.state) {
@@ -146,7 +162,7 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
                     MemberState.Offline -> PinKind.Offline
                     MemberState.Online -> PinKind.Member
                 },
-                label = e.initials, lat = e.lat, lng = e.lng, headingDeg = e.headingDeg, vehicle = e.vehicle,
+                label = e.initials, lat = pose?.lat ?: e.lat, lng = pose?.lng ?: e.lng, headingDeg = pose?.heading ?: e.headingDeg, vehicle = e.vehicle,
                 tag = if (e.state == MemberState.Lead) e.distanceM?.let { Geo.formatDistance(it).uppercase() } else null,
             )
         } + hazards.map { it.toPin() } + listOfNotNull(
@@ -171,6 +187,7 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
             follow = local.follow,
             recenterTick = local.recenterTick,
             onUserMoved = vm::userMovedMap,
+            fitTo = fitAll,
             // The map keeps the same padding in every state, so the camera does not lurch as the sheet moves.
             bottomPadding = peekPad,
             // Rounded to ~1 km so small pans do not reload; the 30 s loop above keeps it fresh.
@@ -244,6 +261,11 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(Space.s2), horizontalAlignment = Alignment.CenterHorizontally) {
                 RailButton(CvIcons.Locate, "Recentre on me", "ME", vm::recenter, tint = if (local.follow) c.signal else c.ink)
+                val everyone = ui.roster.mapNotNull { e -> if (!e.isMe && e.lat != null && e.lng != null) LatLng(e.lat, e.lng) else null } +
+                    listOfNotNull(ui.fix?.let { LatLng(it.lat, it.lng) }, room?.destination?.let { LatLng(it.lat, it.lng) })
+                if (room != null && everyone.size >= 2) {
+                    RailButton(CvIcons.Convoy, "Show everyone", "ALL", { vm.userMovedMap(); fitAll = everyone.toList() }, tint = if (fitAll.isNotEmpty()) c.signal else c.ink)
+                }
                 RailButton(CvIcons.Alert, "Report hazard", "REPORT", onReport, tint = c.hazard, edge = c.hazard)
                 RailButton(
                     CvIcons.Rec, if (rec.isActive) "Recording controls" else "Record a ride", if (rec.isActive) "REC" else "RECORD", { showRecord = true },
