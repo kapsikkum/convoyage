@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
@@ -34,6 +35,7 @@ import app.convoyage.design.BannerTone
 import app.convoyage.design.CutLShape
 import app.convoyage.design.CutMShape
 import app.convoyage.design.Cv
+import app.convoyage.api.badge
 import app.convoyage.design.CvAvatar
 import app.convoyage.design.CvButton
 import app.convoyage.design.CvButtonKind
@@ -96,6 +98,7 @@ fun HomeScreen(onOpenConvoy: (join: Boolean) -> Unit, onOpenNavigation: () -> Un
     var showRecord by remember { mutableStateOf(false) }
     val garage by container.garage.state.collectAsStateWithLifecycle()
     val primary = garage.primary
+    val me by container.account.me.collectAsStateWithLifecycle()
 
     val now = remember { LocalDateTime.now() }
     val greeting = when (now.hour) { in 5..11 -> "Morning"; in 12..17 -> "Afternoon"; else -> "Evening" }
@@ -115,7 +118,7 @@ fun HomeScreen(onOpenConvoy: (join: Boolean) -> Unit, onOpenNavigation: () -> Un
                 Eyebrow(stamp)
                 CvText("$greeting, ${ui.name.ifBlank { "driver" }}", Cv.type.displayL, c.ink, maxLines = 2)
             }
-            CvAvatar(Roster.initials(ui.name), null)
+            CvAvatar(me?.avatarPath, garage.primary?.badge() ?: me?.primaryVehicle?.badge(), Roster.initials(ui.name))
         }
 
         LiveConvoyCard(ui, eta = if (navState.isOn) navState.etaMs?.let { Fmt.clockOfDay(it) } ?: "--:--" else "--:--", onClick = { onOpenConvoy(false) })
@@ -144,7 +147,7 @@ fun HomeScreen(onOpenConvoy: (join: Boolean) -> Unit, onOpenNavigation: () -> Un
             }
         }
 
-        // Garage card: the primary vehicle. The 3D renderer is still a placeholder, see VehicleViewport.
+        // Garage card: the primary vehicle. Its PS1 render is a static thumbnail.
         CvCard(Modifier.fillMaxWidth(), fill = androidx.compose.ui.graphics.Color.Transparent, shape = CutMShape, onClick = onOpenGarage) {
             Row(
                 Modifier.gridBackdrop(c.line.copy(alpha = 0.4f)).padding(horizontal = Space.s4, vertical = Space.s3),
@@ -155,7 +158,8 @@ fun HomeScreen(onOpenConvoy: (join: Boolean) -> Unit, onOpenNavigation: () -> Un
                     CvText(primary?.displayName ?: "Add your first vehicle", Cv.type.title, c.ink, maxLines = 1)
                     CvText(primary?.let(::buildSummary) ?: "Rides record on your primary vehicle", Cv.type.bodyS, c.inkMuted, maxLines = 1)
                 }
-                CvIcon(primary?.let { kindIcon(it.kind) } ?: CvIcons.Cube, primary?.build?.paint?.let(::parsePaint) ?: c.signal, size = 40.dp)
+                if (primary != null) Ps1Thumb(primary.ps1(), app.convoyage.render.ThumbSize.Card, Modifier.size(width = 96.dp, height = 64.dp), fallback = { CvIcon(kindIcon(primary.kind), primary.build.paint?.let(::parsePaint) ?: c.signal, size = 40.dp) })
+                else CvIcon(CvIcons.Cube, c.signal, size = 40.dp)
             }
         }
     }

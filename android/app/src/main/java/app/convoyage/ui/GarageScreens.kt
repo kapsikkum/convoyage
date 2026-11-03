@@ -63,6 +63,7 @@ import app.convoyage.design.Readout
 import app.convoyage.design.SegOption
 import app.convoyage.design.Segmented
 import app.convoyage.design.Space
+import app.convoyage.render.Ps1Spec
 import app.convoyage.design.cutPanel
 import kotlinx.coroutines.launch
 
@@ -165,7 +166,7 @@ fun GarageDetailScreen(vehicleId: String, onBack: () -> Unit, onEdit: (String) -
             return@Column
         }
 
-        VehicleViewport(v, Modifier.fillMaxWidth().height(250.dp), large = true)
+        VehicleViewport(v, Modifier.fillMaxWidth().height(250.dp), live = true)
 
         CvText("${listOfNotNull(v.year?.toString(), v.make, v.model).joinToString(" ")}", Cv.type.bodyS, c.inkMuted)
 
@@ -267,7 +268,7 @@ private fun VehicleForm(existing: Vehicle?, onDone: () -> Unit) {
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
-    VehicleViewport(kind, paint, finish, Modifier.fillMaxWidth().height(200.dp), large = true, caption = finish.uppercase())
+    VehicleViewport(Ps1Spec.of(kind, paint, finish, wheel, height), Modifier.fillMaxWidth().height(220.dp), live = true, caption = finish.uppercase())
 
     Eyebrow("TYPE")
     Segmented(

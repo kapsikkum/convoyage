@@ -22,6 +22,7 @@ import app.convoyage.data.LocationTracker
 import app.convoyage.data.SessionStore
 import app.convoyage.data.SignInOutcome
 import app.convoyage.data.SocketAuth
+import app.convoyage.render.VehicleThumbs
 import app.convoyage.nav.NavVoice
 import app.convoyage.nav.NavigationController
 import app.convoyage.nav.NominatimSearch
@@ -70,6 +71,9 @@ class AppContainer(private val context: Context) {
     val garage = GarageRepository(appScope, api)
     val rides = RidesRepository(appScope, api)
     val images = ImageLoader(appScope, api)
+
+    /** Static PS1 vehicle renders (avatar badges, cards): one shared offscreen renderer, cached by build. */
+    val thumbs = VehicleThumbs(context)
     val feed = FeedRepository(appScope, api, location = { tracker.lastKnown()?.let { LatLngD(it.lat, it.lng) } })
 
     /** The ride being recorded (or waiting to upload). Saved on disk as it goes. */

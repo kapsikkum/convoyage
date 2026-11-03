@@ -46,6 +46,7 @@ data class MapPinData(
     val lng: Double,
     val headingDeg: Double? = null,
     val tag: String? = null,
+    val vehicle: app.convoyage.api.VehicleBadge? = null,
 )
 
 /** Where the camera should look when nothing has a position yet: Bathurst, NSW (home of Mount Panorama). */
@@ -220,6 +221,7 @@ fun ConvoyMap(
                         label = pin.label,
                         heading = pin.headingDeg?.let { (it - bearing).toFloat() },
                         tag = pin.tag,
+                        vehicle = pin.vehicle,
                         modifier = Modifier.offset { IntOffset((p.x - half).toInt(), (p.y - half).toInt()) },
                     )
                 }

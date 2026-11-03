@@ -271,7 +271,7 @@ private fun PostCard(post: Post, mine: Boolean, vm: FeedViewModel, onView: (Imag
     CvCard(Modifier.fillMaxWidth(), shape = CutLShape) {
         Column(Modifier.padding(Space.s4), verticalArrangement = Arrangement.spacedBy(Space.s3)) {
             Row(horizontalArrangement = Arrangement.spacedBy(Space.s3), verticalAlignment = Alignment.CenterVertically) {
-                CvAvatar(Roster.initials(post.author.name), null)
+                CvAvatar(post.author.avatarPath, post.author.primaryVehicle, Roster.initials(post.author.name))
                 Column(Modifier.weight(1f)) {
                     Row {
                         CvText(post.author.name, Cv.type.bodyStrong, c.ink, maxLines = 1)
@@ -388,12 +388,15 @@ private fun CommentsSection(post: Post, vm: FeedViewModel) {
         if (state.refreshing && state.items.isEmpty()) Eyebrow("LOADING COMMENTS...")
         if (state.loadedOnce && state.items.isEmpty()) Eyebrow("NO COMMENTS YET")
         state.items.forEach { cm ->
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    CvText(cm.author.name, Cv.type.bodyStrong, c.ink, maxLines = 1)
-                    Eyebrow(Fmt.timeAgo(cm.createdAt))
+            Row(horizontalArrangement = Arrangement.spacedBy(Space.s2), verticalAlignment = Alignment.Top) {
+                CvAvatar(cm.author.avatarPath, cm.author.primaryVehicle, Roster.initials(cm.author.name), size = 28.dp)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        CvText(cm.author.name, Cv.type.bodyStrong, c.ink, maxLines = 1)
+                        Eyebrow(Fmt.timeAgo(cm.createdAt))
+                    }
+                    CvText(cm.body, Cv.type.bodyS, c.ink)
                 }
-                CvText(cm.body, Cv.type.bodyS, c.ink)
             }
         }
         if (state.nextCursor != null) {

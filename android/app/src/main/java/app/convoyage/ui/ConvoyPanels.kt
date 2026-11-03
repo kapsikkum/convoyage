@@ -99,6 +99,8 @@ private fun RosterRow(e: RosterEntry) {
         distance = e.distanceM?.let { Geo.formatDistance(it).uppercase() },
         distanceCaption = when (e.side) { Side.Ahead -> "ahead"; Side.Behind -> "behind"; Side.Away -> null },
         metaColor = if (e.state == MemberState.Stopped) c.pulse else c.inkMuted,
+        photoUrl = e.photoUrl,
+        vehicle = e.vehicle,
     )
 }
 

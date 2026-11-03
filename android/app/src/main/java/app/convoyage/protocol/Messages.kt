@@ -46,6 +46,8 @@ data class Member(
     val online: Boolean = false,
     val lastSeen: Long = 0,
     val position: Position? = null,
+    /** The member's primary vehicle, for their avatar badge. Absent or null when they have none or the account is private. */
+    val vehicle: app.convoyage.api.VehicleBadge? = null,
 )
 
 @Serializable

@@ -18,6 +18,9 @@ data class RosterEntry(
     val lat: Double?,
     val lng: Double?,
     val headingDeg: Double?,
+    /** Their primary vehicle (avatar badge) and profile photo path, when the server sent them. */
+    val vehicle: app.convoyage.api.VehicleBadge? = null,
+    val photoUrl: String? = null,
 )
 
 enum class AlertKind { Stopped, Resting }
@@ -76,6 +79,8 @@ object Roster {
                 lat = p?.lat,
                 lng = p?.lng,
                 headingDeg = p?.heading,
+                vehicle = m.vehicle,
+                photoUrl = m.avatar.takeIf { it.startsWith("/v1/media/") },
             )
         }.sortedWith(compareBy<RosterEntry>({ it.id != room.leader }, { !it.isMe }, { it.distanceM ?: Double.MAX_VALUE }))
 

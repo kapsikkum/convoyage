@@ -10,6 +10,18 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.draw.scale
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
+import app.convoyage.api.VehicleBadge
+import app.convoyage.data.ImageSource
+import app.convoyage.render.ThumbSize
+import app.convoyage.ui.LocalContainer
+import app.convoyage.ui.Ps1Thumb
+import app.convoyage.ui.ps1
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -215,10 +227,34 @@ fun ringColor(state: MemberState): Color = when (state) {
     MemberState.Offline -> Cv.colors.lineStrong
 }
 
-/** Round avatar (physically round, so allowed) with a state ring; leaders get a crown. */
+/**
+ * The one avatar every person in the app gets: round, and physically round so the exception to the chamfer rule applies.
+ *
+ * - [photoUrl] (a server media path such as `/v1/media/<id>/thumb`) is the main picture when it has loaded.
+ * - [vehicle], their primary vehicle, is its PS1 render: a badge at the bottom right (about 42% of the diameter,
+ *   overlapping the edge, ringed in surface-100) when there is a photo, and the main picture when there is not.
+ * - With neither, the [initials].
+ *
+ * [state] adds the convoy ring (and a crown for the leader).
+ */
 @Composable
-fun CvAvatar(initials: String, state: MemberState?, modifier: Modifier = Modifier, size: Dp = 40.dp) {
+fun CvAvatar(
+    photoUrl: String?,
+    vehicle: VehicleBadge?,
+    initials: String,
+    modifier: Modifier = Modifier,
+    size: Dp = 40.dp,
+    state: MemberState? = null,
+) {
     val c = Cv.colors
+    val images = LocalContainer.current.images
+    val px = with(LocalDensity.current) { (size * 2).roundToPx().coerceIn(64, 512) }
+    val source = remember(photoUrl) { photoUrl?.takeIf { it.isNotBlank() }?.let { ImageSource.Remote(it) } }
+    var photo by remember(source, px) { mutableStateOf(source?.let { images.cached(it, px) }) }
+    LaunchedEffect(source, px) {
+        if (source != null && photo == null) photo = images.load(source, px)
+    }
+    val shownPhoto = photo
     Box(modifier = modifier.size(size + 8.dp), contentAlignment = Alignment.Center) {
         Box(
             modifier = Modifier
@@ -229,7 +265,28 @@ fun CvAvatar(initials: String, state: MemberState?, modifier: Modifier = Modifie
             modifier = Modifier.size(size).clip(CircleShape).background(c.surface300, CircleShape),
             contentAlignment = Alignment.Center,
         ) {
-            CvText(initials, Cv.type.label.copy(letterSpacing = 0.sp), if (state == MemberState.Offline) c.inkMuted else c.ink)
+            when {
+                shownPhoto != null -> Image(shownPhoto, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                vehicle != null -> Ps1Thumb(
+                    vehicle.ps1(), ThumbSize.Badge, Modifier.fillMaxSize(), ContentScale.Fit,
+                    fallback = { CvText(initials, Cv.type.label.copy(letterSpacing = 0.sp), c.ink) },
+                )
+                else -> CvText(initials, Cv.type.label.copy(letterSpacing = 0.sp), if (state == MemberState.Offline) c.inkMuted else c.ink)
+            }
+        }
+        if (shownPhoto != null && vehicle != null) {
+            val badge = size * 0.42f
+            val ring = 2.dp
+            val whole = badge + ring * 2
+            // Centre of the badge sits on the circle's edge at 45 degrees, bottom right.
+            val at = (size + 8.dp) / 2 + size / 2 * 0.7071f - whole / 2
+            Box(
+                Modifier.align(Alignment.TopStart).offset(x = at, y = at).size(whole)
+                    .clip(CircleShape).background(c.surface100, CircleShape).padding(ring)
+                    .clip(CircleShape).background(c.surface300, CircleShape),
+            ) {
+                Ps1Thumb(vehicle.ps1(), ThumbSize.Badge, Modifier.fillMaxSize(), ContentScale.Fit)
+            }
         }
         if (state == MemberState.Lead) {
             Box(
@@ -250,6 +307,8 @@ fun RosterChip(
     distanceCaption: String?,
     modifier: Modifier = Modifier,
     metaColor: Color = Cv.colors.inkMuted,
+    photoUrl: String? = null,
+    vehicle: VehicleBadge? = null,
 ) {
     val c = Cv.colors
     Row(
@@ -261,7 +320,7 @@ fun RosterChip(
         horizontalArrangement = Arrangement.spacedBy(Space.s3),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        CvAvatar(initials, state)
+        CvAvatar(photoUrl, vehicle, initials, state = state)
         Column(Modifier.weight(1f)) {
             CvText(name, Cv.type.bodyStrong, c.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
             CvText(meta, Cv.type.bodyS, metaColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -667,6 +726,8 @@ fun MapPin(
     modifier: Modifier = Modifier,
     heading: Float? = null,
     tag: String? = null,
+    /** A member's primary vehicle: its PS1 render replaces the initials in the dot. */
+    vehicle: VehicleBadge? = null,
 ) {
     val c = Cv.colors
     val ring = when (kind) {
@@ -708,6 +769,7 @@ fun MapPin(
             else if (kind == PinKind.Destination) CvIcon(CvIcons.Route, c.ink, size = 18.dp)
             else if (kind == PinKind.Hazard || kind == PinKind.Police) CvIcon(CvIcons.Alert, ring, size = 18.dp)
             else if (kind == PinKind.Photo) CvIcon(CvIcons.Camera, ring, size = 18.dp)
+            else if (vehicle != null) Ps1Thumb(vehicle.ps1(), ThumbSize.Badge, Modifier.fillMaxSize(), ContentScale.Fit, fallback = { CvText(label, Cv.type.label.copy(fontSize = 11.sp, letterSpacing = 0.sp), c.ink) })
             else CvText(label, Cv.type.label.copy(fontSize = 11.sp, letterSpacing = 0.sp), if (kind == PinKind.Offline) c.inkMuted else c.ink)
         }
         if (tag != null) {

@@ -76,7 +76,11 @@ data class Me(
     val followerCount: Int = 0,
     val followingCount: Int = 0,
     val pendingRequestCount: Int = 0,
-)
+    val primaryVehicle: Vehicle? = null,
+) {
+    /** Server-relative path of my profile photo, or null. */
+    val avatarPath: String? get() = avatarMediaId?.let { "/v1/media/$it/thumb" }
+}
 
 /** PATCH /v1/me. Only the fields that are set are sent. */
 @Serializable

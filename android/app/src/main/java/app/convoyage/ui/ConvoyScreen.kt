@@ -144,7 +144,7 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
                     MemberState.Offline -> PinKind.Offline
                     MemberState.Online -> PinKind.Member
                 },
-                label = e.initials, lat = e.lat, lng = e.lng, headingDeg = e.headingDeg,
+                label = e.initials, lat = e.lat, lng = e.lng, headingDeg = e.headingDeg, vehicle = e.vehicle,
                 tag = if (e.state == MemberState.Lead) e.distanceM?.let { Geo.formatDistance(it).uppercase() } else null,
             )
         } + hazards.map { it.toPin() } + listOfNotNull(

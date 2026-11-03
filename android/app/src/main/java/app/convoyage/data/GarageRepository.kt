@@ -32,7 +32,22 @@ class GarageRepository(private val scope: CoroutineScope, private val api: Convo
     private val _state = MutableStateFlow(GarageState())
     val state: StateFlow<GarageState> = _state.asStateFlow()
 
+    private var catalogueLoaded = false
+
+    /** The garage catalogue (paints, finishes, wheels) into [app.convoyage.api.VehicleOptions]; once per launch. */
+    fun loadCatalogue() {
+        if (catalogueLoaded) return
+        catalogueLoaded = true
+        scope.launch {
+            when (val r = api.catalogue()) {
+                is ApiResult.Ok -> app.convoyage.api.VehicleOptions.apply(r.value)
+                is ApiResult.Err -> catalogueLoaded = false
+            }
+        }
+    }
+
     fun refresh() {
+        loadCatalogue()
         if (_state.value.loading) return
         _state.update { it.copy(loading = true, error = null) }
         scope.launch {

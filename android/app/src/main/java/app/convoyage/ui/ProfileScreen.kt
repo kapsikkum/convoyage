@@ -37,6 +37,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import app.convoyage.AppContainer
 import app.convoyage.api.ApiResult
+import app.convoyage.api.badge
 import app.convoyage.api.Post
 import app.convoyage.api.RideSummary
 import app.convoyage.data.AuthKind
@@ -153,7 +154,7 @@ fun ProfileScreen(
                 CvIconButton(CvIcons.Settings, "Settings", onOpenSettings)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(Space.s4), verticalAlignment = Alignment.CenterVertically) {
-                CvAvatar(Roster.initials(shownName), null, size = 64.dp)
+                CvAvatar(me?.avatarPath, garage.primary?.badge() ?: me?.primaryVehicle?.badge(), Roster.initials(shownName), size = 64.dp)
                 Column(verticalArrangement = Arrangement.spacedBy(Space.s1)) {
                     CvText(shownName, Cv.type.displayL, c.ink, maxLines = 2)
                     CvText((handle?.let { "@$it" } ?: if (kind == AuthKind.Dev) "dev sign-in, no account" else "@...") + " · drives + rides", Cv.type.bodyS, c.inkMuted)

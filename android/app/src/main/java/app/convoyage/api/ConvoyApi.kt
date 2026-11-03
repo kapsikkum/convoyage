@@ -126,6 +126,9 @@ class ConvoyApi(
 
     // ---- vehicles --------------------------------------------------------------------------------
 
+    /** `GET /v1/catalogue`: public and static. */
+    suspend fun catalogue(): ApiResult<Catalogue> = send("GET", "v1/catalogue", null, Catalogue.serializer())
+
     suspend fun listVehicles(): ApiResult<List<Vehicle>> =
         send("GET", "v1/vehicles", null, ListSerializer(Vehicle.serializer()))
 

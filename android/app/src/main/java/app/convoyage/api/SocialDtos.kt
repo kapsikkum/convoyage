@@ -45,6 +45,28 @@ data class Vehicle(
     val displayName: String get() = nickname.ifBlank { "$make $model".trim() }
 }
 
+/** What an avatar badge needs of a vehicle: its kind and the build fields that change how it looks (`VehicleBadge` in the API, `MemberVehicle` in the convoy protocol). */
+@Serializable
+data class VehicleBadge(val kind: String = "car", val build: Build = Build())
+
+fun Vehicle.badge() = VehicleBadge(kind, build)
+
+/** GET /v1/catalogue: the ids the build fields carry. Static on the server. */
+@Serializable
+data class Catalogue(
+    val version: Int = 0,
+    val kinds: List<CatalogueEntry> = emptyList(),
+    val paints: List<CataloguePaint> = emptyList(),
+    val finishes: List<CatalogueEntry> = emptyList(),
+    val wheels: List<CatalogueEntry> = emptyList(),
+)
+
+@Serializable
+data class CatalogueEntry(val id: String, val name: String = "")
+
+@Serializable
+data class CataloguePaint(val id: String, val name: String = "", val hex: String = "")
+
 /** POST /v1/vehicles. */
 @Serializable
 data class CreateVehicle(
@@ -74,19 +96,27 @@ data class SoldBody(val soldAt: String? = null)
 /** The fixed choices the garage editor offers. */
 object VehicleOptions {
     val KINDS = listOf("car", "motorcycle", "ute", "4wd")
-    val FINISHES = listOf("gloss", "satin", "matte", "metallic", "pearl")
 
-    /** TODO(garage-catalogue): the server has no wheel catalogue yet, so these ids are the app's own. */
-    val WHEELS = listOf(
-        "stock" to "Stock", "mesh" to "Mesh", "multi_spoke" to "Multi-spoke", "split_five" to "Split five",
-        "deep_dish" to "Deep dish", "steelie" to "Steelie", "forged_bronze" to "Forged bronze",
+    /** The ids the server's catalogue carries. `GET /v1/catalogue` replaces these through [apply]; until it answers they are what it said last time we looked. */
+    @Volatile var FINISHES: List<String> = listOf("gloss", "satin", "matte", "metallic", "pearl")
+
+    /** Wheel ids and names. */
+    @Volatile var WHEELS: List<Pair<String, String>> = listOf(
+        "stock" to "Stock", "sport5" to "Sport 5-Spoke", "mesh" to "Mesh", "split_spoke" to "Split Spoke",
+        "deep_dish" to "Deep Dish", "steelie" to "Steel Wheel",
     )
 
     /** Paint swatches: `#RRGGBB` and a name. */
-    val PAINTS = listOf(
-        "#F2F0EA" to "Pearl white", "#14181F" to "Night black", "#5B6675" to "Gunmetal", "#D6232B" to "Signal red",
-        "#FFB020" to "Amber", "#46E08C" to "Go green", "#2DE2E6" to "Cyan storm", "#6F97FF" to "Police blue",
+    @Volatile var PAINTS: List<Pair<String, String>> = listOf(
+        "#2de2e6" to "Convoy Cyan", "#f4f1ea" to "Pearl White", "#0b0b0d" to "Black", "#c8102e" to "Race Red",
+        "#1f4fd8" to "Cobalt Blue", "#1e7b45" to "Forest Green", "#f2c230" to "Solar Yellow", "#b8bcc2" to "Silver",
     )
+
+    fun apply(c: Catalogue) {
+        if (c.finishes.isNotEmpty()) FINISHES = c.finishes.map { it.id }
+        if (c.wheels.isNotEmpty()) WHEELS = c.wheels.map { it.id to it.name.ifBlank { it.id } }
+        if (c.paints.isNotEmpty()) PAINTS = c.paints.map { it.hex to it.name.ifBlank { it.hex } }
+    }
 
     fun kindLabel(kind: String) = when (kind) {
         "motorcycle" -> "Motorcycle"
@@ -229,7 +259,11 @@ data class UserRef(
     val handle: String = "",
     val displayName: String = "",
     val avatarMediaId: String? = null,
+    /** Their primary vehicle, for the avatar badge; null when they have none or the viewer may not see it. */
+    val primaryVehicle: VehicleBadge? = null,
 ) {
+    /** Server-relative path of the profile photo, or null. */
+    val avatarPath: String? get() = avatarMediaId?.let { "/v1/media/$it/thumb" }
     val name: String get() = displayName.ifBlank { handle }.ifBlank { "Driver" }
 }
 
