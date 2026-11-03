@@ -99,6 +99,7 @@
         "destination": { "oneOf": [{ "$ref": "#/$defs/Destination" }, { "type": "null" }] },
         "resting": { "type": "boolean" },
         "route": { "oneOf": [{ "$ref": "#/$defs/ConvoyRoute" }, { "type": "null" }] },
+        "routeGeometry": { "type": "string", "description": "Additive in v1, optional (absent when unknown). Road-following route from the leader to the destination, polyline with 6 decimals of precision, fetched by the server when the leader sets a destination while sharing a position. Dropped when the destination changes." },
         "automaticRegroup": { "$ref": "#/$defs/AutomaticRegroup" },
         "members": { "type": "array", "maxItems": 30, "items": { "$ref": "#/$defs/Member" } }
       },
@@ -166,6 +167,18 @@
             "room": { "$ref": "#/$defs/Id" },
             "destination": { "oneOf": [{ "$ref": "#/$defs/Destination" }, { "type": "null" }] }
           }
+        },
+        {
+          "description": "Additive in v1. Leader only. Renames the convoy; everyone gets an updated room.",
+          "type": "object",
+          "required": ["t", "room", "name"],
+          "properties": { "t": { "const": "convoy.rename" }, "room": { "$ref": "#/$defs/Id" }, "name": { "type": "string", "minLength": 1, "maxLength": 40 } }
+        },
+        {
+          "description": "Additive in v1. Leader only. Turns automatic regroup on or off and sets the spread that triggers it (1 to 20 km); everyone gets an updated room.",
+          "type": "object",
+          "required": ["t", "room", "enabled", "separationM"],
+          "properties": { "t": { "const": "convoy.regroup" }, "room": { "$ref": "#/$defs/Id" }, "enabled": { "type": "boolean" }, "separationM": { "type": "number", "minimum": 1000, "maximum": 20000 } }
         },
         {
           "type": "object",

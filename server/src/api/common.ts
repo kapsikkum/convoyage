@@ -20,6 +20,8 @@ export interface ConvoyLink {
   sendToRoom(code: string, message: unknown): void;
   /** Members of a room with no live socket. */
   offlineMemberIds(code: string): string[];
+  /** A connected user changed their display name. */
+  renameUser(userId: string, name: string): void;
 }
 
 export interface ApiContext {
@@ -38,7 +40,7 @@ export const iso = (d: Date | string): string => new Date(d).toISOString();
 export const isoOrNull = (d: Date | string | null): string | null => (d ? iso(d) : null);
 
 /** Writes a guest may still make: convoy-adjacent things only. Everything else that is not a GET is 403 for guests. */
-const GUEST_WRITES = new Set(['/v1/voice/token', '/v1/hazards', '/v1/hazards/:id/confirm', '/v1/hazards/:id/dismiss', '/v1/hazards/:id/ack', '/v1/me/devices']);
+const GUEST_WRITES = new Set(['/v1/voice/token', '/v1/hazards/:id/confirm', '/v1/hazards/:id/dismiss', '/v1/hazards/:id/ack']);
 
 /** preHandler: require a valid bearer access token and set `request.userId`. Guests may only read, plus GUEST_WRITES. */
 export const authenticate = (tokens: Tokens) => async (request: FastifyRequest): Promise<void> => {

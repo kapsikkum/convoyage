@@ -100,6 +100,7 @@ export async function userRoutes(app: FastifyInstance, ctx: ApiContext): Promise
       if (isUniqueViolation(err)) throw conflict('That handle is taken');
       throw err;
     }
+    if (body.displayName !== undefined) ctx.convoy.renameUser(req.userId, body.displayName.trim());
     return loadMe(db, req.userId);
   });
 

@@ -19,6 +19,8 @@ export type ClientMessage =
   | { t: 'convoy.cruise'; eventId: string }
   | { t: 'convoy.leave'; room: string }
   | { t: 'convoy.dest'; room: string; destination: { lat: number; lng: number; label: string } | null }
+  | { t: 'convoy.rename'; room: string; name: string }
+  | { t: 'convoy.regroup'; room: string; enabled: boolean; separationM: number }
   | { t: 'convoy.rest'; room: string; action: 'find' | 'continue' }
   | { t: 'convoy.route'; room: string; route: { name: string; stops: [number, number][] } | null }
   | { t: 'convoy.lead'; room: string; to: string }
@@ -112,6 +114,12 @@ export function parseClientMessage(raw: string): ParsedMessage {
           destination = { lat: num(o.destination, 'lat', -90, 90), lng: num(o.destination, 'lng', -180, 180), label: str(o.destination, 'label', MAX_LABEL) };
         }
         return { ok: true, message: { t: o.t, room: id(o, 'room'), destination } };
+      }
+      case 'convoy.rename':
+        return { ok: true, message: { t: o.t, room: id(o, 'room'), name: str(o, 'name', MAX_NAME, true) } };
+      case 'convoy.regroup': {
+        if (typeof o.enabled !== 'boolean') return bad('enabled must be true or false');
+        return { ok: true, message: { t: o.t, room: id(o, 'room'), enabled: o.enabled, separationM: num(o, 'separationM', MIN_REGROUP_SEPARATION_M, MAX_REGROUP_SEPARATION_M) } };
       }
       case 'convoy.rest': {
         const action = o.action;

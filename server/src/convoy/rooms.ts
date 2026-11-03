@@ -82,6 +82,8 @@ interface Room {
   resumeDestination: Destination | null;
   resting: boolean;
   route: ConvoyRoute | null;
+  /** Road-following polyline6 from the leader to the destination, when the server could get one. */
+  routeGeometry: string | null;
   automaticRegroup: AutomaticRegroup;
   separatedSince: number | null;
   regroupPending: boolean;
@@ -106,6 +108,8 @@ export interface RoomView {
   destination: Destination | null;
   resting: boolean;
   route: ConvoyRoute | null;
+  /** Only present while the server holds a road-following route (polyline6) to the destination. */
+  routeGeometry?: string;
   automaticRegroup: AutomaticRegroup;
   members: { id: string; username: string; avatar: string; online: boolean; lastSeen: number; position: Position | null }[];
 }
@@ -129,6 +133,7 @@ export class Rooms {
     if (!room) return undefined;
     room.messages = room.messages.filter((m) => this.now() - m.ts < CONVOY_MESSAGE_TTL_MS);
     return {
+      ...(room.routeGeometry ? { routeGeometry: room.routeGeometry } : {}),
       messages: room.messages.map((m) => ({ ...m })),
       code: room.code, name: room.name, eventId: room.eventId, leader: room.leader, destination: room.destination, resting: room.resting,
       route: room.route && { name: room.route.name, stops: room.route.stops.map((p) => [...p] as [number, number]) },
@@ -186,6 +191,7 @@ export class Rooms {
       resumeDestination: null,
       resting: false,
       route: opts.route ? { name: opts.route.name.trim().slice(0, MAX_NAME) || 'Convoy route', stops: opts.route.stops.map((p) => [...p] as [number, number]) } : null,
+      routeGeometry: null,
       automaticRegroup: opts.automaticRegroup ?? { enabled: false, separationM: DEFAULT_REGROUP_SEPARATION_M },
       separatedSince: null,
       regroupPending: false,
@@ -255,10 +261,53 @@ export class Rooms {
     room.navigationVersion++;
     room.destination = destination && { ...destination, label: destination.label.trim().slice(0, MAX_LABEL) };
     room.resumeDestination = null;
+    room.routeGeometry = null;
     room.resting = false;
     room.separatedSince = null;
     room.regroupPending = false;
     return { ok: true, value: this.view(code)! };
+  }
+
+  /** Store a road-following route for the current destination, unless the navigation changed while it was being fetched. */
+  setRouteGeometry(code: string, version: number, geometry: string): Outcome {
+    const room = this.room(code);
+    if (!room || room.navigationVersion !== version || !room.destination) return fail('That route is out of date');
+    room.routeGeometry = geometry;
+    return { ok: true, value: this.view(code)! };
+  }
+
+  /** Leader renames the convoy. */
+  rename(code: string, userId: string, name: string): Outcome {
+    const room = this.room(code);
+    if (!room?.members.has(userId)) return fail('You are not in that convoy');
+    if (room.leader !== userId) return fail('Only the leader can rename the convoy');
+    const clean = name.trim().slice(0, MAX_NAME);
+    if (!clean) return fail('A convoy needs a name');
+    room.name = clean;
+    return { ok: true, value: this.view(code)! };
+  }
+
+  /** Leader turns automatic regroup on or off and sets how far apart the convoy may spread. */
+  setAutomaticRegroup(code: string, userId: string, setting: AutomaticRegroup): Outcome {
+    const room = this.room(code);
+    if (!room?.members.has(userId)) return fail('You are not in that convoy');
+    if (room.leader !== userId) return fail('Only the leader can change regroup settings');
+    if (!(setting.separationM >= MIN_REGROUP_SEPARATION_M && setting.separationM <= MAX_REGROUP_SEPARATION_M)) return fail('Regroup distance must be 1 to 20 km');
+    room.automaticRegroup = { enabled: setting.enabled, separationM: setting.separationM };
+    room.separatedSince = null;
+    return { ok: true, value: this.view(code)! };
+  }
+
+  /** A connected user changed their display name: update it in every room they are in. Returns those rooms. */
+  renameMember(userId: string, username: string): string[] {
+    const name = username.trim().slice(0, MAX_NAME);
+    if (!name) return [];
+    const changed: string[] = [];
+    for (const code of this.roomsOf(userId)) {
+      const m = this.room(code)?.members.get(userId);
+      if (m && m.username !== name) { m.username = name; changed.push(code); }
+    }
+    return changed;
   }
 
   /** Temporarily replace the destination with a rest stop, remembering where the convoy was headed. */
@@ -269,6 +318,7 @@ export class Rooms {
     room.navigationVersion++;
     room.resumeDestination = room.destination && { ...room.destination };
     room.destination = { ...destination, label: destination.label.trim().slice(0, MAX_LABEL) };
+    room.routeGeometry = null;
     room.resting = true;
     room.separatedSince = null;
     room.regroupPending = false;
@@ -284,6 +334,7 @@ export class Rooms {
     room.navigationVersion++;
     room.destination = room.resumeDestination;
     room.resumeDestination = null;
+    room.routeGeometry = null;
     room.resting = false;
     room.separatedSince = null;
     room.regroupPending = false;
@@ -324,6 +375,7 @@ export class Rooms {
     room.navigationVersion++;
     room.resumeDestination = room.destination && { ...room.destination };
     room.destination = { ...destination, label: destination.label.trim().slice(0, MAX_LABEL) };
+    room.routeGeometry = null;
     room.resting = true;
     return { ok: true, value: this.view(code)! };
   }

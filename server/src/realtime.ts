@@ -1,7 +1,7 @@
 import type http from 'node:http';
 import type { Duplex } from 'node:stream';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { MAX_LABEL, MissLimiter, Rooms, type Who } from './convoy/rooms.js';
+import { MAX_LABEL, MAX_NAME, MissLimiter, Rooms, type Who } from './convoy/rooms.js';
 import { parseClientMessage, type ClientMessage } from './convoy/messages.js';
 import type { Authenticator, CruiseSource, RestStopFinder } from './ports.js';
 
@@ -42,6 +42,8 @@ export interface RealtimeOptions {
   auth: Authenticator;
   cruises: CruiseSource;
   restStops: RestStopFinder;
+  /** Road-following polyline6 between two [lng, lat] points, or null. Optional: without it a destination carries no routeGeometry. */
+  routeFinder?: (from: [number, number], to: [number, number]) => Promise<string | null>;
   heartbeatMs?: number;
   sweepMs?: number;
   rooms?: Rooms;
@@ -52,6 +54,8 @@ export interface RealtimeOptions {
 export interface Realtime {
   close(): void;
   sendToRoom(code: string, message: unknown): void;
+  /** A connected user changed their display name: update it in their rooms and tell the members. */
+  renameUser(userId: string, name: string): void;
 }
 
 /** Subprotocol a client offers (alongside `bearer.<access token>`) so the token never lands in a URL. */
@@ -127,6 +131,19 @@ export function attachRealtime(server: http.Server, opts: RealtimeOptions): Real
       const done = rooms.completeAutomaticRegroup(code, stop ? { lat: stop.lat, lng: stop.lng, label: `Regroup: ${stop.label}` } : null);
       if (done.ok && stop) announce(code);
     }).catch(() => { rooms.completeAutomaticRegroup(code, null); });
+  }
+
+  /** After the leader sets a destination: fetch a road-following route from where they are, and share it if nothing changed meanwhile. */
+  function routeToDestination(code: string): void {
+    const find = opts.routeFinder;
+    const room = rooms.view(code);
+    const leader = room?.members.find((member) => member.id === room.leader)?.position;
+    if (!find || !room?.destination || !leader) return;
+    const version = rooms.navigationVersion(code)!;
+    void find([leader.lng, leader.lat], [room.destination.lng, room.destination.lat]).then((geometry) => {
+      if (!geometry) return;
+      if (rooms.setRouteGeometry(code, version, geometry).ok) announce(code);
+    }).catch(() => {});
   }
 
   async function enter(conn: Conn, m: Extract<ClientMessage, { t: 'convoy.create' | 'convoy.join' | 'convoy.cruise' }>, error: (text: string) => void): Promise<void> {
@@ -208,6 +225,13 @@ export function attachRealtime(server: http.Server, opts: RealtimeOptions): Real
         sendUser(m.id, { t: 'left', room: m.room, removed: true });
         return announce(m.room);
       }
+      case 'convoy.rename':
+      case 'convoy.regroup': {
+        const done = m.t === 'convoy.rename'
+          ? rooms.rename(m.room, conn.userId, m.name)
+          : rooms.setAutomaticRegroup(m.room, conn.userId, { enabled: m.enabled, separationM: m.separationM });
+        return done.ok ? announce(m.room) : error(done.error);
+      }
       case 'convoy.dest':
       case 'convoy.route':
       case 'convoy.lead': {
@@ -216,7 +240,10 @@ export function attachRealtime(server: http.Server, opts: RealtimeOptions): Real
           : m.t === 'convoy.route'
             ? rooms.setRoute(m.room, conn.userId, m.route)
             : rooms.handOver(m.room, conn.userId, m.to);
-        return done.ok ? announce(m.room) : error(done.error);
+        if (!done.ok) return error(done.error);
+        announce(m.room);
+        if (m.t === 'convoy.dest') routeToDestination(m.room);
+        return;
       }
       case 'convoy.rest': {
         const room = rooms.view(m.room);
@@ -313,6 +340,10 @@ export function attachRealtime(server: http.Server, opts: RealtimeOptions): Real
 
   return {
     sendToRoom,
+    renameUser(userId, name) {
+      for (const conn of byUser.get(userId) ?? []) conn.who = { ...conn.who, username: name.trim().slice(0, MAX_NAME) || conn.who.username };
+      for (const code of rooms.renameMember(userId, name)) announce(code);
+    },
     close() {
       clearInterval(beat);
       clearInterval(sweepTimer);

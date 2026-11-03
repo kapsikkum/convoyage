@@ -29,7 +29,7 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
   app.addHook('onClose', async () => realtime.close());
   app.get('/health', async () => ({ ok: true, version: VERSION }));
   if (opts.api) {
-    await registerApi(app, { ...opts.api, convoy: { roomsOf: (id) => rooms.roomsOf(id), sendToRoom: realtime.sendToRoom, offlineMemberIds: (code) => rooms.offlineMemberIds(code) } }, VERSION);
+    await registerApi(app, { ...opts.api, convoy: { roomsOf: (id) => rooms.roomsOf(id), sendToRoom: realtime.sendToRoom, offlineMemberIds: (code) => rooms.offlineMemberIds(code), renameUser: realtime.renameUser } }, VERSION);
   }
   await app.ready();
   return app;

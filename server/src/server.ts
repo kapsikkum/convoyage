@@ -11,7 +11,9 @@ import type { CruiseSource, RestStopFinder } from './ports.js';
 import { Notifier } from './push/notifier.js';
 import { pushFromConfig, type PushSender } from './push/sender.js';
 import type { Fetch } from './http.js';
-import { MemoryCruiseSource, noRestStops } from './stubs.js';
+import { MemoryCruiseSource } from './stubs.js';
+import { OverpassRestStops } from './convoy/overpass.js';
+import { osrmGeometry } from './convoy/osrm.js';
 
 export interface ServerDeps {
   config: Config;
@@ -34,11 +36,13 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   const { config, database } = deps;
   const tokens = new Tokens(database.db, config);
   const jwt = jwtAuthenticator(tokens, database.db);
+  const doFetch: Fetch = deps.fetch ?? ((url, init) => fetch(url, init));
   const notifier = new Notifier(database.db, deps.push ?? pushFromConfig(config));
   const app = await buildApp({
     auth: config.devAuth ? firstOf(jwt, devAuthenticator) : jwt,
     cruises: deps.cruises ?? new MemoryCruiseSource(),
-    restStops: deps.restStops ?? noRestStops,
+    restStops: deps.restStops ?? new OverpassRestStops(config.overpassUrl),
+    routeFinder: (from, to) => osrmGeometry(config, doFetch, from, to),
     heartbeatMs: deps.heartbeatMs,
     sweepMs: deps.sweepMs,
     logger: deps.logger,
@@ -50,7 +54,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       providers: deps.providers ?? providersFromConfig(config),
       media: deps.media ?? new LocalDiskMediaStore(config.mediaDir),
       notifier,
-      fetch: deps.fetch ?? ((url, init) => fetch(url, init)),
+      fetch: doFetch,
     },
   });
   // Expired guest accounts (and everything they own) are removed hourly.

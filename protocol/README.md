@@ -18,6 +18,11 @@ no existing message changed.
 
 Also added to v1 additively, nothing existing changed:
 
+- Client `convoy.rename` `{ t, room, name }` and `convoy.regroup` `{ t, room, enabled, separationM }` (1000 to 20000 m): leader only,
+  everyone then gets an updated `room`. Anyone else gets an `error`.
+- `Room.routeGeometry` (optional polyline6 string): a road-following route from the leader to the destination, present only while the
+  server has one.
+
 - Client `convoy.status` `{ t, status: "stopping" | "moving" | "sos", note? }` (note up to 140 characters). It applies to every
   room the sender is in (there is no `room` field). Not in a convoy gets an `error`.
 - Server `status` `{ t, room, id, status, note?, position? }`, sent to every member of the room including the sender. `id` is the
