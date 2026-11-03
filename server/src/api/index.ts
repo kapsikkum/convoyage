@@ -21,6 +21,7 @@ import { postRoutes } from './routes/posts.js';
 import { rideRoutes } from './routes/rides.js';
 import { userRoutes } from './routes/users.js';
 import { vehicleRoutes } from './routes/vehicles.js';
+import { savedRouteRoutes } from './routes/savedRoutes.js';
 import { registerSchemas } from './schemas.js';
 
 export type { ApiContext, ConvoyLink } from './common.js';
@@ -79,7 +80,7 @@ export async function registerApi(app: FastifyInstance, ctx: ApiContext, version
       servers: [{ url: 'http://localhost:8080', description: 'Local development' }],
       components: { securitySchemes: { bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' } } },
       tags: [
-        { name: 'auth' }, { name: 'users' }, { name: 'vehicles' }, { name: 'rides' }, { name: 'media' },
+        { name: 'auth' }, { name: 'users' }, { name: 'vehicles' }, { name: 'routes' }, { name: 'rides' }, { name: 'media' },
         { name: 'posts' }, { name: 'feed' }, { name: 'moderation' }, { name: 'hazards' },
         { name: 'catalogue' }, { name: 'navigation' }, { name: 'voice' }, { name: 'devices' }, { name: 'photoscout' },
       ],
@@ -107,6 +108,7 @@ export async function registerApi(app: FastifyInstance, ctx: ApiContext, version
     await authRoutes(api, ctx);
     await userRoutes(api, ctx);
     await vehicleRoutes(api, ctx);
+    await savedRouteRoutes(api, ctx);
     await rideRoutes(api, ctx);
     await mediaRoutes(api, ctx);
     await postRoutes(api, ctx);

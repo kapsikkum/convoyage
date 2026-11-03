@@ -5,6 +5,9 @@ import { PhotoScoutError, type PhotoScoutService } from '../../photoscout/servic
 import { authenticate, type ApiContext } from '../common.js';
 import { limits } from '../limits.js';
 import { arrayOf, bearer, bodyObj, errorResponses, ref } from '../schemas.js';
+import { thinImportant } from '../../convoy/thin.js';
+import { encodePolyline } from '../polyline.js';
+import { insertSavedRoute, savedRouteDto, type SavedRouteInput } from './savedRoutes.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PHOTO_ID = /^[\w-]{1,64}$/;
@@ -212,4 +215,75 @@ export async function photoscoutRoutes(app: FastifyInstance, ctx: ApiContext): P
     const made = await svc().json(req.userId, '/api/checkins', { method: 'POST', body: { ...payload, ...(b.body ? { body: b.body } : {}) } });
     return reply.code(201).send(checkinDto(made));
   });
+
+  // ---- saved routes (scope routes:read) ---------------------------------------------------------------------------
+
+  app.get('/v1/photoscout/routes', {
+    ...auth, ...lim.write,
+    schema: {
+      security: bearer, tags, summary: 'My PhotoScout saved routes',
+      description: 'The routes I can see in PhotoScout (sprint or circuit, with an optional staging point). Import one to drive it as a convoy route. A link made before routes:read existed must be reconnected (403 `photoscout_rejected`).',
+      response: { 200: arrayOf(ref('PsRoute')), ...errors },
+    },
+  }, async (req) => {
+    const rows = await svc().json(req.userId, '/api/routes');
+    return (Array.isArray(rows) ? rows : []).map(psRouteDto).filter((x): x is NonNullable<typeof x> => x !== null).slice(0, 500);
+  });
+
+  app.post('/v1/photoscout/routes/:id/import', {
+    ...auth, ...lim.write,
+    schema: {
+      security: bearer, tags, summary: 'Import a PhotoScout route into my saved routes',
+      description: 'Copies the route (re-importing the same one updates the copy). Returns the Convoyage saved route.',
+      params: bodyObj({ id: { type: 'string', maxLength: 64 } }),
+      response: { 200: ref('SavedRoute'), 201: ref('SavedRoute'), ...errors },
+    },
+  }, async (req, reply) => {
+    const id = (req.params as { id: string }).id;
+    if (!PHOTO_ID.test(id)) throw badRequest('Bad route id');
+    const r = psRouteDto(await svc().json(req.userId, `/api/routes/${encodeURIComponent(id)}`));
+    if (!r) throw badRequest('That PhotoScout route has no usable line');
+    const input = psRouteInput(r);
+    const existing = await ctx.db.selectFrom('saved_routes').select('id')
+      .where('owner_id', '=', req.userId).where('source', '=', 'photoscout').where('source_id', '=', r.id).executeTakeFirst();
+    if (existing) {
+      const row = await ctx.db.updateTable('saved_routes').set({
+        name: input.name, notes: input.notes ?? '', type: input.type, waypoints: JSON.stringify(input.waypoints), geometry: input.geometry ?? null,
+        staging_lat: input.staging?.lat ?? null, staging_lng: input.staging?.lng ?? null, updated_at: new Date(),
+      }).where('id', '=', existing.id).returningAll().executeTakeFirstOrThrow();
+      return savedRouteDto(row);
+    }
+    const row = await insertSavedRoute(ctx, req.userId, input, { source: 'photoscout', sourceId: r.id });
+    return reply.code(201).send(savedRouteDto(row));
+  });
+}
+
+type PsPoint = [number, number];
+const psPoint = (p: unknown): p is PsPoint =>
+  Array.isArray(p) && p.length >= 2 && typeof p[0] === 'number' && typeof p[1] === 'number' && Math.abs(p[0]) <= 180 && Math.abs(p[1]) <= 90;
+
+/** PhotoScout's route JSON, normalised. Vertices are the drawn (snapped) line; waypoints the clicks, when it has them. */
+export function psRouteDto(raw: unknown) {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const vertices = Array.isArray(r.vertices) ? r.vertices.filter(psPoint).map((p): PsPoint => [p[0], p[1]]) : [];
+  if (vertices.length < 2 || typeof r.id !== 'string') return null;
+  const waypoints = Array.isArray(r.waypoints) ? r.waypoints.filter(psPoint).map((p): PsPoint => [p[0], p[1]]) : null;
+  const s = r.staging as { lat?: unknown; lng?: unknown } | null | undefined;
+  return {
+    id: r.id, name: typeof r.name === 'string' && r.name.trim() ? r.name.trim().slice(0, 80) : 'PhotoScout route',
+    notes: typeof r.notes === 'string' ? r.notes.slice(0, 1000) : '', type: r.type === 'circuit' ? 'circuit' as const : 'sprint' as const,
+    snap: r.snap === true, vertices, waypoints: waypoints && waypoints.length >= 2 ? waypoints : null,
+    staging: s && typeof s.lat === 'number' && typeof s.lng === 'number' ? { lat: s.lat, lng: s.lng } : null,
+  };
+}
+
+/** A PhotoScout route as a Convoyage saved route: its clicks as waypoints, and its drawn line as the geometry. */
+export function psRouteInput(r: NonNullable<ReturnType<typeof psRouteDto>>): SavedRouteInput {
+  const waypoints = (r.waypoints ?? thinImportant(r.vertices, 100)).slice(0, 100);
+  return {
+    name: r.name, notes: r.notes, type: r.type, waypoints,
+    geometry: encodePolyline(r.vertices.map(([lng, lat]): [number, number] => [lat, lng]), 6),
+    staging: r.staging, visibility: 'private',
+  };
 }

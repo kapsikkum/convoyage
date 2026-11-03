@@ -46,6 +46,13 @@ export interface VehiclesTable {
   sold_at: TsNull; created_at: Ts; updated_at: Ts;
 }
 
+export interface SavedRoutesTable {
+  id: Generated<string>; owner_id: string; name: string; notes: Opt<string>; type: Opt<'sprint' | 'circuit'>;
+  waypoints: ColumnType<[number, number][], string, string>; geometry: OptNull<string>; distance_m: OptNull<number>;
+  duration_s: OptNull<number>; staging_lat: OptNull<number>; staging_lng: OptNull<number>; visibility: Opt<Visibility>;
+  source: Opt<'convoyage' | 'photoscout'>; source_id: OptNull<string>; created_at: Ts; updated_at: Ts;
+}
+
 export interface RidesTable {
   id: Generated<string>; owner_id: string; vehicle_id: OptNull<string>; title: Opt<string>; status: Opt<'active' | 'finished'>;
   visibility: Opt<Visibility>; started_at: Date | string; ended_at: TsNull; start_lat: OptNull<number>; start_lng: OptNull<number>;
@@ -107,6 +114,7 @@ export interface DB {
   blocks: BlocksTable;
   vehicles: VehiclesTable;
   rides: RidesTable;
+  saved_routes: SavedRoutesTable;
   ride_photos: RidePhotosTable;
   posts: PostsTable;
   post_media: PostMediaTable;

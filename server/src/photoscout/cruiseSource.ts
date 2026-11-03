@@ -1,4 +1,5 @@
 import { MAX_CONVOY_ROUTE_STOPS } from '../convoy/rooms.js';
+import { thinImportant } from '../convoy/thin.js';
 import { CruiseError, type Cruise, type CruiseSource } from '../ports.js';
 import { cruiseOf } from './dto.js';
 import { PhotoScoutError, type PhotoScoutService } from './service.js';
@@ -7,10 +8,9 @@ const EVENT_ID = /^[\w-]{1,64}$/;
 const isPoint = (p: unknown): p is [number, number] =>
   Array.isArray(p) && p.length >= 2 && typeof p[0] === 'number' && typeof p[1] === 'number' && Math.abs(p[0]) <= 180 && Math.abs(p[1]) <= 90;
 
-/** At most `max` stops, evenly spread, always keeping the first and the last. */
+/** At most `max` stops, keeping the vertices that matter (see thinImportant), always with the first and the last. */
 export function thin(points: [number, number][], max: number): [number, number][] {
-  if (points.length <= max) return points;
-  return Array.from({ length: max }, (_, i) => points[Math.round((i * (points.length - 1)) / (max - 1))]);
+  return thinImportant(points, max);
 }
 
 /**

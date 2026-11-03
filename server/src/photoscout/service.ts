@@ -7,7 +7,7 @@ import type { Fetch } from '../http.js';
 import { open, seal } from './seal.js';
 
 /** What Convoyage asks PhotoScout for. These must be scopes PhotoScout offers (see the README). */
-export const PHOTOSCOUT_SCOPES = 'events:read events:rsvp spots:read checkins:write';
+export const PHOTOSCOUT_SCOPES = 'events:read events:rsvp spots:read routes:read checkins:write';
 export const APP_LINKED_URL = 'convoyage://photoscout/linked';
 
 const STATE_TTL_MS = 10 * 60_000;

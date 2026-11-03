@@ -64,9 +64,11 @@ test('config: PhotoScout needs URL, public base and key together; absent means o
 });
 
 test('thin keeps the ends and the limit', () => {
-  const pts = Array.from({ length: 100 }, (_, i) => [i, 0] as [number, number]);
+  // A zigzag: every vertex matters, so the budget is the limit. A straight line needs only its ends.
+  const pts = Array.from({ length: 100 }, (_, i) => [149 + i * 0.001, -33 + (i % 2) * 0.001] as [number, number]);
   const out = thin(pts, 25);
   assert.equal(out.length, 25);
+  assert.equal(thin(Array.from({ length: 100 }, (_, i) => [149 + i * 0.001, -33] as [number, number]), 25).length, 2);
   assert.deepEqual([out[0], out.at(-1)], [pts[0], pts[99]]);
 });
 
@@ -104,7 +106,7 @@ test('link flow: PKCE S256, scopes, redirect uri, state checks, tokens sealed at
   assert.equal(r.authorizeUrl.origin + r.authorizeUrl.pathname, fake.url + '/oauth/authorize');
   assert.equal(q.get('client_id'), 'convoyage');
   assert.equal(q.get('redirect_uri'), 'https://convoy.test/v1/photoscout/callback');
-  assert.equal(q.get('scope'), 'events:read events:rsvp spots:read checkins:write');
+  assert.equal(q.get('scope'), 'events:read events:rsvp spots:read routes:read checkins:write');
   assert.equal(q.get('code_challenge_method'), 'S256');
   assert.equal(r.status, 302);
   assert.equal(r.location, 'convoyage://photoscout/linked');

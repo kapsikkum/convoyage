@@ -57,6 +57,22 @@ const models: Record<string, object> = {
     id: uuid, handle: string, displayName: string, avatarMediaId: nUuid,
     primaryVehicle: { ...nullableRef('VehicleBadge'), description: 'Their primary vehicle, for the avatar badge. Null when they have none or the viewer may not see it (private account not followed, blocked).' },
   }, ['id', 'handle', 'displayName', 'avatarMediaId']),
+  PsRoute: obj({
+    id: string, name: string, notes: string, type: { type: 'string', enum: ['sprint', 'circuit'] }, snap: bool,
+    vertices: { type: 'array', items: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 }, description: '[lng, lat] drawn line.' },
+    waypoints: { anyOf: [{ type: 'array', items: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 } }, { type: 'null' }] },
+    staging: { anyOf: [obj({ lat: { type: 'number' }, lng: { type: 'number' } }), { type: 'null' }] },
+  }),
+  SavedRoute: obj({
+    id: uuid, ownerId: uuid, name: string, notes: string, type: { type: 'string', enum: ['sprint', 'circuit'] },
+    waypoints: { type: 'array', items: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 }, description: '[lng, lat] points the author placed.' },
+    geometry: { ...nString, description: 'Road-snapped line, polyline precision 6; null for a straight-line route.' },
+    distanceM: { type: ['number', 'null'] }, durationS: { type: ['number', 'null'] },
+    staging: { anyOf: [obj({ lat: { type: 'number' }, lng: { type: 'number' } }), { type: 'null' }], description: 'Where the convoy gathers before the drive.' },
+    convoyStops: { type: 'array', items: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 }, description: 'At most 25 [lng, lat] stops for convoy.route; a circuit ends where it starts.' },
+    visibility: { type: 'string', enum: [...VISIBILITIES] }, source: { type: 'string', enum: ['convoyage', 'photoscout'] },
+    createdAt: dateTime, updatedAt: dateTime,
+  }),
   Vehicle: obj({
     id: uuid, ownerId: uuid, kind: { type: 'string', enum: [...VEHICLE_KINDS] }, make: string, model: string, year: nInt, nickname: string,
     build: ref('Build'), isPrimary: bool, soldAt: nDate, createdAt: dateTime, updatedAt: dateTime,
