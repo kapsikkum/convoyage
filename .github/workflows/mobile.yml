@@ -19,6 +19,8 @@ on:
         default: true
   push:
     tags: ['v*']
+    branches: [main]
+    paths: ['android/**', 'ios/**', '.github/workflows/mobile.yml']
 
 jobs:
   android:
