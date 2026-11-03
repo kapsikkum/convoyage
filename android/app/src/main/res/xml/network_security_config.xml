@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!--
+        TODO(remove when the server has HTTPS on data-server): the backend is self-hosted on the LAN over plain http
+        (for example http://192.168.1.20:8080) for now, and a release build refuses cleartext by default. Once the
+        server answers on https, delete cleartextTrafficPermitted (or the whole file and the manifest attribute).
+    -->
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

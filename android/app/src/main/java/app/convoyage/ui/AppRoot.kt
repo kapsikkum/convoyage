@@ -30,6 +30,10 @@ object Routes {
     const val FEED = "feed"
     const val GARAGE = "garage"
     const val GARAGE_DETAIL = "garage/{id}"
+    const val GARAGE_EDIT = "garage-edit?id={id}"
+    const val RECAP = "recap"
+    const val RIDE_DETAIL = "ride/{id}"
+    const val SETTINGS = "settings"
     const val PROFILE = "profile"
     const val CONVOY = "convoy?join={join}"
     const val RIDE = "ride"
@@ -37,6 +41,8 @@ object Routes {
 
     fun convoy(join: Boolean) = "convoy?join=$join"
     fun garage(id: String) = "garage/$id"
+    fun garageEdit(id: String?) = if (id == null) "garage-edit" else "garage-edit?id=$id"
+    fun ride(id: String) = "ride/$id"
 
     val tabRoutes = mapOf(HOME to Tab.Home, FEED to Tab.Feed, GARAGE to Tab.Garage, PROFILE to Tab.Profile)
 }
@@ -56,14 +62,19 @@ fun AppRoot(container: AppContainer) {
         val signedIn = !name.isNullOrBlank()
         if (route == null) return@LaunchedEffect
         if (signedIn && route == Routes.WELCOME) nav.navigate(Routes.HOME) { popUpTo(Routes.WELCOME) { inclusive = true } }
-        if (!signedIn && route != Routes.WELCOME) nav.navigate(Routes.WELCOME) { popUpTo(0) { inclusive = true } }
+        if (!signedIn && route != Routes.WELCOME && route != Routes.SETTINGS) nav.navigate(Routes.WELCOME) { popUpTo(0) { inclusive = true } }
     }
 
-    CompositionLocalProvider(LocalContainer provides container) {
+    CompositionLocalProvider(LocalContainer provides container, LocalOpenRecap provides { nav.navigate(Routes.RECAP) { launchSingleTop = true } }) {
         Box(Modifier.fillMaxSize().background(Cv.colors.void)) {
             NavHost(nav, startDestination = start, modifier = Modifier.fillMaxSize()) {
                 composable(Routes.WELCOME) {
-                    WelcomeScreen()
+                    WelcomeScreen(onOpenSettings = { nav.navigate(Routes.SETTINGS) })
+                }
+                composable(Routes.SETTINGS) { SettingsScreen(onBack = { nav.popBackStack() }) }
+                composable(Routes.RECAP) { RecapScreen(rideId = null, onClose = { nav.popBackStack() }) }
+                composable(Routes.RIDE_DETAIL) { backStack ->
+                    RecapScreen(rideId = backStack.arguments?.getString("id"), onClose = { nav.popBackStack() })
                 }
                 composable(Routes.HOME) {
                     HomeScreen(
@@ -72,13 +83,29 @@ fun AppRoot(container: AppContainer) {
                     )
                 }
                 composable(Routes.FEED) { FeedScreen() }
-                composable(Routes.GARAGE) { GarageListScreen(onOpen = { nav.navigate(Routes.garage(it)) }) }
+                composable(Routes.GARAGE) {
+                    GarageListScreen(onOpen = { nav.navigate(Routes.garage(it)) }, onAdd = { nav.navigate(Routes.garageEdit(null)) })
+                }
                 composable(Routes.GARAGE_DETAIL) { backStack ->
-                    GarageDetailScreen(backStack.arguments?.getString("id").orEmpty(), onBack = { nav.popBackStack() })
+                    GarageDetailScreen(
+                        backStack.arguments?.getString("id").orEmpty(),
+                        onBack = { nav.popBackStack() },
+                        onEdit = { nav.navigate(Routes.garageEdit(it)) },
+                    )
+                }
+                composable(
+                    Routes.GARAGE_EDIT,
+                    arguments = listOf(androidx.navigation.navArgument("id") { type = androidx.navigation.NavType.StringType; nullable = true; defaultValue = null }),
+                ) { backStack ->
+                    GarageEditScreen(backStack.arguments?.getString("id"), onDone = { nav.popBackStack() })
                 }
                 composable(Routes.PROFILE) {
                     ProfileScreen(
                         onOpenGarage = { nav.switchTab(Routes.GARAGE) },
+                        onOpenVehicle = { nav.navigate(Routes.garage(it)) },
+                        onAddVehicle = { nav.navigate(Routes.garageEdit(null)) },
+                        onOpenRide = { nav.navigate(Routes.ride(it)) },
+                        onOpenSettings = { nav.navigate(Routes.SETTINGS) },
                         onSignOut = container::signOut,
                     )
                 }

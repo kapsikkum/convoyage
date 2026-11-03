@@ -73,7 +73,7 @@ class AppContainer(private val context: Context) {
                 if (code != null && before == null && session.autoRecordConvoy.value && !rec.isActive && tracker.hasPermission()) {
                     val v = garage.state.value.primary
                     recorder.start(v?.id, v?.displayName, code, tracker.fix.value, auto = true)
-                } else if (code == null && before != null && rec.isActive && rec.meta?.autoStarted == true && rec.meta?.convoyCode == before) {
+                } else if (code == null && before != null && rec.isActive && rec.meta?.autoStarted == true && rec.meta.convoyCode == before) {
                     recorder.stop()
                 }
             }

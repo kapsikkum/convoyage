@@ -94,10 +94,15 @@ fun HomeScreen(onOpenConvoy: (join: Boolean) -> Unit, onOpenGarage: () -> Unit) 
     var navigateHint by remember { mutableStateOf(false) }
     LaunchedEffect(navigateHint) { if (navigateHint) { delay(4000); navigateHint = false } }
 
+    var showRecord by remember { mutableStateOf(false) }
+    val garage by container.garage.state.collectAsStateWithLifecycle()
+    val primary = garage.primary
+
     val now = remember { LocalDateTime.now() }
     val greeting = when (now.hour) { in 5..11 -> "Morning"; in 12..17 -> "Afternoon"; else -> "Evening" }
     val stamp = now.format(DateTimeFormatter.ofPattern("EEEE · h:mm a", Locale.ENGLISH)).uppercase()
 
+    Box(Modifier.fillMaxSize()) {
     Column(
         Modifier
             .fillMaxSize()
@@ -115,6 +120,8 @@ fun HomeScreen(onOpenConvoy: (join: Boolean) -> Unit, onOpenGarage: () -> Unit) 
         }
 
         LiveConvoyCard(ui, onClick = { onOpenConvoy(false) })
+
+        RecordCard(onOpenSheet = { showRecord = true })
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             // Three across at 360 to 390dp: compact padding, and the label shrinks rather than being cut off.
@@ -140,20 +147,22 @@ fun HomeScreen(onOpenConvoy: (join: Boolean) -> Unit, onOpenGarage: () -> Unit) 
             }
         }
 
-        // Garage card: placeholder until the PS1-style renderer and real garage data exist.
+        // Garage card: the primary vehicle. The 3D renderer is still a placeholder, see VehicleViewport.
         CvCard(Modifier.fillMaxWidth(), fill = androidx.compose.ui.graphics.Color.Transparent, shape = CutMShape, onClick = onOpenGarage) {
             Row(
                 Modifier.gridBackdrop(c.line.copy(alpha = 0.4f)).padding(horizontal = Space.s4, vertical = Space.s3),
                 horizontalArrangement = Arrangement.spacedBy(Space.s3), verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Space.s1)) {
-                    Eyebrow("YOUR GARAGE · 2")
-                    CvText("GR Yaris", Cv.type.title, c.ink)
-                    CvText("Pearl white · 18\" bronze", Cv.type.bodyS, c.inkMuted)
+                    Eyebrow(if (primary != null) "YOUR GARAGE · ${garage.owned.size}" else "YOUR GARAGE")
+                    CvText(primary?.displayName ?: "Add your first vehicle", Cv.type.title, c.ink, maxLines = 1)
+                    CvText(primary?.let(::buildSummary) ?: "Rides record on your primary vehicle", Cv.type.bodyS, c.inkMuted, maxLines = 1)
                 }
-                CvIcon(CvIcons.Cube, c.signal, size = 40.dp)
+                CvIcon(primary?.let { kindIcon(it.kind) } ?: CvIcons.Cube, primary?.build?.paint?.let(::parsePaint) ?: c.signal, size = 40.dp)
             }
         }
+    }
+    if (showRecord) RecordSheet(onDismiss = { showRecord = false }, bottomInset = TabBarClearance)
     }
 }
 

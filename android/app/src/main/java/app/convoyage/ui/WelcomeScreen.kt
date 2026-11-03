@@ -54,6 +54,7 @@ import app.convoyage.design.BannerTone
 import app.convoyage.design.Cv
 import app.convoyage.design.CvButton
 import app.convoyage.design.CvButtonKind
+import app.convoyage.design.CvIconButton
 import app.convoyage.design.CvIcons
 import app.convoyage.design.CvText
 import app.convoyage.design.CvTextField
@@ -141,7 +142,7 @@ class WelcomeViewModel(private val container: AppContainer) : ViewModel() {
 }
 
 @Composable
-fun WelcomeScreen() {
+fun WelcomeScreen(onOpenSettings: () -> Unit) {
     val container = LocalContainer.current
     val vm: WelcomeViewModel = viewModel(factory = viewModelFactory { initializer { WelcomeViewModel(container) } })
     val ui by vm.ui.collectAsStateWithLifecycle()
@@ -191,10 +192,14 @@ fun WelcomeScreen() {
                 LogoMark()
                 CvText("CONVOYAGE", Cv.type.title.copy(letterSpacing = 0.14.em), c.ink)
             }
-            if (BuildConfig.DEBUG) {
-                Box(Modifier.defaultMinTarget().clickableNoRipple { devOpen = !devOpen }, contentAlignment = Alignment.CenterEnd) {
-                    Eyebrow("DEV")
+            Row(horizontalArrangement = Arrangement.spacedBy(Space.s2), verticalAlignment = Alignment.CenterVertically) {
+                if (BuildConfig.DEBUG) {
+                    Box(Modifier.defaultMinTarget().clickableNoRipple { devOpen = !devOpen }, contentAlignment = Alignment.CenterEnd) {
+                        Eyebrow("DEV")
+                    }
                 }
+                // The server can be set before signing in, in every build.
+                CvIconButton(CvIcons.Settings, "Settings", onOpenSettings)
             }
         }
 
