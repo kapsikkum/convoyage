@@ -1,0 +1,5 @@
+Convoyage.xcodeproj/
+Convoyage/Info.plist
+build/
+DerivedData/
+*.xcuserstate
