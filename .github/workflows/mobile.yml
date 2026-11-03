@@ -1,0 +1,181 @@
+name: mobile
+
+# Builds the Android APK and the unsigned iOS IPA.
+# On a v* tag the release job publishes both to a GitHub Release under the exact names the
+# sideload source (kapsikkum/apps) reads: Convoyage-release.apk and Convoyage-unsigned.ipa.
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_android:
+        description: 'Build the Android APK'
+        required: true
+        type: boolean
+        default: true
+      build_ios:
+        description: 'Build the iOS IPA'
+        required: true
+        type: boolean
+        default: true
+  push:
+    tags: ['v*']
+
+jobs:
+  android:
+    if: github.event_name != 'workflow_dispatch' || inputs.build_android
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Android project present?
+        id: present
+        run: |
+          if [ -f android/gradlew ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::android/gradlew is missing, skipping the Android build"
+          fi
+
+      - name: Set up JDK 21
+        if: ${{ hashFiles('android/gradlew') != '' }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Accept Android licenses
+        if: ${{ hashFiles('android/gradlew') != '' }}
+        run: yes | sdkmanager --licenses > /dev/null || true
+
+      - name: Build release APK
+        if: ${{ hashFiles('android/gradlew') != '' }}
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease
+
+      - name: Prepare keystore
+        if: ${{ hashFiles('android/gradlew') != '' }}
+        env:
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -n "$SIGNING_KEY" ]; then
+            echo "Using the keystore from the SIGNING_KEY secret"
+            echo "$SIGNING_KEY" | base64 --decode > "$RUNNER_TEMP/release.keystore"
+            echo "KS_PASS=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "KS_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
+            echo "KS_KEYPASS=${KEY_PASSWORD:-$KEYSTORE_PASSWORD}" >> "$GITHUB_ENV"
+          else
+            echo "No SIGNING_KEY secret, generating a self-signed keystore for direct installation"
+            keytool -genkeypair -v -keystore "$RUNNER_TEMP/release.keystore" \
+              -alias convoyage -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass convoyage -keypass convoyage \
+              -dname "CN=Convoyage, OU=Mobile, O=Convoyage, C=AU"
+            echo "KS_PASS=convoyage" >> "$GITHUB_ENV"
+            echo "KS_ALIAS=convoyage" >> "$GITHUB_ENV"
+            echo "KS_KEYPASS=convoyage" >> "$GITHUB_ENV"
+          fi
+          echo "KEYSTORE_FILE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+
+      - name: Sign and rename APK
+        if: ${{ hashFiles('android/gradlew') != '' }}
+        run: |
+          mkdir -p dist-mobile
+          OUT=android/app/build/outputs/apk/release
+          if [ -f "$OUT/app-release-unsigned.apk" ]; then
+            SRC="$OUT/app-release-unsigned.apk"
+          else
+            SRC="$OUT/app-release.apk"
+          fi
+          BUILD_TOOLS=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$BUILD_TOOLS/zipalign" -f -p 4 "$SRC" "$RUNNER_TEMP/aligned.apk"
+          "$BUILD_TOOLS/apksigner" sign --ks "$KEYSTORE_FILE" \
+            --ks-key-alias "$KS_ALIAS" --ks-pass "pass:$KS_PASS" --key-pass "pass:$KS_KEYPASS" \
+            --out dist-mobile/Convoyage-release.apk "$RUNNER_TEMP/aligned.apk"
+          ls -la dist-mobile
+
+      - name: Upload Android artifact
+        if: ${{ hashFiles('android/gradlew') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Convoyage-Android-APK
+          path: dist-mobile/Convoyage-release.apk
+          retention-days: 30
+
+  ios:
+    if: github.event_name != 'workflow_dispatch' || inputs.build_ios
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Resolve packages
+        working-directory: ios
+        run: xcodebuild -resolvePackageDependencies -project Convoyage.xcodeproj -scheme Convoyage
+
+      - name: Build (unsigned, for sideloading)
+        working-directory: ios
+        run: |
+          xcodebuild build \
+            -project Convoyage.xcodeproj \
+            -scheme Convoyage \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+      - name: Package unsigned IPA
+        run: |
+          mkdir -p dist-mobile ios/build/ipa/Payload
+          cp -R ios/build/Build/Products/Release-iphoneos/Convoyage.app ios/build/ipa/Payload/
+          (cd ios/build/ipa && zip -qry "$GITHUB_WORKSPACE/dist-mobile/Convoyage-unsigned.ipa" Payload)
+          ls -la dist-mobile
+
+      - name: Upload iOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Convoyage-iOS-IPA
+          path: dist-mobile/Convoyage-unsigned.ipa
+          retention-days: 30
+
+  release:
+    needs: [android, ios]
+    if: ${{ always() && startsWith(github.ref, 'refs/tags/v') && (needs.android.result == 'success' || needs.ios.result == 'success') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+
+      - name: Collect release files
+        run: |
+          mkdir -p release-files
+          find release-artifacts -type f \( -name 'Convoyage-release.apk' -o -name 'Convoyage-unsigned.ipa' \) -exec cp {} release-files/ \;
+          ls -la release-files
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2.2.2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Convoyage ${{ github.ref_name }}
+          files: release-files/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          make_latest: true
