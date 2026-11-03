@@ -431,8 +431,8 @@ test('guest: short-lived session, can join a convoy and get a voice token, 403 o
   const room = (await wg.next((m) => m.t === 'room')).room;
   assert.ok(room.members.some((m: any) => m.id === res.body.user.id && m.username === 'Pillion Pete'));
   assert.equal((await t.req('POST', '/v1/voice/token', { token, body: { convoyCode: code } })).status, 200);
-  assert.equal((await t.req('POST', '/v1/hazards', { token, body: { kind: 'hazard', lat: -33.2, lng: 151.2 } })).status, 201);
-  assert.equal((await t.req('POST', '/v1/me/devices', { token, body: { platform: 'ios', token: 'apns-guest-token-01' } })).status, 200);
+  assert.equal((await t.req('POST', '/v1/hazards', { token, body: { kind: 'hazard', lat: -33.2, lng: 151.2 } })).status, 403, 'guests cannot report hazards');
+  assert.equal((await t.req('POST', '/v1/me/devices', { token, body: { platform: 'ios', token: 'apns-guest-token-01' } })).status, 403, 'guests cannot register devices');
   wg.ws.close(); wa.ws.close();
 
   // expiry: the token stops working and the socket is refused

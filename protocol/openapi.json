@@ -1952,7 +1952,7 @@
         "tags": [
           "auth"
         ],
-        "description": "Issues a short-lived (24 h) access token for an anonymous guest: no email, no refresh token. Guests can open the convoy WebSocket, request a voice token and report hazards, but every other write endpoint answers 403. Rate limited per IP.",
+        "description": "Issues a short-lived (24 h) access token for an anonymous guest: no email, no refresh token. Guests can open the convoy WebSocket, request a voice token and confirm or dismiss hazards, but reporting hazards, registering push devices and every other write endpoint answers 403. Rate limited per IP.",
         "requestBody": {
           "required": true,
           "content": {

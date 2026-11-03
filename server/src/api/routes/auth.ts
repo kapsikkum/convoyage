@@ -119,7 +119,7 @@ export async function authRoutes(app: FastifyInstance, ctx: ApiContext): Promise
     ...lim.authStrict,
     schema: {
       tags: ['auth'], summary: 'Join as a guest (no account)',
-      description: 'Issues a short-lived (24 h) access token for an anonymous guest: no email, no refresh token. Guests can open the convoy WebSocket, request a voice token and report hazards, but every other write endpoint answers 403. Rate limited per IP.',
+      description: 'Issues a short-lived (24 h) access token for an anonymous guest: no email, no refresh token. Guests can open the convoy WebSocket, request a voice token and confirm or dismiss hazards, but reporting hazards, registering push devices and every other write endpoint answers 403. Rate limited per IP.',
       body: bodyObj({ name: { type: 'string', minLength: 1, maxLength: 40 } }),
       response: { 200: ref('GuestAuthResult'), ...errorResponses },
     },

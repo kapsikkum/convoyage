@@ -43,6 +43,8 @@ services:
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-convoyage-dev-livekit-secret-0123456789}
       # OSRM for GET /v1/route. The public demo is rate-limited and not for production.
       OSRM_URL: ${OSRM_URL:-https://router.project-osrm.org}
+      # Rest-stop search (convoy.rest) reads OpenStreetMap through Overpass.
+      OVERPASS_URL: ${OVERPASS_URL:-https://overpass-api.de/api/interpreter}
     ports:
       - "0.0.0.0:8080:8080"
     volumes:
@@ -57,7 +59,7 @@ services:
     restart: unless-stopped
     command: ["--node-ip", "${LIVEKIT_NODE_IP:-127.0.0.1}"]
     environment:
-      LIVEKIT_CONFIG: "{port: 7880, rtc: {tcp_port: 7881, port_range_start: 50000, port_range_end: 50100, use_external_ip: false}, keys: {${LIVEKIT_API_KEY:-devkey}: ${LIVEKIT_API_SECRET:-convoyage-dev-livekit-secret-0123456789}}}"
+      LIVEKIT_CONFIG: "{port: 7880, rtc: {tcp_port: 7881, port_range_start: 50000, port_range_end: 50100, use_external_ip: false, allow_tcp_fallback: true}, keys: {${LIVEKIT_API_KEY:-devkey}: ${LIVEKIT_API_SECRET:-convoyage-dev-livekit-secret-0123456789}}}"
     ports:
       - "0.0.0.0:7880:7880"
       - "0.0.0.0:7881:7881"

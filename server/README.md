@@ -97,6 +97,7 @@ Private profile from an admin shell:
 | `CONVOYAGE_DEV_AUTH` | `0` | `1`: sockets also accept `?dev_user=alice`. Refuses to start in production |
 | `MEDIA_DIR` | `data/media` | local disk media store |
 | `TRUST_PROXY` | `0` | `1` behind a reverse proxy, so rate limits key on the real client IP |
+| `OVERPASS_URL` | `https://overpass-api.de/api/interpreter` | Overpass endpoint for rest-stop search |
 | `RATE_LIMIT_DISABLED`, `RATE_LIMIT_AUTH_MAX`, `RATE_LIMIT_WRITE_MAX`, `RATE_LIMIT_WINDOW_MS` | `0`, `10`, `120`, `60000` | per-IP limits on `/auth/*` and on writes |
 
 ## API at a glance
@@ -139,7 +140,7 @@ Everything under `/v1` is JSON with `Authorization: Bearer <access token>`. Erro
   locally generated key set. Not tried against a real Apple/Google token.
 - **S3 media**: `S3MediaStore` is a stub (`src/media/store.ts`); local disk only. HEIC uploads are refused
   (convert to JPEG on the device).
-- `CruiseSource` is `MemoryCruiseSource` (PhotoScout OAuth/events come later); `RestStopFinder` finds nothing.
+- `CruiseSource` is `MemoryCruiseSource` (PhotoScout OAuth/events come later).
 - Convoy rooms stay in memory (one process); no Redis, no push.
 - Lat/lng are plain `double precision` columns with Haversine in SQL; PostGIS is in the compose image but unused.
 - No admin/moderation tooling: `reports` rows are only recorded. Access tokens are not re-checked while a socket
@@ -153,5 +154,31 @@ Everything under `/v1` is JSON with `Authorization: Bearer <access token>`. Erro
 | Routing | `GET /v1/route?from=lng,lat&to=lng,lat&via=lng,lat;...&profile=car\|motorcycle` proxies OSRM (`OSRM_URL`, default the public demo, which is rate-limited and not for production). Cached 60 s, limited per user (`ROUTE_RATE_LIMIT_MAX`). |
 | Voice | `POST /v1/voice/token {convoyCode}` returns a LiveKit token for room `convoy-<code>` to current members. `LIVEKIT_URL` (what phones connect to), `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`. The `livekit` service is in `compose.yaml` and `scripts/up.ps1`. Phones need 7880/tcp, 7881/tcp and 50000-50100/udp reachable on the PC's LAN IP (`LIVEKIT_NODE_IP`). |
 | Push | `POST`/`DELETE /v1/me/devices`; FCM (`FCM_SERVICE_ACCOUNT_JSON`) and APNs (`APNS_KEY_PATH`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC`, `APNS_ENV`), both no-ops when unset. |
-| Guests | `POST /auth/guest {name}`: 24 h, no refresh token. Convoy socket, voice token, hazards and device registration only; other writes are 403. |
+| Guests | `POST /auth/guest {name}`: 24 h, no refresh token. Convoy socket, voice token and confirming/dismissing hazards only; reporting hazards, device registration and every other write is 403. |
 | Misc | `GET /v1/catalogue`, `GET /v1/me/photos`, `GET /v1/users/:handle/photos`, feed ride `preview`, ride `movingTimeS`, `convoy.status` socket message. |
+
+## Wave B additions
+
+- **Rest stops** (`src/convoy/overpass.ts`): `convoy.rest {action:"find"}` and automatic regroup now ask Overpass (`OVERPASS_URL`)
+  for `amenity=fuel`, `highway=rest_area`, `amenity=cafe|fast_food|restaurant` and `tourism=picnic_site` within 10 km of the
+  leader. Fuel and rest areas win over cafes and the like; nearest first. Cached 10 minutes per ~1 km cell, 5 s timeout, any error
+  means "none found" (and is not cached). Requests carry `User-Agent: Convoyage/0.1 (self-hosted)` and only the rounded search point.
+- **Convoy socket, additive** (`../protocol/convoy.v1.schema.json`):
+  - `convoy.rename {room, name}`: leader only, 1 to 40 characters; everyone gets an updated `room`.
+  - `convoy.regroup {room, enabled, separationM}`: leader only, `separationM` 1000 to 20000; everyone gets an updated `room`.
+  - Live display names: `PATCH /v1/me {displayName}` while connected updates that member's name in every room they are in and
+    broadcasts the room.
+  - `room.routeGeometry` (optional polyline6): when the leader sets `convoy.dest` and the server knows the leader's position, it asks
+    OSRM (same `OSRM_URL` and car profile as `/v1/route`) for a road-following route from the leader to the destination and broadcasts a
+    second `room` message that carries it. Absent when there is no destination, no leader position yet, or OSRM failed. It is
+    dropped when the destination changes or the convoy goes into/out of rest mode. Clients that ignore it keep working.
+- **Guests** now get 403 on `POST /v1/hazards` and `/v1/me/devices` too. Socket, voice token and confirm/dismiss/ack still work.
+- **LiveKit from phones on the LAN** (`scripts/up.ps1` + `scripts/lan-relay.mjs`): Podman's `--network host` lives inside the WSL VM,
+  so LiveKit answers on the VM IP (like 172.30.x.x) but not on Windows `127.0.0.1` or the LAN IP. `lan-relay.mjs` finds the VM IP
+  (`podman machine ssh "ip -4 -o addr show eth0"`, re-checked after a failed connect, override with `VM_IP`) and forwards Windows
+  `0.0.0.0:7880` (signal) and `:7881` (ICE/TCP media) to it, next to the existing 8080 relay. LiveKit runs with `rtc.tcp_port: 7881`,
+  `allow_tcp_fallback: true` and `node_ip` = the Windows LAN IPv4 (found by `up.ps1`, or `LIVEKIT_NODE_IP`), and `LIVEKIT_URL` returned
+  by `/v1/voice/token` defaults to `ws://<LAN-IP>:7880`. **UDP media (50000-50100) is not forwarded**, so clients must fall back to TCP.
+  Nothing in Windows networking, WSL config or the firewall is changed by the scripts. A phone still needs inbound TCP 7880 and 7881
+  allowed, from an admin shell:
+  `New-NetFirewallRule -DisplayName "Convoyage LiveKit" -Direction Inbound -Protocol TCP -LocalPort 7880,7881 -Action Allow -Profile Private`
