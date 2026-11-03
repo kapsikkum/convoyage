@@ -14,7 +14,7 @@ function EnvVal($name, $default) {
 $lkKey = EnvVal 'LIVEKIT_API_KEY' 'devkey'
 $lkSecret = EnvVal 'LIVEKIT_API_SECRET' 'convoyage-dev-livekit-secret-0123456789'
 $osrm = EnvVal 'OSRM_URL' 'https://router.project-osrm.org'
-$overpass = EnvVal 'OVERPASS_URL' 'https://overpass-api.de/api/interpreter'
+$overpass = EnvVal 'OVERPASS_URL' 'https://overpass-api.de/api/interpreter,https://overpass.openstreetmap.fr/api/interpreter'
 # LAN address phones reach this PC on (first Wi-Fi/Ethernet IPv4). LiveKit advertises it as the WebRTC candidate.
 $lan = Get-NetIPAddress -AddressFamily IPv4 -InterfaceAlias 'Wi-Fi','Ethernet' -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -notlike '169.254.*' } | Select-Object -First 1 -ExpandProperty IPAddress
 $lkNodeIp = EnvVal 'LIVEKIT_NODE_IP' $lan

@@ -97,7 +97,7 @@ Private profile from an admin shell:
 | `CONVOYAGE_DEV_AUTH` | `0` | `1`: sockets also accept `?dev_user=alice`. Refuses to start in production |
 | `MEDIA_DIR` | `data/media` | local disk media store |
 | `TRUST_PROXY` | `0` | `1` behind a reverse proxy, so rate limits key on the real client IP |
-| `OVERPASS_URL` | `https://overpass-api.de/api/interpreter` | Overpass endpoint for rest-stop search |
+| `OVERPASS_URL` | `https://overpass-api.de/api/interpreter,https://overpass.openstreetmap.fr/api/interpreter` | Overpass endpoint(s) for rest-stop search, comma-separated, tried in order (the public servers are often at capacity) |
 | `RATE_LIMIT_DISABLED`, `RATE_LIMIT_AUTH_MAX`, `RATE_LIMIT_WRITE_MAX`, `RATE_LIMIT_WINDOW_MS` | `0`, `10`, `120`, `60000` | per-IP limits on `/auth/*` and on writes |
 
 ## API at a glance
@@ -161,7 +161,7 @@ Everything under `/v1` is JSON with `Authorization: Bearer <access token>`. Erro
 
 - **Rest stops** (`src/convoy/overpass.ts`): `convoy.rest {action:"find"}` and automatic regroup now ask Overpass (`OVERPASS_URL`)
   for `amenity=fuel`, `highway=rest_area`, `amenity=cafe|fast_food|restaurant` and `tourism=picnic_site` within 10 km of the
-  leader. Fuel and rest areas win over cafes and the like; nearest first. Cached 10 minutes per ~1 km cell, 5 s timeout, any error
+  leader. Fuel and rest areas win over cafes and the like; nearest first. Cached 10 minutes per ~1 km cell, 5 s timeout per endpoint (the next one is tried on failure), any error
   means "none found" (and is not cached). Requests carry `User-Agent: Convoyage/0.1 (self-hosted)` and only the rounded search point.
 - **Convoy socket, additive** (`../protocol/convoy.v1.schema.json`):
   - `convoy.rename {room, name}`: leader only, 1 to 40 characters; everyone gets an updated `room`.

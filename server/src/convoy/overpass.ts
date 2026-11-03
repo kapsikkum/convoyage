@@ -6,6 +6,7 @@ const TIMEOUT_MS = 5000;
 const CACHE_TTL_MS = 10 * 60_000;
 const CACHE_MAX = 200;
 export const REST_RADIUS_M = 10_000;
+export const DEFAULT_OVERPASS_URLS = ['https://overpass-api.de/api/interpreter', 'https://overpass.openstreetmap.fr/api/interpreter'];
 export const USER_AGENT = 'Convoyage/0.1 (self-hosted)';
 
 interface Element { type?: string; lat?: number; lon?: number; center?: { lat: number; lon: number }; tags?: Record<string, string> }
@@ -36,7 +37,8 @@ export class OverpassRestStops implements RestStopFinder {
   private cache = new Map<string, { at: number; stop: RestStop | null }>();
 
   constructor(
-    private url = 'https://overpass-api.de/api/interpreter',
+    /** One endpoint or several, tried in order: the public servers are often at capacity. */
+    private urls: string | string[] = DEFAULT_OVERPASS_URLS,
     private fetcher: Fetch = (u, init) => fetch(u, init),
     private now: () => number = Date.now,
     private radiusM = REST_RADIUS_M,
@@ -49,19 +51,23 @@ export class OverpassRestStops implements RestStopFinder {
     const hit = this.cache.get(key);
     if (hit && this.now() - hit.at < CACHE_TTL_MS) return hit.stop;
     let stop: RestStop | null = null;
-    try {
-      const res = await this.fetcher(this.url, {
-        method: 'POST',
-        signal: AbortSignal.timeout(TIMEOUT_MS),
-        headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'user-agent': USER_AGENT },
-        body: `data=${encodeURIComponent(overpassQuery(lat, lng, this.radiusM))}`,
-      });
-      if (!res.ok) return null; // not cached: try again next time
-      const data = (await res.json()) as { elements?: Element[] };
-      stop = this.pick(data.elements ?? [], lat, lng);
-    } catch {
-      return null;
+    let answered = false;
+    for (const url of Array.isArray(this.urls) ? this.urls : [this.urls]) {
+      try {
+        const res = await this.fetcher(url, {
+          method: 'POST',
+          signal: AbortSignal.timeout(TIMEOUT_MS),
+          headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'user-agent': USER_AGENT },
+          body: `data=${encodeURIComponent(overpassQuery(lat, lng, this.radiusM))}`,
+        });
+        if (!res.ok) continue;
+        const data = (await res.json()) as { elements?: Element[] };
+        stop = this.pick(data.elements ?? [], lat, lng);
+        answered = true;
+        break;
+      } catch { /* try the next endpoint */ }
     }
+    if (!answered) return null; // not cached: try again next time
     if (this.cache.size >= CACHE_MAX) this.cache.delete(this.cache.keys().next().value!);
     this.cache.set(key, { at: this.now(), stop });
     return stop;

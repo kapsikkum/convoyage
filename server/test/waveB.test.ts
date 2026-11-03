@@ -63,6 +63,18 @@ test('rest stops: cached 10 minutes by rounded location', async () => {
   assert.equal(f.calls.length, 3);
 });
 
+test('rest stops: a failing endpoint falls over to the next one', async () => {
+  const calls: string[] = [];
+  const fetcher = async (url: string) => {
+    calls.push(url);
+    if (url === 'https://busy') return { ok: false, json: async () => ({}) } as Response;
+    return { ok: true, json: async () => ({ elements }) } as Response;
+  };
+  const stop = await new OverpassRestStops(['https://busy', 'https://mirror'], fetcher).find([], BATHURST);
+  assert.equal(stop?.label, 'Rest area');
+  assert.deepEqual(calls, ['https://busy', 'https://mirror']);
+});
+
 test('rest stops: errors, bad status and empty results all mean none found', async () => {
   assert.equal(await new OverpassRestStops('https://o', fakeOverpass({}, { throws: true }).fetcher).find([], BATHURST), null);
   assert.equal(await new OverpassRestStops('https://o', fakeOverpass({}, { ok: false }).fetcher).find([], BATHURST), null);

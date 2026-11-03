@@ -44,7 +44,7 @@ services:
       # OSRM for GET /v1/route. The public demo is rate-limited and not for production.
       OSRM_URL: ${OSRM_URL:-https://router.project-osrm.org}
       # Rest-stop search (convoy.rest) reads OpenStreetMap through Overpass.
-      OVERPASS_URL: ${OVERPASS_URL:-https://overpass-api.de/api/interpreter}
+      OVERPASS_URL: ${OVERPASS_URL:-https://overpass-api.de/api/interpreter,https://overpass.openstreetmap.fr/api/interpreter}
     ports:
       - "0.0.0.0:8080:8080"
     volumes:
