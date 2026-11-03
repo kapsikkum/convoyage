@@ -1,0 +1,150 @@
+import SwiftUI
+
+struct HomeView: View {
+    @Environment(AppState.self) private var app
+    @Environment(\.theme) private var theme
+    @State private var showJoin: Bool = false
+    @State private var showCreate: Bool = false
+    @State private var code: String = ""
+    @State private var convoyName: String = ""
+
+    private var greeting: String {
+        let hour: Int = Calendar.current.component(.hour, from: Date())
+        if hour < 12 { return "Morning" }
+        if hour < 18 { return "Afternoon" }
+        return "Evening"
+    }
+
+    var body: some View {
+        let vm: ConvoyViewModel = app.convoy
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        SectionLabel(text: vm.socketState == .open ? "Connected" : "Offline")
+                        Text("\(greeting), \(app.displayName)")
+                            .font(CvFont.display(28))
+                    }
+                    Spacer()
+                    CvAvatar(initials: Formatters.initials(app.displayName), size: 44)
+                }
+
+                convoyCard(vm)
+
+                HStack(spacing: 10) {
+                    CvButton(title: "Convoy") { app.tab = .convoy }
+                    CvButton(title: "Join", kind: .ghost) { showJoin = true }
+                    CvButton(title: "Navigate", icon: "location.north.fill", kind: .ghost) {
+                        // TODO(nav): turn-by-turn navigation.
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    SectionLabel(text: "Events")
+                    // TODO(events): load events from the PhotoScout feed.
+                    placeholderRow(day: "SAT", date: "09", title: "Twilight Cruise to Kinglake", meta: "Placeholder event")
+                    placeholderRow(day: "SUN", date: "17", title: "Reefton Spur ride", meta: "Placeholder event")
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    SectionLabel(text: "Your garage")
+                    Text("No cars yet").font(CvFont.display(20))
+                    Text("Add one in the Garage tab.").font(CvFont.text(13)).foregroundStyle(theme.inkMuted)
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .cvPanel(fill: Color.clear, edge: theme.lineStrong)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+            .padding(.bottom, 120)
+        }
+        .background(theme.surface100.ignoresSafeArea())
+        .alert("Join a convoy", isPresented: $showJoin) {
+            TextField("Invite code", text: $code)
+                .textInputAutocapitalization(.characters)
+            Button("Join") {
+                vm.joinConvoy(code: code)
+                code = ""
+                app.tab = .convoy
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+        .alert("Start a convoy", isPresented: $showCreate) {
+            TextField("Convoy name", text: $convoyName)
+            Button("Start") {
+                vm.createConvoy(name: convoyName)
+                convoyName = ""
+                app.tab = .convoy
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+    }
+
+    @ViewBuilder
+    private func convoyCard(_ vm: ConvoyViewModel) -> some View {
+        if let room = vm.room {
+            Button {
+                app.tab = .convoy
+            } label: {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack {
+                        HStack(spacing: 8) {
+                            Circle().fill(theme.signal).frame(width: 8, height: 8)
+                            Text("LIVE CONVOY").font(CvFont.label(11)).tracking(1.6).foregroundStyle(theme.signal)
+                        }
+                        Spacer()
+                        Text(room.code).font(CvFont.mono(12, weight: .medium)).foregroundStyle(theme.inkMuted)
+                    }
+                    Text(room.name).font(CvFont.display(22))
+                    HStack {
+                        Readout(caption: "Online", value: "\(vm.onlineCount)", unit: "/\(room.members.count)", size: 22)
+                        Spacer()
+                        if let spread = vm.spreadMeters {
+                            let d = Formatters.distance(spread)
+                            Readout(caption: "Spread", value: d.value, unit: d.unit, size: 22)
+                        } else {
+                            Readout(caption: "Spread", value: "--", size: 22)
+                        }
+                        Spacer()
+                        Readout(caption: "ETA", value: "--:--", size: 22)
+                    }
+                }
+                .padding(16)
+                .foregroundStyle(theme.ink)
+                .cvPanel(fill: theme.surface200, edge: theme.signal)
+            }
+            .buttonStyle(.plain)
+        } else {
+            VStack(alignment: .leading, spacing: 12) {
+                SectionLabel(text: "No convoy running")
+                Text("Start one and share the code, or join a friend's.")
+                    .font(CvFont.text(14))
+                    .foregroundStyle(theme.inkMuted)
+                CvButton(title: "Start a convoy") { showCreate = true }
+            }
+            .padding(16)
+            .cvPanel(fill: theme.surface200, edge: theme.lineStrong)
+        }
+    }
+
+    private func placeholderRow(day: String, date: String, title: String, meta: String) -> some View {
+        HStack(spacing: 12) {
+            VStack(spacing: 0) {
+                Text(day).font(CvFont.label(10)).foregroundStyle(theme.inkMuted)
+                Text(date).font(CvFont.mono(18))
+            }
+            .frame(width: 48, height: 48)
+            .cvPanel(fill: theme.surface300, edge: theme.lineStrong, cut: Cut.s)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(CvFont.text(15, weight: .bold))
+                Text(meta).font(CvFont.text(12)).foregroundStyle(theme.inkMuted)
+            }
+            Spacer()
+            Image(systemName: "chevron.right").foregroundStyle(theme.inkMuted)
+        }
+        .padding(.horizontal, 12)
+        .frame(minHeight: 64)
+        .cvPanel(fill: theme.surface200, edge: theme.line)
+    }
+}
