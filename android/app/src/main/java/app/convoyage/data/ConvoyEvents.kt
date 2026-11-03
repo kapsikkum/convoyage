@@ -9,6 +9,9 @@ data class ConvoyNotice(val room: String, val text: String, val message: Boolean
  * Only the active convoy is announced. Pure, so it is unit tested.
  */
 object ConvoyEvents {
+    const val ARRIVED_M = 100.0
+    const val LEFT_M = 150.0
+
     fun between(prev: ConvoyState, next: ConvoyState): List<ConvoyNotice> {
         val code = next.activeCode ?: return emptyList()
         val room = next.rooms[code] ?: return emptyList()
@@ -39,6 +42,20 @@ object ConvoyEvents {
         }
         if (before.route?.name != room.route?.name || (before.route == null) != (room.route == null)) {
             say(room.route?.let { "Route shared: ${it.name.ifBlank { "convoy route" }}" } ?: "Convoy route cleared")
+        }
+
+        // Arrivals (Konvoyage's arrival detection): another member comes within 100 m of the destination they were
+        // driving to. The 150 m "was away" edge keeps GPS jitter at the gate from announcing it twice.
+        val dest = room.destination
+        if (dest != null && dest == before.destination && !room.resting) {
+            room.members.forEach { m ->
+                if (m.id == me) return@forEach
+                val now = m.position ?: return@forEach
+                val then = before.members.firstOrNull { it.id == m.id }?.position ?: return@forEach
+                val dNow = Geo.distanceM(now.lat, now.lng, dest.lat, dest.lng)
+                val dThen = Geo.distanceM(then.lat, then.lng, dest.lat, dest.lng)
+                if (dNow <= ARRIVED_M && dThen > LEFT_M) say("${name(m.id)} has arrived" + dest.label.takeIf { it.isNotBlank() }?.let { " at $it" }.orEmpty())
+            }
         }
 
         // Stopping / SOS from others, once per new status frame.

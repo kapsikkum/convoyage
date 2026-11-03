@@ -37,6 +37,17 @@ class ConvoyEventsTest {
         assertEquals(listOf("Route shared: Bathurst loop"), texts(a, state(base.copy(route = ConvoyRoute("Bathurst loop", listOf(listOf(149.5, -33.4), listOf(149.6, -33.5)))))))
     }
 
+    @Test fun arrivalIsAnnouncedOnceWhenAMemberReachesTheDestination() {
+        val dest = Destination(-33.4480, 149.5560, "Mount Panorama")
+        fun at(m: Member, lat: Double, lng: Double) = m.copy(position = app.convoyage.protocol.Position(lat, lng))
+        val far = state(base.copy(destination = dest, members = listOf(at(me, -33.4480, 149.5560), at(sam, -33.4400, 149.5560))))
+        val there = state(base.copy(destination = dest, members = listOf(at(me, -33.4480, 149.5560), at(sam, -33.4485, 149.5562))))
+        assertEquals(listOf("Sam has arrived at Mount Panorama"), texts(far, there))
+        // Jitter at the gate, and my own arrival, say nothing.
+        val jitter = state(base.copy(destination = dest, members = listOf(at(me, -33.4480, 149.5560), at(sam, -33.4482, 149.5561))))
+        assertEquals(emptyList<String>(), texts(there, jitter))
+    }
+
     @Test fun statusesAndChatFromOthersOnly() {
         val a = state(base)
         val b = state(base, chat = listOf(ConvoyMessage("1", "c1", "sam", "Sam", "Fuel at Kelso"), ConvoyMessage("2", "c2", "me", "Riley", "ok")),
