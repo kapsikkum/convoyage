@@ -84,6 +84,15 @@ class SessionStore(context: Context) {
     /** Read other members' convoy messages aloud. */
     val convoyReadChat: StateFlow<Boolean> = _readChat.asStateFlow()
 
+    private val _openCruise = MutableStateFlow(prefs.getBoolean("openCruise", false))
+    /** Open Cruise: show me to drivers nearby who have it on too. Off unless chosen. */
+    val openCruise: StateFlow<Boolean> = _openCruise.asStateFlow()
+
+    fun setOpenCruise(on: Boolean) {
+        prefs.edit().putBoolean("openCruise", on).apply()
+        _openCruise.value = on
+    }
+
     fun setConvoyAnnounce(on: Boolean) {
         prefs.edit().putBoolean("convoyAnnounce", on).apply()
         _announce.value = on

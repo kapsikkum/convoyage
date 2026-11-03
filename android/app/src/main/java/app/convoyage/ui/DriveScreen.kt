@@ -44,6 +44,58 @@ import androidx.compose.ui.graphics.vector.ImageVector
 /** How much the floating tab bar covers above the navigation bar, on the Drive tab. */
 val DriveTabBarChrome = 92.dp
 
+/** The Drive dock at rest: the Open Cruise row and Start / Join. */
+val DriveDockPeek = 144.dp
+
+/** Open Cruise as the dock shows it: [wanted] is the setting, [live] what the server confirmed. */
+data class CruiseUi(
+    val wanted: Boolean,
+    val live: Boolean,
+    val drivers: List<app.convoyage.protocol.NearbyDriver>,
+    val convoys: List<app.convoyage.protocol.NearbyConvoy>,
+    val invited: Set<String>,
+) {
+    val summary: String get() = when {
+        !wanted -> "See drivers and open convoys nearby"
+        !live -> "Connecting..."
+        drivers.isEmpty() && convoys.isEmpty() -> "Nobody else cruising within 5 km yet"
+        else -> listOfNotNull(
+            drivers.size.takeIf { it > 0 }?.let { "$it driver${if (it == 1) "" else "s"}" },
+            convoys.size.takeIf { it > 0 }?.let { "$it convoy${if (it == 1) "" else "s"}" },
+        ).joinToString(" and ") + " within 5 km"
+    }
+}
+
+/** Map pins for Open Cruise: drivers by initials, open convoys tagged with their name. */
+fun nearbyPins(drivers: List<app.convoyage.protocol.NearbyDriver>, convoys: List<app.convoyage.protocol.NearbyConvoy>): List<app.convoyage.map.MapPinData> =
+    drivers.map { d ->
+        app.convoyage.map.MapPinData("oc-" + d.id, app.convoyage.design.PinKind.Offline, app.convoyage.data.Roster.initials(app.convoyage.data.Names.friendly(d.username)), d.lat, d.lng, vehicle = d.vehicle)
+    } + convoys.map { cv ->
+        app.convoyage.map.MapPinData("ocv-" + cv.code, app.convoyage.design.PinKind.Start, cv.members.toString(), cv.lat, cv.lng, tag = "${cv.name.take(14).uppercase()} · ${cv.members}")
+    }
+
+/** "Kai invited you to Kai's open convoy": Join or not, until it expires. */
+@Composable
+fun CruiseInviteBanner() {
+    val container = LocalContainer.current
+    val state by container.convoy.state.collectAsStateWithLifecycle()
+    val invite = state.invite ?: return
+    var now by androidx.compose.runtime.remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(invite) {
+        while (System.currentTimeMillis() < invite.expiresAt) { kotlinx.coroutines.delay(1000); now = System.currentTimeMillis() }
+        container.convoy.dismissInvite()
+    }
+    val left = ((invite.expiresAt - now) / 1000).coerceAtLeast(0)
+    app.convoyage.design.Banner(
+        app.convoyage.design.BannerTone.Hazard,
+        "${app.convoyage.data.Names.friendly(invite.fromName)} invited you to cruise",
+        sub = "${invite.name} · ${left}s · tap Join",
+        icon = CvIcons.Convoy,
+        actionLabel = "Join",
+        onAction = { container.convoy.joinOpen(invite.code) },
+    )
+}
+
 /**
  * The centre tab and the screen the app opens on. Navigation is the default state ("Where to?" at the top, a dock
  * below). Once you are in a convoy, or choose Start / Join, the same tab becomes the convoy view, so turn-by-turn and
@@ -148,20 +200,50 @@ internal fun ColumnScope.DriveDock(
     onRecord: () -> Unit,
     onPick: (Place) -> Unit,
     onForget: (Place) -> Unit,
+    cruise: CruiseUi,
+    onCruise: (Boolean) -> Unit,
+    onJoinOpen: (String) -> Unit,
+    onInvite: (String) -> Unit,
 ) {
     val c = Cv.colors
+    Row(Modifier.fillMaxWidth().padding(bottom = Space.s2), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.s3)) {
+        Column(Modifier.weight(1f)) {
+            Eyebrow(if (cruise.wanted) "OPEN CRUISE · ON" else "OPEN CRUISE · OFF", color = if (cruise.wanted) c.go else c.inkMuted)
+            CvText(cruise.summary, Cv.type.bodyS, c.inkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        app.convoyage.design.CvChipToggle(if (cruise.wanted) "On" else "Off", cruise.wanted, { onCruise(!cruise.wanted) })
+    }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.s2)) {
         CvButton("Start convoy", drive.onStartConvoy, Modifier.weight(1f), icon = CvIcons.Convoy, compact = true)
         CvButton("Join with code", drive.onJoinConvoy, Modifier.weight(1f), CvButtonKind.Ghost, compact = true)
     }
-    if (!expanded) {
-        CvText("Pull up for drives, routes and saved places", Cv.type.bodyS, c.inkMuted, Modifier.padding(top = Space.s2))
-        return
-    }
+    if (!expanded) return
     Column(
         Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(top = Space.s3, bottom = Space.s3),
         verticalArrangement = Arrangement.spacedBy(Space.s2),
     ) {
+        if (cruise.wanted && cruise.convoys.isNotEmpty()) {
+            Eyebrow("OPEN CONVOYS NEARBY")
+            cruise.convoys.forEach { cv ->
+                NearbyRow(
+                    CvIcons.Convoy, cv.name,
+                    "${cv.members} IN · ${app.convoyage.data.Geo.formatDistance(cv.distanceM).uppercase()} · ${cv.destination?.uppercase() ?: "JUST CRUISING"}",
+                    action = "Join", onAction = { onJoinOpen(cv.code) },
+                )
+            }
+        }
+        if (cruise.wanted && cruise.drivers.isNotEmpty()) {
+            Eyebrow("DRIVERS CRUISING NEARBY", Modifier.padding(top = Space.s2))
+            cruise.drivers.forEach { d ->
+                val sent = d.id in cruise.invited
+                NearbyRow(
+                    CvIcons.Car, app.convoyage.data.Names.friendly(d.username),
+                    app.convoyage.data.Geo.formatDistance(d.distanceM).uppercase() + if (d.canInvite) "" else " · GET WITHIN 500 M TO INVITE",
+                    action = if (!d.canInvite) null else if (sent) "Sent" else "Invite",
+                    onAction = { if (!sent) onInvite(d.id) }, ghost = true,
+                )
+            }
+        }
         Eyebrow("DRIVE")
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.s2)) {
             CvButton(if (recording) "Recording" else "Track drive", onRecord, Modifier.weight(1f), if (recording) CvButtonKind.Alert else CvButtonKind.Ghost, icon = CvIcons.Rec, compact = true)
@@ -194,6 +276,22 @@ private fun PlaceRow(icon: ImageVector, title: String, sub: String, enabled: Boo
             if (sub.isNotBlank()) CvText(sub, Cv.type.bodyS, c.inkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         if (onRemove != null) CvIconButton(CvIcons.Close, "Remove $title from recent", onRemove, tint = c.inkMuted, size = 36.dp)
+    }
+}
+
+@Composable
+private fun NearbyRow(icon: ImageVector, title: String, sub: String, action: String?, onAction: () -> Unit, ghost: Boolean = false) {
+    val c = Cv.colors
+    Row(
+        Modifier.fillMaxWidth().cutPanel(c.surface200, c.line, CutMShape).padding(horizontal = Space.s3, vertical = Space.s2),
+        horizontalArrangement = Arrangement.spacedBy(Space.s3), verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CvIcon(icon, c.go)
+        Column(Modifier.weight(1f)) {
+            CvText(title, Cv.type.bodyStrong, c.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            CvText(sub, Cv.type.telemetry, c.inkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        if (action != null) CvButton(action, onAction, kind = if (ghost) CvButtonKind.Ghost else CvButtonKind.Primary, compact = true)
     }
 }
 

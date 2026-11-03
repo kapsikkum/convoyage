@@ -129,6 +129,7 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
     val density = androidx.compose.ui.platform.LocalDensity.current
     val navInset = with(density) { WindowInsets.navigationBars.getBottom(density).toDp() }
     val idleDrive = drive != null && nav.phase == NavPhase.Idle
+    val openCruiseOn by container.session.openCruise.collectAsStateWithLifecycle()
 
     // Warm up text-to-speech while the screen is up so the first prompt is not late.
     LaunchedEffect(Unit) { container.navVoice.prepare() }
@@ -158,15 +159,16 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
     val fit = remember(nav.route, nav.phase) {
         if (nav.phase == NavPhase.Preview) nav.route?.points.orEmpty().let { p -> p.filterIndexed { i, _ -> i % maxOf(1, p.size / 150) == 0 }.map { LatLng(it.lat, it.lng) } } else emptyList()
     }
-    val pins = remember(nav.destination, nav.routeHazards, fix, nav.bearing) {
+    val pins = remember(nav.destination, nav.routeHazards, fix, nav.bearing, convoy.nearbyDrivers, convoy.nearbyConvoys, drive != null) {
         buildList {
+            if (drive != null && nav.phase == NavPhase.Idle) addAll(nearbyPins(convoy.nearbyDrivers, convoy.nearbyConvoys))
             nav.routeHazards.forEach { add(it.hazard.toPin()) }
             nav.destination?.let { add(MapPinData("dest", PinKind.Destination, "", it.lat, it.lng, tag = it.name.take(12).uppercase().ifBlank { "DEST" })) }
             fix?.let { add(MapPinData("me", PinKind.Me, "", it.lat, it.lng, nav.bearing ?: it.headingDeg)) }
         }
     }
     val following = nav.phase == NavPhase.Active && local.follow
-    val sheetHeight = when (nav.phase) { NavPhase.Idle -> if (drive != null) SheetPeekHeight else 0.dp; else -> 236.dp } + chrome
+    val sheetHeight = when (nav.phase) { NavPhase.Idle -> if (drive != null) DriveDockPeek else 0.dp; else -> 236.dp } + chrome
 
     Box(Modifier.fillMaxSize().onSizeChanged { boxH = it.height }) {
         ConvoyMap(
@@ -193,6 +195,7 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
             Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars).padding(horizontal = 12.dp).padding(top = Space.s2),
             verticalArrangement = Arrangement.spacedBy(Space.s2),
         ) {
+            if (drive != null) CruiseInviteBanner()
             if (!permission.granted) {
                 Banner(BannerTone.Hazard, "Location is off", sub = "Allow location so navigation can follow you.", icon = CvIcons.Locate, actionLabel = "Allow", onAction = permission.request)
             }
@@ -310,6 +313,7 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
                 onDetentChange = { dockDetent = it },
                 containerHeightPx = boxH,
                 topReservePx = WindowInsets.statusBars.getTop(density) + with(density) { 120.dp.roundToPx() },
+                peekHeight = DriveDockPeek,
             ) { expanded ->
                 DriveDock(
                     expanded = expanded,
@@ -320,6 +324,10 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
                     onRecord = { showRecord = true },
                     onPick = vm::select,
                     onForget = container.savedPlaces::forget,
+                    cruise = CruiseUi(openCruiseOn, convoy.openCruise, convoy.nearbyDrivers, convoy.nearbyConvoys, convoy.invited),
+                    onCruise = container::setOpenCruise,
+                    onJoinOpen = container.convoy::joinOpen,
+                    onInvite = container.convoy::inviteNearby,
                 )
             }
         }

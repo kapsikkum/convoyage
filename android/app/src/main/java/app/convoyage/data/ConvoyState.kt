@@ -25,6 +25,14 @@ data class ConvoyState(
     val removedFrom: String? = null,
     /** The latest `status` frame per room per member (stopping / moving / sos). */
     val statuses: Map<String, Map<String, StatusEvent>> = emptyMap(),
+    /** Open Cruise as the server has it (it forgets on reconnect; the repository turns it back on). */
+    val openCruise: Boolean = false,
+    val nearbyDrivers: List<app.convoyage.protocol.NearbyDriver> = emptyList(),
+    val nearbyConvoys: List<app.convoyage.protocol.NearbyConvoy> = emptyList(),
+    /** An invite from a driver nearby, until joined, dismissed or expired. */
+    val invite: ServerMessage.CruiseInvite? = null,
+    /** Who we invited last (driver id), for a "Sent" label. */
+    val invited: Set<String> = emptySet(),
 ) {
     val active: Room? get() = activeCode?.let { rooms[it] }
 
@@ -35,6 +43,7 @@ data class ConvoyState(
         is ServerMessage.Hello -> {
             val map = message.rooms.associateBy { it.code }
             copy(
+                openCruise = false, nearbyDrivers = emptyList(), nearbyConvoys = emptyList(),
                 meId = message.me,
                 link = Link.Online,
                 rooms = map,
@@ -46,6 +55,7 @@ data class ConvoyState(
         is ServerMessage.RoomUpdate -> {
             val room = message.room
             copy(
+                invite = invite?.takeIf { it.code != room.code },
                 rooms = rooms + (room.code to room),
                 // A room we were not in is the answer to create/join: it becomes the active one.
                 activeCode = if (room.code in rooms) activeCode ?: room.code else room.code,
@@ -79,6 +89,11 @@ data class ConvoyState(
         )
 
         is ServerMessage.Error -> copy(error = message.error)
+
+        is ServerMessage.CruiseState -> if (message.on) copy(openCruise = true) else copy(openCruise = false, nearbyDrivers = emptyList(), nearbyConvoys = emptyList())
+        is ServerMessage.CruiseNearby -> copy(nearbyDrivers = message.drivers, nearbyConvoys = message.convoys)
+        is ServerMessage.CruiseInvite -> copy(invite = message)
+        is ServerMessage.CruiseInvited -> copy(invited = invited + message.to)
 
         is ServerMessage.Chat -> copy(chat = chat + (message.room to mergeChat(chat[message.room].orEmpty(), listOf(message.message))))
     }

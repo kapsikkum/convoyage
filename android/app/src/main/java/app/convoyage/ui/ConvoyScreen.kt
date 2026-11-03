@@ -202,6 +202,7 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
             Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars).padding(horizontal = 12.dp).padding(top = Space.s2),
             verticalArrangement = Arrangement.spacedBy(Space.s2),
         ) {
+            CruiseInviteBanner()
             // Turn-by-turn keeps going inside the convoy view (Drive tab): its maneuver card leads the top.
             if (navState.phase.guiding()) {
                 navState.maneuver?.let { step ->
@@ -353,6 +354,8 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
                                 sharedRoute = sharedRoute,
                                 onPickRoute = { pickRoute = true },
                                 onRollOut = container.convoy::rollOut,
+                                onSetOpen = container.convoy::setConvoyOpen,
+                                onJustCruise = container.convoy::justCruise,
                             )
                         }
                     }

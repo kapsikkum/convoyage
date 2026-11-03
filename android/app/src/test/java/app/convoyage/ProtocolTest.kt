@@ -81,6 +81,10 @@ class ProtocolTest {
             ClientMessage.ConvoyLead("K7QXM2PR", "u2"),
             ClientMessage.ConvoyRemove("K7QXM2PR", "u3"),
             ClientMessage.ConvoyChat("K7QXM2PR", "on my way", "client-1"),
+            ClientMessage.ConvoyOpen("K7QXM2PR", true),
+            ClientMessage.CruiseOpen(false),
+            ClientMessage.CruiseInvite("u2"),
+            ClientMessage.CruiseJoin("K7QXM2PR"),
         )
         for (m in messages) {
             val text = ProtocolJson.encode(m)
@@ -102,6 +106,10 @@ class ProtocolTest {
             "convoy.create" to ClientMessage.ConvoyCreate("n"),
             "convoy.dest" to ClientMessage.ConvoyDest("r", null),
             "convoy.route" to ClientMessage.ConvoyRouteSet("r", null),
+            "convoy.open" to ClientMessage.ConvoyOpen("r", true),
+            "cruise.open" to ClientMessage.CruiseOpen(true),
+            "cruise.invite" to ClientMessage.CruiseInvite("u"),
+            "cruise.join" to ClientMessage.CruiseJoin("K7QXM2PR"),
         )
         for ((t, m) in expected) assertEquals(t, obj(ProtocolJson.encode(m))["t"]!!.jsonPrimitive.content)
     }
@@ -164,6 +172,13 @@ class ProtocolTest {
             ServerMessage.Error("No convoy with that code", "convoy.join"),
             ServerMessage.Error("Bad"),
             ServerMessage.Chat("K7QXM2PR", ConvoyMessage("m2", "c2", "u2", "Mia", "stopped for fuel", 5)),
+            ServerMessage.CruiseState(true),
+            ServerMessage.CruiseNearby(
+                listOf(app.convoyage.protocol.NearbyDriver("u3", "Kai", "", null, -33.421, 149.578, 200.0, true)),
+                listOf(app.convoyage.protocol.NearbyConvoy("K7QXM2PR", "Sunday Run", 5, -33.44, 149.577, 2300.0, "Mt Panorama")),
+            ),
+            ServerMessage.CruiseInvite("u3", "Kai", "K7QXM2PR", "Kai's open convoy", 123),
+            ServerMessage.CruiseInvited("u3", "K7QXM2PR"),
         )
         for (m in messages) {
             val text = encodeServer(m)

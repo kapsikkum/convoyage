@@ -67,6 +67,8 @@ data class Room(
     val code: String,
     val name: String = "",
     val eventId: String? = null,
+    /** Open convoy: Open Cruise drivers nearby can see and join it. */
+    val open: Boolean = false,
     val leader: String = "",
     val destination: Destination? = null,
     val resting: Boolean = false,
@@ -112,6 +114,31 @@ data class Hazard(
         }
     }
 }
+
+/** An Open Cruise driver nearby (position rounded to ~100 m by the server). */
+@Serializable
+data class NearbyDriver(
+    val id: String,
+    val username: String = "",
+    val avatar: String = "",
+    val vehicle: app.convoyage.api.VehicleBadge? = null,
+    val lat: Double,
+    val lng: Double,
+    val distanceM: Double = 0.0,
+    val canInvite: Boolean = false,
+)
+
+/** An open convoy nearby: where its members are on average. */
+@Serializable
+data class NearbyConvoy(
+    val code: String,
+    val name: String = "",
+    val members: Int = 0,
+    val lat: Double,
+    val lng: Double,
+    val distanceM: Double = 0.0,
+    val destination: String? = null,
+)
 
 // ---- Client -> server --------------------------------------------------------------------------
 
@@ -171,6 +198,22 @@ sealed interface ClientMessage {
 
     @Serializable @SerialName("convoy.message")
     data class ConvoyChat(val room: String, val text: String, val clientId: String) : ClientMessage
+
+    /** Leader: open the convoy to Open Cruise drivers nearby, or close it. */
+    @Serializable @SerialName("convoy.open")
+    data class ConvoyOpen(val room: String, val open: Boolean) : ClientMessage
+
+    /** Open Cruise on or off. */
+    @Serializable @SerialName("cruise.open")
+    data class CruiseOpen(val on: Boolean) : ClientMessage
+
+    /** Invite an Open Cruise driver within 500 m. */
+    @Serializable @SerialName("cruise.invite")
+    data class CruiseInvite(val to: String) : ClientMessage
+
+    /** Join an open convoy nearby, or one we were invited to, without its code. */
+    @Serializable @SerialName("cruise.join")
+    data class CruiseJoin(val code: String) : ClientMessage
 }
 
 // ---- Server -> client --------------------------------------------------------------------------
@@ -215,6 +258,19 @@ sealed interface ServerMessage {
     /** A member reported a hazard (POST /v1/hazards) while in this convoy. Sent to every member, the reporter included. */
     @Serializable @SerialName("hazard")
     data class HazardReported(val room: String, val hazard: Hazard) : ServerMessage
+
+    @Serializable @SerialName("cruise.state")
+    data class CruiseState(val on: Boolean) : ServerMessage
+
+    @Serializable @SerialName("cruise.nearby")
+    data class CruiseNearby(val drivers: List<NearbyDriver> = emptyList(), val convoys: List<NearbyConvoy> = emptyList()) : ServerMessage
+
+    /** Somebody nearby invited us. Answer with [ClientMessage.CruiseJoin] before [expiresAt]. */
+    @Serializable @SerialName("cruise.invite")
+    data class CruiseInvite(val from: String, val fromName: String = "", val code: String, val name: String = "", val expiresAt: Long = 0) : ServerMessage
+
+    @Serializable @SerialName("cruise.invited")
+    data class CruiseInvited(val to: String, val code: String) : ServerMessage
 }
 
 /** Shared codec. Unknown fields are ignored (the server may add fields within v1); nulls are omitted on the wire. */

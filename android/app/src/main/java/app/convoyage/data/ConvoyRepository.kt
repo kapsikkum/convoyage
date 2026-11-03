@@ -112,6 +112,8 @@ class ConvoyRepository(
                         is SocketEvent.Received -> {
                             val m = event.message
                             if (m is ServerMessage.HazardReported) _hazards.tryEmit(m)
+                            // The server forgets Open Cruise when the socket drops: say it again on every hello.
+                            if (m is ServerMessage.Hello && wantOpenCruise) socket.send(ClientMessage.CruiseOpen(true))
                             _state.update { it.apply(m) }
                             startPendingIfReady()
                         }
@@ -322,6 +324,37 @@ class ConvoyRepository(
         return true
     }
 
+    // ---- Open Cruise -------------------------------------------------------------------------------
+
+    /** Whether the user wants Open Cruise on (kept in settings; re-sent after every reconnect). */
+    @Volatile var wantOpenCruise: Boolean = false
+        private set
+
+    fun setOpenCruise(on: Boolean) {
+        wantOpenCruise = on
+        if (_state.value.link == Link.Online) send(ClientMessage.CruiseOpen(on))
+        if (!on) _state.update { it.copy(openCruise = false, nearbyDrivers = emptyList(), nearbyConvoys = emptyList()) }
+    }
+
+    fun inviteNearby(driverId: String) = send(ClientMessage.CruiseInvite(driverId))
+    fun joinOpen(code: String) = send(ClientMessage.CruiseJoin(code))
+    fun dismissInvite() = _state.update { it.copy(invite = null) }
+
+    /** Leader: open the convoy to Open Cruise drivers nearby, or close it. */
+    fun setConvoyOpen(open: Boolean) {
+        val code = _state.value.activeCode ?: return
+        send(ClientMessage.ConvoyOpen(code, open))
+    }
+
+    /** Leader: no destination, no route, the convoy just drives together (PhotoScout PR #14). */
+    fun justCruise() {
+        val code = _state.value.activeCode ?: return
+        _sharedRoute.value = null
+        _localRoute.value = null
+        send(ClientMessage.ConvoyRouteSet(code, null))
+        send(ClientMessage.ConvoyDest(code, null))
+    }
+
     private fun send(message: ClientMessage) {
         if (!socket.send(message)) _state.update { it.copy(error = "Not connected") }
     }
@@ -344,7 +377,7 @@ class ConvoyRepository(
                 delay(1000)
                 val s = _state.value
                 val fix = tracker.fix.value ?: continue
-                if (s.link != Link.Online || s.rooms.isEmpty()) continue
+                if (s.link != Link.Online || (s.rooms.isEmpty() && !s.openCruise)) continue
                 if (System.currentTimeMillis() - fix.timeMs > 15_000) continue // stale
                 socket.send(
                     ClientMessage.Pos(

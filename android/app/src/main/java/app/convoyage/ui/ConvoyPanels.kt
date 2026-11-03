@@ -194,6 +194,8 @@ fun LeaderPanel(
     sharedRoute: app.convoyage.data.SharedSavedRoute? = null,
     onPickRoute: () -> Unit = {},
     onRollOut: () -> Unit = {},
+    onSetOpen: (Boolean) -> Unit = {},
+    onJustCruise: () -> Unit = {},
 ) {
     val c = Cv.colors
     val room = ui.room ?: return
@@ -230,6 +232,19 @@ fun LeaderPanel(
                     CvButton("Roll out", onRollOut, Modifier.fillMaxWidth(), compact = true)
                 }
                 CvButton(if (r == null) "Drive a saved route" else "Change route", onPickRoute, Modifier.fillMaxWidth(), CvButtonKind.Ghost, icon = CvIcons.Route, compact = true)
+                if (r != null || room.destination != null) {
+                    CvButton("Just cruise", onJustCruise, Modifier.fillMaxWidth(), CvButtonKind.Ghost, compact = true)
+                    CvText("Clears the destination and route: everyone just follows the leader.", Cv.type.bodyS, c.inkMuted)
+                }
+            }
+        }
+        item(key = "open") {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.s3)) {
+                Column(Modifier.weight(1f)) {
+                    CvText("Open convoy", Cv.type.bodyStrong, c.ink)
+                    CvText("Open Cruise drivers within 5 km can see it and join without the code.", Cv.type.bodyS, c.inkMuted)
+                }
+                CvChipToggle(if (room.open) "On" else "Off", room.open, { onSetOpen(!room.open) })
             }
         }
         item(key = "regroup") {

@@ -66,6 +66,7 @@ class AppContainer(private val context: Context) {
     val nav = NavigationController(appScope, api, tracker.fix, hazards.active, navVoice, routeProfile)
 
     init {
+        convoy.setOpenCruise(session.openCruise.value)
         // Speak convoy events and (optionally) chat, as PhotoScout's convoy did, through the navigation voice.
         appScope.launch {
             var prev = convoy.state.value
@@ -80,6 +81,12 @@ class AppContainer(private val context: Context) {
         }
     }
     val places: PlaceSearch = NominatimSearch()
+
+    /** Open Cruise on or off, remembered. */
+    fun setOpenCruise(on: Boolean) {
+        session.setOpenCruise(on)
+        convoy.setOpenCruise(on)
+    }
     /** Home / Work and recent destinations for the Drive dock. */
     val savedPlaces = app.convoyage.data.PlacesStore(context)
 
