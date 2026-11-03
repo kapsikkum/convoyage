@@ -56,7 +56,9 @@ jobs:
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease
+          VERSION_ARGS=""
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then VERSION_ARGS="-PversionName=${GITHUB_REF_NAME#v}"; fi
+          ./gradlew assembleRelease -PversionCode=${{ github.run_number }} $VERSION_ARGS
 
       - name: Prepare keystore
         if: ${{ hashFiles('android/gradlew') != '' }}
@@ -129,6 +131,9 @@ jobs:
       - name: Build (unsigned, for sideloading)
         working-directory: ios
         run: |
+          # On a tag, the app version is the tag's x.y.z (v0.1.0-beta.1 -> 0.1.0); the build number is the run number.
+          MARKETING=""
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then MARKETING="$(echo "${GITHUB_REF_NAME#v}" | cut -d- -f1)"; fi
           xcodebuild build \
             -project Convoyage.xcodeproj \
             -scheme Convoyage \
@@ -138,7 +143,9 @@ jobs:
             -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY=""
+            CODE_SIGN_IDENTITY="" \
+            ${MARKETING:+MARKETING_VERSION=$MARKETING} \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }}
 
       - name: Package unsigned IPA
         run: |
@@ -180,4 +187,22 @@ jobs:
           files: release-files/*
           fail_on_unmatched_files: true
           generate_release_notes: true
-          make_latest: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ !contains(github.ref_name, '-') }}
+
+      # Pre-release tags (v0.1.0-beta.1) also refresh a rolling "beta" pre-release, which the
+      # kapsikkum/apps source follows. Its version comes from the IPA's CFBundleShortVersionString.
+      - name: Move the rolling beta release
+        if: ${{ contains(github.ref_name, '-') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git init -q . && git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
+          git fetch -q --depth 1 origin "refs/tags/${{ github.ref_name }}"
+          git tag -f beta FETCH_HEAD && git push -f -q origin refs/tags/beta
+          gh release view beta -R "${{ github.repository }}" >/dev/null 2>&1 || \
+            gh release create beta -R "${{ github.repository }}" --prerelease --title "Convoyage beta (rolling)" \
+              --notes "Rolling beta build: always the newest pre-release. Currently ${{ github.ref_name }}."
+          gh release edit beta -R "${{ github.repository }}" --prerelease \
+            --notes "Rolling beta build: always the newest pre-release. Currently ${{ github.ref_name }}."
+          gh release upload beta release-files/* -R "${{ github.repository }}" --clobber
