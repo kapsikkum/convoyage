@@ -107,9 +107,9 @@ fun HomeScreen(onOpenConvoy: (join: Boolean) -> Unit, onOpenGarage: () -> Unit) 
         verticalArrangement = Arrangement.spacedBy(Space.s6),
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Column(verticalArrangement = Arrangement.spacedBy(Space.s1)) {
+            Column(Modifier.weight(1f).padding(end = Space.s2), verticalArrangement = Arrangement.spacedBy(Space.s1)) {
                 Eyebrow(stamp)
-                CvText("$greeting, ${ui.name.ifBlank { "driver" }}", Cv.type.displayL, c.ink)
+                CvText("$greeting, ${ui.name.ifBlank { "driver" }}", Cv.type.displayL, c.ink, maxLines = 2)
             }
             CvAvatar(Roster.initials(ui.name), null)
         }
@@ -117,10 +117,11 @@ fun HomeScreen(onOpenConvoy: (join: Boolean) -> Unit, onOpenGarage: () -> Unit) 
         LiveConvoyCard(ui, onClick = { onOpenConvoy(false) })
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            CvButton(if (ui.room != null) "Convoy" else "Start", { onOpenConvoy(false) }, Modifier.weight(1f), CvButtonKind.Primary)
-            CvButton("Join", { onOpenConvoy(true) }, Modifier.weight(1f), CvButtonKind.Ghost)
+            // Three across at 360 to 390dp: compact padding, and the label shrinks rather than being cut off.
+            CvButton(if (ui.room != null) "Convoy" else "Start", { onOpenConvoy(false) }, Modifier.weight(1f), CvButtonKind.Primary, compact = true)
+            CvButton("Join", { onOpenConvoy(true) }, Modifier.weight(1f), CvButtonKind.Ghost, compact = true)
             // TODO(nav): turn-by-turn navigation (route search + OSRM/Valhalla) is not in this version.
-            CvButton("Navigate", { navigateHint = true }, Modifier.weight(1f), CvButtonKind.Ghost, icon = CvIcons.Navigate)
+            CvButton("Navigate", { navigateHint = true }, Modifier.weight(1f), CvButtonKind.Ghost, icon = CvIcons.Navigate, compact = true)
         }
         if (navigateHint) Banner(BannerTone.Police, "Navigation is coming", sub = "Turn-by-turn lands in a later version.", icon = CvIcons.Navigate)
 

@@ -70,6 +70,8 @@ fun CvButton(
     kind: CvButtonKind = CvButtonKind.Primary,
     icon: ImageVector? = null,
     enabled: Boolean = true,
+    /** Tighter padding and gap, for rows of several buttons (e.g. three across on Home). */
+    compact: Boolean = false,
 ) {
     val c = Cv.colors
     val (fill, edge, ink) = when (kind) {
@@ -86,14 +88,33 @@ fun CvButton(
             .cutPanel(fill = if (enabled) fill else c.surface300, edge = if (enabled) edge else c.line, shape = CutMShape)
             .defaultMinSize(minHeight = height)
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
-            .padding(horizontal = Space.s4),
-        horizontalArrangement = Arrangement.spacedBy(Space.s2, Alignment.CenterHorizontally),
+            .padding(horizontal = if (compact) Space.s2 else Space.s4),
+        horizontalArrangement = Arrangement.spacedBy(if (compact) 6.dp else Space.s2, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         val tint = if (enabled) ink else c.inkMuted
-        if (icon != null) CvIcon(icon, tint, size = 20.dp)
-        CvText(text.uppercase(), Cv.type.button, tint, maxLines = 1)
+        if (icon != null) CvIcon(icon, tint, size = if (compact) 18.dp else 20.dp)
+        FitText(text.uppercase(), Cv.type.button, tint, Modifier.weight(1f, fill = false))
     }
+}
+
+/**
+ * One line of text that never gets cut off: if it does not fit it shrinks (down to 70%) and, as a last
+ * resort, tightens its letter-spacing. Used for button labels, which must stay readable in a narrow slot.
+ */
+@Composable
+fun FitText(text: String, style: TextStyle, color: Color, modifier: Modifier = Modifier) {
+    var scale by remember(text, style) { mutableStateOf(1f) }
+    val shrunk = if (scale >= 1f) style else style.copy(
+        fontSize = style.fontSize * scale,
+        lineHeight = style.lineHeight * scale,
+        letterSpacing = style.letterSpacing * scale,
+    )
+    CvText(
+        text, shrunk, color, modifier,
+        maxLines = 1, softWrap = false, overflow = TextOverflow.Clip,
+        onTextLayout = { if (it.hasVisualOverflow && scale > 0.7f) scale = (scale - 0.06f).coerceAtLeast(0.7f) },
+    )
 }
 
 /** 48dp square icon button on a glass chamfer (map controls, headers). */
@@ -269,36 +290,56 @@ fun Banner(
     icon: ImageVector = CvIcons.Alert,
     actionLabel: String? = null,
     onAction: (() -> Unit)? = null,
+    /** An optional second, quieter action next to [actionLabel] (e.g. Dismiss beside Confirm). */
+    secondaryLabel: String? = null,
+    onSecondary: (() -> Unit)? = null,
 ) {
     val c = Cv.colors
     val tc = toneColor(tone)
-    Row(
+    val twoActions = secondaryLabel != null && onSecondary != null && actionLabel != null && onAction != null
+    @Composable
+    fun ActionButtons() {
+        if (secondaryLabel != null && onSecondary != null) BannerAction(secondaryLabel, c.inkMuted, c.lineStrong, onSecondary)
+        if (actionLabel != null && onAction != null) BannerAction(actionLabel, tc, tc, onAction)
+    }
+    Column(
         modifier = modifier
             .fillMaxWidth()
             .cutPanel(c.glass, tc, CutMShape)
             .padding(Space.s3),
-        horizontalArrangement = Arrangement.spacedBy(Space.s3),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalArrangement = Arrangement.spacedBy(Space.s2),
     ) {
-        Box(
-            Modifier.size(40.dp).cutPanel(tc, tc, CutSShape),
-            contentAlignment = Alignment.Center,
-        ) { CvIcon(icon, if (tone == BannerTone.Hazard) c.hazardInk else c.void, size = 22.dp) }
-        Column(Modifier.weight(1f)) {
-            CvText(title, Cv.type.bodyStrong, c.ink, maxLines = 2)
-            if (sub != null) CvText(sub, Cv.type.bodyS, c.inkMuted, maxLines = 2)
-        }
-        if (actionLabel != null && onAction != null) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(Space.s3),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Box(
-                Modifier
-                    .defaultMinSize(minWidth = Space.target, minHeight = Space.target)
-                    .cutPanel(Color.Transparent, tc, CutSShape)
-                    .clickable(role = Role.Button, onClick = onAction)
-                    .padding(horizontal = Space.s3),
+                Modifier.size(40.dp).cutPanel(tc, tc, CutSShape),
                 contentAlignment = Alignment.Center,
-            ) { CvText(actionLabel.uppercase(), Cv.type.label, tc) }
+            ) { CvIcon(icon, if (tone == BannerTone.Hazard) c.hazardInk else c.void, size = 22.dp) }
+            Column(Modifier.weight(1f)) {
+                CvText(title, Cv.type.bodyStrong, c.ink, maxLines = 2)
+                if (sub != null) CvText(sub, Cv.type.bodyS, c.inkMuted, maxLines = 2)
+            }
+            // One action sits beside the text; two would squeeze it on a phone, so they get their own row.
+            if (!twoActions) ActionButtons()
+        }
+        if (twoActions) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.s2, Alignment.End)) { ActionButtons() }
         }
     }
+}
+
+@Composable
+private fun BannerAction(label: String, ink: Color, edge: Color, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .defaultMinSize(minWidth = Space.target, minHeight = Space.target)
+            .cutPanel(Color.Transparent, edge, CutSShape)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = Space.s3),
+        contentAlignment = Alignment.Center,
+    ) { CvText(label.uppercase(), Cv.type.label, ink) }
 }
 
 // ---- Readout / RideTile ----------------------------------------------------------------------
@@ -331,7 +372,7 @@ fun Readout(
     }
 }
 
-enum class TileTone { Default, Signal, Hazard, Alert }
+enum class TileTone { Default, Signal, Hazard, Police, Alert }
 
 /** Large Ride-mode tile (>=72dp tall, cut-l). */
 @Composable
@@ -350,6 +391,7 @@ fun RideTile(
         TileTone.Default -> Triple(c.surface200, c.lineStrong, c.ink)
         TileTone.Signal -> Triple(c.surface200, c.signal, c.signal)
         TileTone.Hazard -> Triple(c.surface200, c.hazard, c.hazard)
+        TileTone.Police -> Triple(c.surface200, c.police, c.police)
         TileTone.Alert -> Triple(c.pulse, c.pulse, c.pulseInk)
     }
     Column(
@@ -486,6 +528,9 @@ fun CvTextField(
     placeholder: String = "",
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     mono: Boolean = false,
+    enabled: Boolean = true,
+    /** Called when the field gains focus (e.g. to scroll its form above the keyboard). */
+    onFocused: () -> Unit = {},
 ) {
     val c = Cv.colors
     var focused by remember { mutableStateOf(false) }
@@ -495,6 +540,7 @@ fun CvTextField(
             value = value,
             onValueChange = onValueChange,
             singleLine = true,
+            enabled = enabled,
             keyboardOptions = keyboardOptions,
             textStyle = (if (mono) Cv.type.telemetry.copy(fontSize = 16.sp) else Cv.type.body).copy(color = c.ink),
             cursorBrush = SolidColor(c.signal),
@@ -502,7 +548,7 @@ fun CvTextField(
                 .fillMaxWidth()
                 .cutPanel(c.surface100, if (focused) c.signal else c.lineStrong, CutSShape)
                 .defaultMinSize(minHeight = Space.target)
-                .onFocusChanged { focused = it.isFocused },
+                .onFocusChanged { if (it.isFocused && !focused) onFocused(); focused = it.isFocused },
             decorationBox = { inner ->
                 Box(Modifier.padding(horizontal = Space.s3, vertical = Space.s3), contentAlignment = Alignment.CenterStart) {
                     if (value.isEmpty()) CvText(placeholder, Cv.type.body, c.inkMuted)
@@ -568,7 +614,7 @@ fun CvTabBar(selected: Tab?, onSelect: (Tab) -> Unit, modifier: Modifier = Modif
 
 // ---- Map pins (Compose overlays) ---------------------------------------------------------------
 
-enum class PinKind { Me, Member, Lead, Stopped, Offline, Destination }
+enum class PinKind { Me, Member, Lead, Stopped, Offline, Destination, Hazard, Police }
 
 /**
  * Round map pin: heading wedge behind a round dot ringed by state. Only physically round things are round.
@@ -590,6 +636,8 @@ fun MapPin(
         PinKind.Stopped -> c.pulse
         PinKind.Offline -> c.lineStrong
         PinKind.Destination -> c.ink
+        PinKind.Hazard -> c.hazard
+        PinKind.Police -> c.police
     }
     Box(modifier.size(56.dp), contentAlignment = Alignment.Center) {
         if (heading != null) {
@@ -615,6 +663,7 @@ fun MapPin(
         ) {
             if (kind == PinKind.Me) CvIcon(CvIcons.Navigate, c.signalInk, size = 16.dp)
             else if (kind == PinKind.Destination) CvIcon(CvIcons.Route, c.ink, size = 18.dp)
+            else if (kind == PinKind.Hazard || kind == PinKind.Police) CvIcon(CvIcons.Alert, ring, size = 18.dp)
             else CvText(label, Cv.type.label.copy(fontSize = 11.sp, letterSpacing = 0.sp), if (kind == PinKind.Offline) c.inkMuted else c.ink)
         }
         if (tag != null) {
