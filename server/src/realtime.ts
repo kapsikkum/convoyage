@@ -3,6 +3,7 @@ import type { Duplex } from 'node:stream';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { MAX_LABEL, MAX_NAME, MissLimiter, Rooms, type MemberVehicle, type Who } from './convoy/rooms.js';
 import { parseClientMessage, type ClientMessage } from './convoy/messages.js';
+import { OpenCruise } from './convoy/openCruise.js';
 import { CruiseError, type Authenticator, type Cruise, type CruiseSource, type RestStopFinder } from './ports.js';
 
 /**
@@ -47,6 +48,7 @@ export interface RealtimeOptions {
   heartbeatMs?: number;
   sweepMs?: number;
   rooms?: Rooms;
+  openCruise?: OpenCruise;
   /** Called when a member raises an SOS, so the push layer can reach members who are not connected. */
   onSos?: (event: { code: string; from: string; note: string | undefined; memberIds: string[] }) => void;
 }
@@ -103,6 +105,9 @@ export function attachRealtime(server: http.Server, opts: RealtimeOptions): Real
   const heartbeatMs = opts.heartbeatMs ?? 30_000;
   const rooms = opts.rooms ?? new Rooms();
   const misses = new MissLimiter();
+  const cruise = opts.openCruise ?? new OpenCruise();
+  /** Invites a user holds: code -> expiry. Joining an open convoy without an invite needs it to be open and nearby. */
+  const invitedTo = new Map<string, Map<string, number>>();
   const conns = new Set<Conn>();
   const byUser = new Map<string, Set<Conn>>();
   const wss = new WebSocketServer({
@@ -124,6 +129,12 @@ export function attachRealtime(server: http.Server, opts: RealtimeOptions): Real
     const view = rooms.view(code);
     if (!view) return;
     for (const id of rooms.memberIds(code)) sendUser(id, { t: 'room', room: view });
+  }
+
+  /** Send an Open Cruise driver who and what is around them. */
+  function pushNearby(userId: string): void {
+    if (!cruise.isOn(userId)) return;
+    sendUser(userId, { t: 'cruise.nearby', ...cruise.nearby(userId, rooms.openRooms(), (a, b) => rooms.together(a, b)) });
   }
 
   /** A sustained split queued by Rooms: look up one advisory stop and apply it only if it is still pending. */
@@ -233,6 +244,7 @@ export function attachRealtime(server: http.Server, opts: RealtimeOptions): Real
         for (const code of rooms.clearPosition(conn.userId)) announce(code);
         return;
       case 'pos': {
+        if (cruise.update(conn.userId, m.lat, m.lng)) pushNearby(conn.userId);
         const out = rooms.position(conn.userId, { lat: m.lat, lng: m.lng, heading: m.heading, speed: m.speed });
         if (!out) return; // not in a room, or too soon after the last: dropped without a word
         for (const code of out.codes) {
@@ -253,6 +265,46 @@ export function attachRealtime(server: http.Server, opts: RealtimeOptions): Real
         if (!done.ok) return error(done.error);
         sendUser(m.id, { t: 'left', room: m.room, removed: true });
         return announce(m.room);
+      }
+      case 'convoy.open': {
+        const done = rooms.setOpen(m.room, conn.userId, m.open);
+        return done.ok ? announce(m.room) : error(done.error);
+      }
+      case 'cruise.open': {
+        cruise.set(conn.who, m.on);
+        reply({ t: 'cruise.state', on: m.on });
+        if (m.on) pushNearby(conn.userId);
+        return;
+      }
+      case 'cruise.invite': {
+        const ok = cruise.invite(conn.userId, m.to);
+        if (!ok.ok) return error(ok.error);
+        // Invite into the convoy you are in, or start an open one for the two of you.
+        let code = rooms.roomsOf(conn.userId)[0];
+        if (!code) {
+          const made = rooms.create(conn.who, { name: `${conn.who.username}'s open convoy`, open: true });
+          if (!made.ok) return error(made.error);
+          code = made.value.code;
+          announce(code);
+        }
+        const view = rooms.view(code)!;
+        let mine = invitedTo.get(m.to);
+        if (!mine) invitedTo.set(m.to, (mine = new Map()));
+        mine.set(code, ok.expiresAt);
+        sendUser(m.to, { t: 'cruise.invite', from: conn.userId, fromName: conn.who.username, code, name: view.name, expiresAt: ok.expiresAt });
+        return reply({ t: 'cruise.invited', to: m.to, code });
+      }
+      case 'cruise.join': {
+        // An open convoy nearby, or one you were invited to: no code typed, so no wrong-code counting either.
+        const invite = invitedTo.get(conn.userId)?.get(m.code);
+        const invited = invite !== undefined && invite > Date.now();
+        const nearby = cruise.isOn(conn.userId) && cruise.nearby(conn.userId, rooms.openRooms(), () => false).convoys.some((c) => c.code === m.code);
+        if (!invited && !nearby) return error('That convoy is not open to you');
+        const done = rooms.join(m.code, conn.who);
+        if (!done.ok) return error(done.error);
+        invitedTo.get(conn.userId)?.delete(m.code);
+        announce(m.code);
+        return;
       }
       case 'convoy.rename':
       case 'convoy.regroup': {
@@ -340,6 +392,7 @@ export function attachRealtime(server: http.Server, opts: RealtimeOptions): Real
       mine!.delete(conn);
       if (mine!.size === 0) {
         byUser.delete(userId);
+        cruise.set(conn.who, false);
         for (const code of rooms.setOnline(userId, false)) announce(code);
       }
     });
@@ -363,6 +416,12 @@ export function attachRealtime(server: http.Server, opts: RealtimeOptions): Real
     const { changed } = rooms.sweep();
     for (const code of changed) announce(code);
     misses.sweep();
+    cruise.sweep();
+    const now = Date.now();
+    for (const [user, invites] of invitedTo) {
+      for (const [code, at] of invites) if (at <= now) invites.delete(code);
+      if (!invites.size) invitedTo.delete(user);
+    }
   }, opts.sweepMs ?? 30_000);
   beat.unref();
   sweepTimer.unref();

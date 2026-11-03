@@ -114,6 +114,7 @@
         "code": { "type": "string", "pattern": "^[A-HJKMNP-Z2-9]{8}$", "description": "Invite code, also the room id." },
         "name": { "type": "string" },
         "eventId": { "type": ["string", "null"] },
+        "open": { "type": "boolean", "description": "Additive in v1. Open convoy: Open Cruise drivers within 5 km see it and can join with cruise.join." },
         "leader": { "type": "string" },
         "destination": { "oneOf": [{ "$ref": "#/$defs/Destination" }, { "type": "null" }] },
         "resting": { "type": "boolean" },
@@ -219,6 +220,10 @@
         },
         { "type": "object", "required": ["t", "room", "to"], "properties": { "t": { "const": "convoy.lead" }, "room": { "$ref": "#/$defs/Id" }, "to": { "$ref": "#/$defs/Id" } } },
         { "type": "object", "required": ["t", "room", "id"], "properties": { "t": { "const": "convoy.remove" }, "room": { "$ref": "#/$defs/Id" }, "id": { "$ref": "#/$defs/Id" } } },
+        { "description": "Additive in v1. Leader only. Opens the convoy to Open Cruise drivers nearby, or closes it.", "type": "object", "required": ["t", "room", "open"], "properties": { "t": { "const": "convoy.open" }, "room": { "$ref": "#/$defs/Id" }, "open": { "type": "boolean" } } },
+        { "description": "Additive in v1. Open Cruise on or off. While on, your pos messages (even outside a convoy) put you on nearby drivers' lists, rounded to about 100 m.", "type": "object", "required": ["t", "on"], "properties": { "t": { "const": "cruise.open" }, "on": { "type": "boolean" } } },
+        { "description": "Additive in v1. Invite an Open Cruise driver within 500 m into your convoy (one is started, open, if you are not in one). Once per pair per 10 s.", "type": "object", "required": ["t", "to"], "properties": { "t": { "const": "cruise.invite" }, "to": { "$ref": "#/$defs/Id" } } },
+        { "description": "Additive in v1. Join an open convoy on your nearby list, or one you were invited to, without typing its code.", "type": "object", "required": ["t", "code"], "properties": { "t": { "const": "cruise.join" }, "code": { "type": "string" } } },
         {
           "type": "object",
           "required": ["t", "room", "text", "clientId"],
@@ -282,6 +287,33 @@
           "properties": { "t": { "const": "hazard" }, "room": { "type": "string" }, "hazard": { "$ref": "#/$defs/Hazard" } },
           "additionalProperties": false
         },
+        { "description": "Additive in v1. Your Open Cruise setting, after cruise.open.", "type": "object", "required": ["t", "on"], "properties": { "t": { "const": "cruise.state" }, "on": { "type": "boolean" } }, "additionalProperties": false },
+        {
+          "description": "Additive in v1. Open Cruise: drivers (not in your convoy) and open convoys (not yours) within 5 km. Sent at most every 5 s while you move with Open Cruise on.",
+          "type": "object",
+          "required": ["t", "drivers", "convoys"],
+          "properties": {
+            "t": { "const": "cruise.nearby" },
+            "drivers": { "type": "array", "items": { "type": "object", "required": ["id", "username", "avatar", "vehicle", "lat", "lng", "distanceM", "canInvite"], "properties": {
+              "id": { "type": "string" }, "username": { "type": "string" }, "avatar": { "type": "string" },
+              "vehicle": { "oneOf": [{ "$ref": "#/$defs/MemberVehicle" }, { "type": "null" }] },
+              "lat": { "$ref": "#/$defs/Lat" }, "lng": { "$ref": "#/$defs/Lng" }, "distanceM": { "type": "number" }, "canInvite": { "type": "boolean" }
+            }, "additionalProperties": false } },
+            "convoys": { "type": "array", "items": { "type": "object", "required": ["code", "name", "members", "lat", "lng", "distanceM", "destination"], "properties": {
+              "code": { "type": "string" }, "name": { "type": "string" }, "members": { "type": "integer" },
+              "lat": { "$ref": "#/$defs/Lat" }, "lng": { "$ref": "#/$defs/Lng" }, "distanceM": { "type": "number" }, "destination": { "type": ["string", "null"] }
+            }, "additionalProperties": false } }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Additive in v1. An Open Cruise driver nearby invited you. Answer with cruise.join before expiresAt.",
+          "type": "object",
+          "required": ["t", "from", "fromName", "code", "name", "expiresAt"],
+          "properties": { "t": { "const": "cruise.invite" }, "from": { "type": "string" }, "fromName": { "type": "string" }, "code": { "type": "string" }, "name": { "type": "string" }, "expiresAt": { "type": "integer" } },
+          "additionalProperties": false
+        },
+        { "description": "Additive in v1. Your invite was sent.", "type": "object", "required": ["t", "to", "code"], "properties": { "t": { "const": "cruise.invited" }, "to": { "type": "string" }, "code": { "type": "string" } }, "additionalProperties": false },
         {
           "description": "Additive in v1. A member sent convoy.status; sent to every member of the room, including the sender. position is only present for sos: the sender's last known position, or null.",
           "type": "object",

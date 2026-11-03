@@ -25,6 +25,10 @@ export type ClientMessage =
   | { t: 'convoy.route'; room: string; route: { name: string; stops: [number, number][] } | null }
   | { t: 'convoy.lead'; room: string; to: string }
   | { t: 'convoy.remove'; room: string; id: string }
+  | { t: 'convoy.open'; room: string; open: boolean }
+  | { t: 'cruise.open'; on: boolean }
+  | { t: 'cruise.invite'; to: string }
+  | { t: 'cruise.join'; code: string }
   | { t: 'convoy.status'; status: 'stopping' | 'moving' | 'sos'; note?: string }
   | { t: 'pos.stop' }
   | { t: 'pos'; lat: number; lng: number; heading: number | null; speed: number | null };
@@ -130,6 +134,19 @@ export function parseClientMessage(raw: string): ParsedMessage {
         return { ok: true, message: { t: o.t, room: id(o, 'room'), route: convoyRoute(o.route) } };
       case 'convoy.remove':
         return { ok: true, message: { t: o.t, room: id(o, 'room'), id: id(o, 'id') } };
+      case 'convoy.open':
+        if (typeof o.open !== 'boolean') return bad('open must be true or false');
+        return { ok: true, message: { t: o.t, room: id(o, 'room'), open: o.open } };
+      case 'cruise.open':
+        if (typeof o.on !== 'boolean') return bad('on must be true or false');
+        return { ok: true, message: { t: o.t, on: o.on } };
+      case 'cruise.invite':
+        return { ok: true, message: { t: o.t, to: id(o, 'to') } };
+      case 'cruise.join': {
+        const code = normalizeCode(str(o, 'code', 32, true));
+        if (!CODE_PATTERN.test(code)) return bad('That is not a convoy code');
+        return { ok: true, message: { t: o.t, code } };
+      }
       case 'convoy.lead':
         return { ok: true, message: { t: o.t, room: id(o, 'room'), to: id(o, 'to') } };
       case 'pos':

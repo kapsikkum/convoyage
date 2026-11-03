@@ -78,6 +78,8 @@ interface Room {
   name: string;
   /** The community event this room is the convoy of, when it is a cruise's. */
   eventId: string | null;
+  /** Open convoy: Open Cruise drivers nearby can see it and join without the code. */
+  open: boolean;
   leader: string;
   destination: Destination | null;
   /** The original destination while the convoy is temporarily paused at a rest stop. */
@@ -106,6 +108,7 @@ export interface RoomView {
   code: string;
   name: string;
   eventId: string | null;
+  open: boolean;
   leader: string;
   destination: Destination | null;
   resting: boolean;
@@ -137,7 +140,7 @@ export class Rooms {
     return {
       ...(room.routeGeometry ? { routeGeometry: room.routeGeometry } : {}),
       messages: room.messages.map((m) => ({ ...m })),
-      code: room.code, name: room.name, eventId: room.eventId, leader: room.leader, destination: room.destination, resting: room.resting,
+      code: room.code, name: room.name, eventId: room.eventId, open: room.open, leader: room.leader, destination: room.destination, resting: room.resting,
       route: room.route && { name: room.route.name, stops: room.route.stops.map((p) => [...p] as [number, number]) },
       automaticRegroup: { ...room.automaticRegroup },
       members: [...room.members.values()].sort((a, b) => a.joinedAt - b.joinedAt).map((m) => ({
@@ -180,7 +183,7 @@ export class Rooms {
     return { ok: true, value: { ...message } };
   }
 
-  create(who: Who, opts: { name?: string; eventId?: string | null; destination?: Destination | null; route?: ConvoyRoute | null; automaticRegroup?: AutomaticRegroup } = {}): Outcome {
+  create(who: Who, opts: { name?: string; eventId?: string | null; destination?: Destination | null; route?: ConvoyRoute | null; automaticRegroup?: AutomaticRegroup; open?: boolean } = {}): Outcome {
     if (this.rooms.size >= MAX_ROOMS) return fail('Convoys are very busy right now. Try again shortly.');
     if ((this.byUser.get(who.id)?.size ?? 0) >= MAX_ROOMS_PER_USER) return fail(`You can be in ${MAX_ROOMS_PER_USER} convoys at once: leave one first`);
     if (opts.eventId && this.byEvent.has(opts.eventId)) return fail('That cruise already has a convoy');
@@ -188,7 +191,7 @@ export class Rooms {
     while (this.rooms.has(code)) code = this.makeCode();
     const now = this.now();
     const room: Room = {
-      code, name: (opts.name ?? '').trim().slice(0, MAX_NAME) || 'Convoy', eventId: opts.eventId ?? null, leader: who.id,
+      code, name: (opts.name ?? '').trim().slice(0, MAX_NAME) || 'Convoy', eventId: opts.eventId ?? null, open: opts.open ?? false, leader: who.id,
       destination: opts.destination ?? null,
       resumeDestination: null,
       resting: false,
@@ -287,6 +290,44 @@ export class Rooms {
     if (!clean) return fail('A convoy needs a name');
     room.name = clean;
     return { ok: true, value: this.view(code)! };
+  }
+
+  /** Leader opens the convoy to Open Cruise drivers nearby, or closes it again. */
+  setOpen(code: string, userId: string, open: boolean): Outcome {
+    const room = this.room(code);
+    if (!room?.members.has(userId)) return fail('You are not in that convoy');
+    if (room.leader !== userId) return fail('Only the leader can open or close the convoy');
+    room.open = open;
+    return { ok: true, value: this.view(code)! };
+  }
+
+  /** Whether a room is an open convoy. */
+  isOpen(code: string): boolean { return this.room(code)?.open ?? false; }
+
+  /** Whether two users share a convoy. */
+  together(a: string, b: string): boolean {
+    const mine = this.byUser.get(a);
+    if (!mine) return false;
+    for (const code of this.byUser.get(b) ?? []) if (mine.has(code)) return true;
+    return false;
+  }
+
+  /** Open convoys with somebody sharing a position: where they are (the middle of the members' fixes) and who is in. */
+  openRooms(): { code: string; name: string; members: number; lat: number; lng: number; destination: string | null; memberIds: string[] }[] {
+    const out = [];
+    for (const room of this.rooms.values()) {
+      if (!room.open) continue;
+      const fixes = [...room.members.values()].filter((m) => m.online && m.position).map((m) => m.position!);
+      if (!fixes.length) continue;
+      out.push({
+        code: room.code, name: room.name, members: room.members.size,
+        lat: fixes.reduce((s, p) => s + p.lat, 0) / fixes.length,
+        lng: fixes.reduce((s, p) => s + p.lng, 0) / fixes.length,
+        destination: room.destination?.label || null,
+        memberIds: [...room.members.keys()],
+      });
+    }
+    return out;
   }
 
   /** Leader turns automatic regroup on or off and sets how far apart the convoy may spread. */
