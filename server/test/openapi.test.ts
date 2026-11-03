@@ -43,11 +43,11 @@ test('the live server serves the same document at /v1/openapi.json', async () =>
 
 test('migrations are idempotent', async () => {
   const db = await createPgliteDatabase();
-  assert.deepEqual(await migrate(db), ['001_init.sql']);
+  assert.deepEqual(await migrate(db), ['001_init.sql', '002_wave_a.sql']);
   assert.deepEqual(await migrate(db), []);
   const tables = await db.db.selectFrom('information_schema.tables' as never).select('table_name' as never).where('table_schema' as never, '=', 'public' as never).execute();
   const names = (tables as unknown as { table_name: string }[]).map((r) => r.table_name);
-  for (const n of ['users', 'auth_identities', 'refresh_tokens', 'magic_link_tokens', 'profiles', 'follows', 'blocks', 'vehicles', 'rides', 'ride_photos', 'media', 'posts', 'post_likes', 'comments', 'reports', 'hazard_reports', 'hazard_acks']) {
+  for (const n of ['users', 'auth_identities', 'refresh_tokens', 'magic_link_tokens', 'profiles', 'follows', 'blocks', 'vehicles', 'rides', 'ride_photos', 'media', 'posts', 'post_likes', 'comments', 'reports', 'hazard_reports', 'hazard_acks', 'device_tokens']) {
     assert.ok(names.includes(n), `missing table ${n}`);
   }
   await db.close();

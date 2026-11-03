@@ -22,11 +22,14 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
     bodyLimit: 256 * 1024,
   });
   const rooms = opts.rooms ?? new Rooms();
-  const realtime = attachRealtime(app.server, { ...opts, rooms });
+  const realtime = attachRealtime(app.server, {
+    ...opts, rooms,
+    onSos: (e) => opts.api?.notifier.sos(e.code, e.memberIds, e.from, e.note),
+  });
   app.addHook('onClose', async () => realtime.close());
   app.get('/health', async () => ({ ok: true, version: VERSION }));
   if (opts.api) {
-    await registerApi(app, { ...opts.api, convoy: { roomsOf: (id) => rooms.roomsOf(id), sendToRoom: realtime.sendToRoom } }, VERSION);
+    await registerApi(app, { ...opts.api, convoy: { roomsOf: (id) => rooms.roomsOf(id), sendToRoom: realtime.sendToRoom, offlineMemberIds: (code) => rooms.offlineMemberIds(code) } }, VERSION);
   }
   await app.ready();
   return app;

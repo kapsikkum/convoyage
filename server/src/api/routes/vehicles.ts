@@ -16,7 +16,7 @@ const fields = {
   make: { type: 'string', minLength: 1, maxLength: 60 },
   model: { type: 'string', minLength: 1, maxLength: 60 },
   year: { ...nullable({ type: 'integer' }), minimum: 1885, maximum: thisYear + 2 },
-  nickname: { type: 'string', maxLength: 60 },
+  nickname: nullable({ type: 'string', maxLength: 60 }),
   build: BuildSchema,
 };
 
@@ -55,7 +55,7 @@ export async function vehicleRoutes(app: FastifyInstance, ctx: ApiContext): Prom
       response: { 201: ref('Vehicle'), ...errorResponses },
     },
   }, async (req, reply) => {
-    const b = req.body as { kind: 'car' | 'motorcycle' | 'ute' | '4wd'; make: string; model: string; year?: number | null; nickname?: string; build?: object; isPrimary?: boolean };
+    const b = req.body as { kind: 'car' | 'motorcycle' | 'ute' | '4wd'; make: string; model: string; year?: number | null; nickname?: string | null; build?: object; isPrimary?: boolean };
     const row = await db.transaction().execute(async (trx) => {
       const existing = await trx.selectFrom('vehicles').select(['id', 'is_primary', 'sold_at']).where('owner_id', '=', req.userId).execute();
       if (existing.length >= MAX_VEHICLES) throw conflict(`A garage holds at most ${MAX_VEHICLES} vehicles`);
@@ -88,14 +88,14 @@ export async function vehicleRoutes(app: FastifyInstance, ctx: ApiContext): Prom
     },
   }, async (req) => {
     const id = (req.params as { id: string }).id;
-    const b = req.body as { kind?: 'car' | 'motorcycle' | 'ute' | '4wd'; make?: string; model?: string; year?: number | null; nickname?: string; build?: object };
+    const b = req.body as { kind?: 'car' | 'motorcycle' | 'ute' | '4wd'; make?: string; model?: string; year?: number | null; nickname?: string | null; build?: object };
     if (!(await mine(id, req.userId))) throw notFound('No such vehicle');
     const set: Updateable<VehiclesTable> = { updated_at: new Date() };
     if (b.kind !== undefined) set.kind = b.kind;
     if (b.make !== undefined) set.make = b.make.trim();
     if (b.model !== undefined) set.model = b.model.trim();
     if (b.year !== undefined) set.year = b.year;
-    if (b.nickname !== undefined) set.nickname = b.nickname.trim();
+    if (b.nickname !== undefined) set.nickname = (b.nickname ?? '').trim();
     if (b.build !== undefined) set.build = JSON.stringify(b.build);
     const row = await db.updateTable('vehicles').set(set).where('id', '=', id).where('owner_id', '=', req.userId).returningAll().executeTakeFirstOrThrow();
     return vehicleDto(row);

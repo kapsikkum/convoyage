@@ -45,6 +45,8 @@ export interface RealtimeOptions {
   heartbeatMs?: number;
   sweepMs?: number;
   rooms?: Rooms;
+  /** Called when a member raises an SOS, so the push layer can reach members who are not connected. */
+  onSos?: (event: { code: string; from: string; note: string | undefined; memberIds: string[] }) => void;
 }
 
 export interface Realtime {
@@ -167,6 +169,18 @@ export function attachRealtime(server: http.Server, opts: RealtimeOptions): Real
         const done = rooms.message(m.room, conn.userId, m.text, m.clientId);
         if (!done.ok) return error(done.error);
         for (const id of rooms.memberIds(m.room)) sendUser(id, { t: 'convoy.message', room: m.room, message: done.value });
+        return;
+      }
+      case 'convoy.status': {
+        const codes = rooms.roomsOf(conn.userId);
+        if (!codes.length) return error('You are not in a convoy');
+        for (const code of codes) {
+          const msg: Record<string, unknown> = { t: 'status', room: code, id: conn.userId, status: m.status };
+          if (m.note) msg.note = m.note;
+          if (m.status === 'sos') msg.position = rooms.memberPosition(code, conn.userId);
+          sendToRoom(code, msg);
+          if (m.status === 'sos') opts.onSos?.({ code, from: conn.userId, note: m.note, memberIds: rooms.memberIds(code) });
+        }
         return;
       }
       case 'pos.stop':

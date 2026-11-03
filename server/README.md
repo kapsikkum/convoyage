@@ -145,3 +145,13 @@ Everything under `/v1` is JSON with `Authorization: Bearer <access token>`. Erro
 - No admin/moderation tooling: `reports` rows are only recorded. Access tokens are not re-checked while a socket
   stays open (up to its lifetime of the connection).
 - Likes/comments counts are computed per page (no denormalised counters); fine at this scale.
+
+## Wave A additions
+
+| area | what |
+| --- | --- |
+| Routing | `GET /v1/route?from=lng,lat&to=lng,lat&via=lng,lat;...&profile=car\|motorcycle` proxies OSRM (`OSRM_URL`, default the public demo, which is rate-limited and not for production). Cached 60 s, limited per user (`ROUTE_RATE_LIMIT_MAX`). |
+| Voice | `POST /v1/voice/token {convoyCode}` returns a LiveKit token for room `convoy-<code>` to current members. `LIVEKIT_URL` (what phones connect to), `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`. The `livekit` service is in `compose.yaml` and `scripts/up.ps1`. Phones need 7880/tcp, 7881/tcp and 50000-50100/udp reachable on the PC's LAN IP (`LIVEKIT_NODE_IP`). |
+| Push | `POST`/`DELETE /v1/me/devices`; FCM (`FCM_SERVICE_ACCOUNT_JSON`) and APNs (`APNS_KEY_PATH`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC`, `APNS_ENV`), both no-ops when unset. |
+| Guests | `POST /auth/guest {name}`: 24 h, no refresh token. Convoy socket, voice token, hazards and device registration only; other writes are 403. |
+| Misc | `GET /v1/catalogue`, `GET /v1/me/photos`, `GET /v1/users/:handle/photos`, feed ride `preview`, ride `movingTimeS`, `convoy.status` socket message. |

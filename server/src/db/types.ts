@@ -9,7 +9,9 @@ export type Visibility = 'public' | 'followers' | 'private';
 export type VehicleKind = 'car' | 'motorcycle' | 'ute' | '4wd';
 export type HazardKind = 'police' | 'hazard' | 'works' | 'fuel' | 'rest' | 'crash';
 
-export interface UsersTable { id: Generated<string>; email: string | null; created_at: Ts; disabled_at: TsNull }
+export interface UsersTable {
+  id: Generated<string>; email: string | null; created_at: Ts; disabled_at: TsNull; kind: Opt<'user' | 'guest'>; expires_at: TsNull;
+}
 
 export interface AuthIdentitiesTable {
   id: Generated<string>; user_id: string; provider: 'email' | 'apple' | 'google'; subject: string;
@@ -49,7 +51,7 @@ export interface RidesTable {
   visibility: Opt<Visibility>; started_at: Date | string; ended_at: TsNull; start_lat: OptNull<number>; start_lng: OptNull<number>;
   distance_m: OptNull<number>; duration_s: OptNull<number>; max_speed_mps: OptNull<number>; avg_speed_mps: OptNull<number>;
   elevation_gain_m: OptNull<number>; max_lean_deg: OptNull<number>; convoy_code: OptNull<string>; polyline: OptNull<string>;
-  polyline_precision: Opt<number>; created_at: Ts;
+  polyline_precision: Opt<number>; moving_time_s: OptNull<number>; created_at: Ts;
 }
 
 export interface RidePhotosTable {
@@ -81,6 +83,8 @@ export interface HazardReportsTable {
 
 export interface HazardAcksTable { hazard_id: string; user_id: string; action: 'confirm' | 'dismiss' | 'ack'; created_at: Ts }
 
+export interface DeviceTokensTable { token: string; user_id: string; platform: 'ios' | 'android'; created_at: Ts; updated_at: Ts }
+
 export interface SchemaMigrationsTable { name: string; applied_at: Ts }
 
 export interface DB {
@@ -102,5 +106,6 @@ export interface DB {
   reports: ReportsTable;
   hazard_reports: HazardReportsTable;
   hazard_acks: HazardAcksTable;
+  device_tokens: DeviceTokensTable;
   schema_migrations: SchemaMigrationsTable;
 }

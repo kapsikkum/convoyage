@@ -54,7 +54,10 @@ export async function hazardRoutes(app: FastifyInstance, ctx: ApiContext): Promi
       kind: b.kind, subkind: b.subkind ?? '', lat: b.lat, lng: b.lng, heading: b.heading ?? null, reporter_id: req.userId, convoy_code: codes[0] ?? null,
       expires_at: new Date(Date.now() + LIFETIME_MS),
     }).returningAll().executeTakeFirstOrThrow();
-    for (const code of codes) ctx.convoy.sendToRoom(code, { t: 'hazard', room: code, hazard: hazardWire(row) });
+    for (const code of codes) {
+      ctx.convoy.sendToRoom(code, { t: 'hazard', room: code, hazard: hazardWire(row) });
+      ctx.notifier.hazard(code, ctx.convoy.offlineMemberIds(code), req.userId, row.kind, row.id);
+    }
     return reply.code(201).send(hazardDto(row));
   });
 

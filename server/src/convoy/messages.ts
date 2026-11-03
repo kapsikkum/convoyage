@@ -9,6 +9,7 @@ import { CODE_PATTERN, DEFAULT_REGROUP_SEPARATION_M, MAX_CONVOY_MESSAGE_LENGTH, 
 
 /** Metres per second: about 430 km/h, above which a "speed" is a bad sensor or somebody's idea of a joke. */
 const MAX_SPEED = 120;
+export const MAX_STATUS_NOTE = 140;
 
 export type ClientMessage =
   | { t: 'ping' }
@@ -22,6 +23,7 @@ export type ClientMessage =
   | { t: 'convoy.route'; room: string; route: { name: string; stops: [number, number][] } | null }
   | { t: 'convoy.lead'; room: string; to: string }
   | { t: 'convoy.remove'; room: string; id: string }
+  | { t: 'convoy.status'; status: 'stopping' | 'moving' | 'sos'; note?: string }
   | { t: 'pos.stop' }
   | { t: 'pos'; lat: number; lng: number; heading: number | null; speed: number | null };
 
@@ -84,6 +86,12 @@ export function parseClientMessage(raw: string): ParsedMessage {
         return { ok: true, message: { t: 'ping' } };
       case 'convoy.message':
         return { ok: true, message: { t: o.t, room: id(o, 'room'), text: str(o, 'text', MAX_CONVOY_MESSAGE_LENGTH, true), clientId: id(o, 'clientId') } };
+      case 'convoy.status': {
+        const status = o.status;
+        if (status !== 'stopping' && status !== 'moving' && status !== 'sos') return bad('status must be stopping, moving or sos');
+        const note = str(o, 'note', MAX_STATUS_NOTE);
+        return { ok: true, message: note ? { t: o.t, status, note } : { t: o.t, status } };
+      }
       case 'pos.stop':
         return { ok: true, message: { t: o.t } };
       case 'convoy.create':

@@ -80,6 +80,7 @@ export async function rideRoutes(app: FastifyInstance, ctx: ApiContext): Promise
         endedAt: dateTime,
         distanceM: { ...notNeg, maximum: MAX_DISTANCE_M },
         durationS: { type: 'integer', minimum: 0, maximum: MAX_DURATION_S },
+        movingTimeS: { type: 'integer', minimum: 0, maximum: MAX_DURATION_S, description: 'Seconds spent moving, stops excluded.' },
         maxSpeedMps: { ...notNeg, maximum: MAX_SPEED_MPS },
         avgSpeedMps: { ...notNeg, maximum: MAX_SPEED_MPS },
         elevationGainM: { ...notNeg, maximum: 20_000 },
@@ -94,7 +95,7 @@ export async function rideRoutes(app: FastifyInstance, ctx: ApiContext): Promise
   }, async (req) => {
     const id = (req.params as { id: string }).id;
     const b = req.body as {
-      endedAt: string; distanceM: number; durationS: number; maxSpeedMps: number; avgSpeedMps: number; elevationGainM?: number;
+      endedAt: string; distanceM: number; durationS: number; movingTimeS?: number; maxSpeedMps: number; avgSpeedMps: number; elevationGainM?: number;
       maxLeanDeg?: number; polyline: string; polylinePrecision?: 5 | 6; title?: string; visibility?: 'public' | 'followers' | 'private';
     };
     const ride = await db.selectFrom('rides').selectAll().where('id', '=', id).where('owner_id', '=', req.userId).executeTakeFirst();
@@ -107,7 +108,7 @@ export async function rideRoutes(app: FastifyInstance, ctx: ApiContext): Promise
     let points: [number, number][];
     try { points = decodePolyline(b.polyline, precision); } catch (err) { throw badRequest(`Bad polyline: ${(err as Error).message}`); }
     const set: Updateable<RidesTable> = {
-      status: 'finished', ended_at: endedAt, distance_m: b.distanceM, duration_s: b.durationS, max_speed_mps: b.maxSpeedMps,
+      status: 'finished', ended_at: endedAt, distance_m: b.distanceM, duration_s: b.durationS, moving_time_s: b.movingTimeS ?? null, max_speed_mps: b.maxSpeedMps,
       avg_speed_mps: b.avgSpeedMps, elevation_gain_m: b.elevationGainM ?? null, max_lean_deg: b.maxLeanDeg ?? null,
       polyline: b.polyline, polyline_precision: precision,
     };
@@ -156,15 +157,15 @@ export async function rideRoutes(app: FastifyInstance, ctx: ApiContext): Promise
     ...auth, ...lim.write,
     schema: {
       ...security, summary: 'Edit a ride', params: idParams,
-      body: bodyObj({ title: { type: 'string', maxLength: 120 }, visibility, vehicleId: nullable(uuid) }, []),
+      body: bodyObj({ title: nullable({ type: 'string', maxLength: 120 }), visibility, vehicleId: nullable(uuid) }, []),
       response: { 200: ref('Ride'), ...errorResponses },
     },
   }, async (req) => {
     const id = (req.params as { id: string }).id;
-    const b = req.body as { title?: string; visibility?: 'public' | 'followers' | 'private'; vehicleId?: string | null };
+    const b = req.body as { title?: string | null; visibility?: 'public' | 'followers' | 'private'; vehicleId?: string | null };
     if (!(await db.selectFrom('rides').select('id').where('id', '=', id).where('owner_id', '=', req.userId).executeTakeFirst())) throw notFound('No such ride');
     const set: Updateable<RidesTable> = {};
-    if (b.title !== undefined) set.title = b.title.trim();
+    if (b.title !== undefined) set.title = (b.title ?? '').trim();
     if (b.visibility !== undefined) set.visibility = b.visibility;
     if (b.vehicleId !== undefined) {
       if (b.vehicleId && !(await db.selectFrom('vehicles').select('id').where('id', '=', b.vehicleId).where('owner_id', '=', req.userId).executeTakeFirst())) throw badRequest('Unknown vehicle');

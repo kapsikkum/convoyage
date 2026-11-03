@@ -42,8 +42,8 @@ export function jwtAuthenticator(tokens: Tokens, db: Kysely<DB>): Authenticator 
       const userId = token ? await tokens.verifyAccess(token) : null;
       if (!userId) return null;
       const p = await db.selectFrom('profiles').innerJoin('users', 'users.id', 'profiles.user_id')
-        .select(['handle', 'display_name', 'avatar_media_id', 'users.disabled_at as disabled_at']).where('user_id', '=', userId).executeTakeFirst();
-      if (!p || p.disabled_at) return null;
+        .select(['handle', 'display_name', 'avatar_media_id', 'users.disabled_at as disabled_at', 'users.expires_at as expires_at']).where('user_id', '=', userId).executeTakeFirst();
+      if (!p || p.disabled_at || (p.expires_at && new Date(p.expires_at).getTime() <= Date.now())) return null;
       return { id: userId, username: (p.display_name || p.handle).slice(0, 40), avatar: p.avatar_media_id ? `/v1/media/${p.avatar_media_id}/thumb` : '' };
     },
   };

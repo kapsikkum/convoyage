@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { randomBytes } from 'node:crypto';
 import type { Kysely } from 'kysely';
 import type { DB } from '../../db/index.js';
-import { forbidden, HttpError, unauthorized } from '../../errors.js';
+import { badRequest, forbidden, HttpError, unauthorized } from '../../errors.js';
 import { randomToken, sha256hex } from '../../security.js';
 import type { ApiContext } from '../common.js';
 import { limits } from '../limits.js';
@@ -114,6 +114,26 @@ export async function authRoutes(app: FastifyInstance, ctx: ApiContext): Promise
   };
   social('apple', 'Apple');
   social('google', 'Google');
+
+  app.post('/auth/guest', {
+    ...lim.authStrict,
+    schema: {
+      tags: ['auth'], summary: 'Join as a guest (no account)',
+      description: 'Issues a short-lived (24 h) access token for an anonymous guest: no email, no refresh token. Guests can open the convoy WebSocket, request a voice token and report hazards, but every other write endpoint answers 403. Rate limited per IP.',
+      body: bodyObj({ name: { type: 'string', minLength: 1, maxLength: 40 } }),
+      response: { 200: ref('GuestAuthResult'), ...errorResponses },
+    },
+  }, async (req) => {
+    const name = (req.body as { name: string }).name.trim();
+    if (!name) throw badRequest('A name is required');
+    const ttl = ctx.config.guestTtlS;
+    const userId = await ctx.db.transaction().execute(async (trx) => {
+      const u = await trx.insertInto('users').values({ email: null, kind: 'guest', expires_at: new Date(Date.now() + ttl * 1000) }).returning('id').executeTakeFirstOrThrow();
+      await trx.insertInto('profiles').values({ user_id: u.id, handle: `guest_${randomBytes(5).toString('hex')}`, display_name: name }).execute();
+      return u.id;
+    });
+    return { accessToken: await ctx.tokens.signAccess(userId, ttl), tokenType: 'Bearer' as const, expiresIn: ttl, user: { id: userId, kind: 'guest' as const, displayName: name } };
+  });
 
   app.post('/auth/refresh', {
     ...lim.auth,

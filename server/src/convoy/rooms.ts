@@ -142,6 +142,12 @@ export class Rooms {
   /** The codes of the rooms a user is in. */
   roomsOf(userId: string): string[] { return [...(this.byUser.get(userId) ?? [])]; }
 
+  /** Members of a room with no live connection (they stay listed for a while after dropping). */
+  offlineMemberIds(code: string): string[] { return [...(this.room(code)?.members.values() ?? [])].filter((m) => !m.online).map((m) => m.id); }
+
+  /** A member's last known position in a room, or null. */
+  memberPosition(code: string, userId: string): Position | null { return this.room(code)?.members.get(userId)?.position ?? null; }
+
   /** Everyone in a room, for sending to. */
   memberIds(code: string): string[] { return [...(this.room(code)?.members.keys() ?? [])]; }
 

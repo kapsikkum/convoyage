@@ -126,6 +126,16 @@
         { "type": "object", "required": ["t"], "properties": { "t": { "const": "ping" } } },
         { "type": "object", "required": ["t"], "properties": { "t": { "const": "pos.stop" } } },
         {
+          "description": "Additive in v1. Tell the convoy what you are doing. Applies to every room you are in; there is no room field.",
+          "type": "object",
+          "required": ["t", "status"],
+          "properties": {
+            "t": { "const": "convoy.status" },
+            "status": { "enum": ["stopping", "moving", "sos"] },
+            "note": { "type": "string", "maxLength": 140 }
+          }
+        },
+        {
           "type": "object",
           "required": ["t", "lat", "lng"],
           "properties": {
@@ -238,6 +248,20 @@
           "type": "object",
           "required": ["t", "room", "hazard"],
           "properties": { "t": { "const": "hazard" }, "room": { "type": "string" }, "hazard": { "$ref": "#/$defs/Hazard" } },
+          "additionalProperties": false
+        },
+        {
+          "description": "Additive in v1. A member sent convoy.status; sent to every member of the room, including the sender. position is only present for sos: the sender's last known position, or null.",
+          "type": "object",
+          "required": ["t", "room", "id", "status"],
+          "properties": {
+            "t": { "const": "status" },
+            "room": { "type": "string" },
+            "id": { "type": "string", "description": "Member id of the sender." },
+            "status": { "enum": ["stopping", "moving", "sos"] },
+            "note": { "type": "string", "maxLength": 140 },
+            "position": { "anyOf": [{ "$ref": "#/$defs/Position" }, { "type": "null" }] }
+          },
           "additionalProperties": false
         }
       ]

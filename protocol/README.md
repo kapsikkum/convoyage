@@ -15,3 +15,11 @@ Regenerate and commit it whenever a route or its schema changes. Apps build thei
 
 The convoy socket stays in `convoy.v1.schema.json`. The `hazard` server message was added to v1 additively:
 no existing message changed.
+
+Also added to v1 additively, nothing existing changed:
+
+- Client `convoy.status` `{ t, status: "stopping" | "moving" | "sos", note? }` (note up to 140 characters). It applies to every
+  room the sender is in (there is no `room` field). Not in a convoy gets an `error`.
+- Server `status` `{ t, room, id, status, note?, position? }`, sent to every member of the room including the sender. `id` is the
+  member id. For `sos`, `position` is the sender's last known position (a `Position`, or `null`); other statuses omit it.
+  An `sos` also sends a push notification to the other members' registered devices.

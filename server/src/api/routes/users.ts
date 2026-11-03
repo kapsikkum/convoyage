@@ -35,13 +35,13 @@ export async function userByHandle(db: Kysely<DB>, viewer: string, handle: strin
 
 async function loadMe(db: Kysely<DB>, userId: string) {
   const p = await db.selectFrom('profiles').innerJoin('users', 'users.id', 'profiles.user_id')
-    .select(['profiles.user_id as id', 'handle', 'handle_chosen', 'display_name', 'bio', 'avatar_media_id', 'is_private', 'profiles.created_at as created_at', 'users.email as email'])
+    .select(['profiles.user_id as id', 'handle', 'handle_chosen', 'display_name', 'bio', 'avatar_media_id', 'is_private', 'profiles.created_at as created_at', 'users.email as email', 'users.kind as kind'])
     .where('profiles.user_id', '=', userId).executeTakeFirst();
   if (!p) throw notFound('No such user');
   const pending = await db.selectFrom('follows').select((eb) => eb.fn.countAll<number>().as('n')).where('followee_id', '=', userId).where('status', '=', 'pending').executeTakeFirstOrThrow();
   return {
     id: p.id, handle: p.handle, handleChosen: p.handle_chosen, displayName: p.display_name, bio: p.bio, avatarMediaId: p.avatar_media_id,
-    isPrivate: p.is_private, email: p.email, createdAt: iso(p.created_at), ...(await counts(db, userId)),
+    isPrivate: p.is_private, email: p.email, kind: p.kind, createdAt: iso(p.created_at), ...(await counts(db, userId)),
     pendingRequestCount: Number(pending.n), primaryVehicle: await primaryVehicle(db, userId),
   };
 }
@@ -63,14 +63,14 @@ export async function userRoutes(app: FastifyInstance, ctx: ApiContext): Promise
       body: bodyObj({
         handle: { type: 'string', minLength: 3, maxLength: 30 },
         displayName: { type: 'string', minLength: 1, maxLength: 60 },
-        bio: { type: 'string', maxLength: 300 },
+        bio: nullable({ type: 'string', maxLength: 300 }),
         isPrivate: { type: 'boolean' },
         avatarMediaId: { ...nullable(uuid), description: 'A media id I uploaded, or null to clear.' },
       }, []),
       response: { 200: ref('Me'), ...errorResponses },
     },
   }, async (req) => {
-    const body = req.body as { handle?: string; displayName?: string; bio?: string; isPrivate?: boolean; avatarMediaId?: string | null };
+    const body = req.body as { handle?: string; displayName?: string; bio?: string | null; isPrivate?: boolean; avatarMediaId?: string | null };
     const set: Updateable<ProfilesTable> = { updated_at: new Date() };
     if (body.handle !== undefined) {
       const handle = body.handle.toLowerCase();
@@ -80,7 +80,7 @@ export async function userRoutes(app: FastifyInstance, ctx: ApiContext): Promise
       set.handle_chosen = true;
     }
     if (body.displayName !== undefined) set.display_name = body.displayName.trim();
-    if (body.bio !== undefined) set.bio = body.bio.trim();
+    if (body.bio !== undefined) set.bio = (body.bio ?? '').trim();
     if (body.isPrivate !== undefined) set.is_private = body.isPrivate;
     if (body.avatarMediaId !== undefined) {
       if (body.avatarMediaId) {
@@ -157,6 +157,7 @@ export async function userRoutes(app: FastifyInstance, ctx: ApiContext): Promise
     await db.insertInto('follows').values({ follower_id: req.userId, followee_id: id, status: target.is_private ? 'pending' : 'accepted' })
       .onConflict((oc) => oc.columns(['follower_id', 'followee_id']).doNothing()).execute();
     const row = await db.selectFrom('follows').select('status').where('follower_id', '=', req.userId).where('followee_id', '=', id).executeTakeFirstOrThrow();
+    if (rel.following === 'none') ctx.notifier.follow(req.userId, id, row.status);
     return { status: row.status };
   });
 

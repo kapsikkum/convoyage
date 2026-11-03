@@ -18,6 +18,16 @@ export interface Config {
   googleAudiences: string[];
   mediaDir: string;
   trustProxy: boolean;
+  /** OSRM base URL for GET /v1/route. */
+  osrmUrl: string;
+  osrmProfiles: { car: string; motorcycle: string };
+  routeRateLimit: { max: number; windowMs: number };
+  /** LiveKit (push-to-talk). Null until LIVEKIT_API_KEY and LIVEKIT_API_SECRET are set. */
+  livekit: { url: string; apiKey: string; apiSecret: string } | null;
+  /** Push notifications: each is null (no-op) unless configured. */
+  fcmServiceAccountPath: string | null;
+  apns: { keyPath: string; keyId: string; teamId: string; topic: string; sandbox: boolean } | null;
+  guestTtlS: number;
   rateLimit: { enabled: boolean; authMax: number; writeMax: number; windowMs: number };
   /** Human-readable notes about insecure/dev fallbacks, logged once at start. */
   warnings: string[];
@@ -71,6 +81,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     googleAudiences: list(env.GOOGLE_AUDIENCES),
     mediaDir: path.resolve(env.MEDIA_DIR || 'data/media'),
     trustProxy: flag(env.TRUST_PROXY),
+    // The public demo server is rate-limited and not for production use: run your own OSRM and point OSRM_URL at it.
+    osrmUrl: (env.OSRM_URL || 'https://router.project-osrm.org').replace(/\/+$/, ''),
+    // Stock OSRM has one profile per deployment; the public demo only answers 'driving'. Override per profile if you run a motorcycle build.
+    osrmProfiles: { car: env.OSRM_PROFILE_CAR || 'driving', motorcycle: env.OSRM_PROFILE_MOTORCYCLE || 'driving' },
+    routeRateLimit: { max: int(env.ROUTE_RATE_LIMIT_MAX, 30), windowMs: int(env.RATE_LIMIT_WINDOW_MS, 60_000) },
+    livekit: env.LIVEKIT_API_KEY && env.LIVEKIT_API_SECRET
+      ? { url: env.LIVEKIT_URL || 'ws://localhost:7880', apiKey: env.LIVEKIT_API_KEY, apiSecret: env.LIVEKIT_API_SECRET }
+      : null,
+    fcmServiceAccountPath: env.FCM_SERVICE_ACCOUNT_JSON || null,
+    apns: env.APNS_KEY_PATH && env.APNS_KEY_ID && env.APNS_TEAM_ID && env.APNS_TOPIC
+      ? { keyPath: env.APNS_KEY_PATH, keyId: env.APNS_KEY_ID, teamId: env.APNS_TEAM_ID, topic: env.APNS_TOPIC, sandbox: env.APNS_ENV !== 'production' }
+      : null,
+    guestTtlS: int(env.GUEST_TTL_SECONDS, 24 * 3600),
     rateLimit: {
       enabled: !flag(env.RATE_LIMIT_DISABLED),
       authMax: int(env.RATE_LIMIT_AUTH_MAX, 10),

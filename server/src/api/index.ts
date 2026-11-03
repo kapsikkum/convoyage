@@ -7,6 +7,11 @@ import { HttpError } from '../errors.js';
 import type { ApiContext } from './common.js';
 import { MAX_UPLOAD_BYTES } from '../media/process.js';
 import { authRoutes } from './routes/auth.js';
+import { catalogueRoutes } from './routes/catalogue.js';
+import { deviceRoutes } from './routes/devices.js';
+import { navigationRoutes } from './routes/navigation.js';
+import { photoRoutes } from './routes/photos.js';
+import { voiceRoutes } from './routes/voice.js';
 import { hazardRoutes } from './routes/hazards.js';
 import { mediaRoutes } from './routes/media.js';
 import { postRoutes } from './routes/posts.js';
@@ -29,7 +34,7 @@ function patchOpenApi(doc: Record<string, any>): void {
   const text: Record<string, string> = {
     200: 'OK', 201: 'Created', 202: 'Accepted', 400: 'Bad request', 401: 'Missing, invalid or expired credentials', 403: 'Forbidden',
     404: 'Not found (also used when the viewer may not see the thing)', 409: 'Conflict with the current state', 413: 'Too large',
-    415: 'Unsupported media type', 429: 'Rate limited', 501: 'Not configured on this server',
+    415: 'Unsupported media type', 429: 'Rate limited', 501: 'Not configured on this server', 502: 'Upstream (routing) server failed',
   };
   for (const item of Object.values(doc.paths ?? {}) as Record<string, any>[]) {
     for (const op of Object.values(item)) {
@@ -71,6 +76,7 @@ export async function registerApi(app: FastifyInstance, ctx: ApiContext, version
       tags: [
         { name: 'auth' }, { name: 'users' }, { name: 'vehicles' }, { name: 'rides' }, { name: 'media' },
         { name: 'posts' }, { name: 'feed' }, { name: 'moderation' }, { name: 'hazards' },
+        { name: 'catalogue' }, { name: 'navigation' }, { name: 'voice' }, { name: 'devices' },
       ],
     },
     refResolver: { buildLocalReference: (json, _base, _fragment, i) => (typeof json.$id === 'string' ? json.$id : `def-${i}`) },
@@ -91,5 +97,10 @@ export async function registerApi(app: FastifyInstance, ctx: ApiContext, version
     await mediaRoutes(api, ctx);
     await postRoutes(api, ctx);
     await hazardRoutes(api, ctx);
+    await photoRoutes(api, ctx);
+    await catalogueRoutes(api, ctx);
+    await navigationRoutes(api, ctx);
+    await voiceRoutes(api, ctx);
+    await deviceRoutes(api, ctx);
   });
 }

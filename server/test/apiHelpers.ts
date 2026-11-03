@@ -4,6 +4,8 @@ import { createPgliteDatabase, type Database } from '../src/db/index.js';
 import { migrate } from '../src/db/migrate.js';
 import { MemoryMediaStore } from '../src/media/store.js';
 import type { Providers } from '../src/api/providers.js';
+import type { Fetch } from '../src/http.js';
+import type { PushSender } from '../src/push/sender.js';
 import { buildServer } from '../src/server.js';
 
 export interface Reply { status: number; body: any; headers: Headers }
@@ -26,7 +28,7 @@ export interface TestServer {
 
 let counter = 0;
 
-export async function testServer(opts: { config?: Partial<Config>; providers?: Providers; env?: Record<string, string>; database?: Database } = {}): Promise<TestServer> {
+export async function testServer(opts: { config?: Partial<Config>; providers?: Providers; env?: Record<string, string>; database?: Database; push?: PushSender; fetch?: Fetch } = {}): Promise<TestServer> {
   const shared = opts.database;
   const database = shared ?? await createPgliteDatabase();
   if (!shared) await migrate(database);
@@ -35,7 +37,7 @@ export async function testServer(opts: { config?: Partial<Config>; providers?: P
     ...opts.config,
   };
   const media = new MemoryMediaStore();
-  const app = await buildServer({ config, database, media, providers: opts.providers ?? {}, heartbeatMs: 5000 });
+  const app = await buildServer({ config, database, media, providers: opts.providers ?? {}, push: opts.push, fetch: opts.fetch, heartbeatMs: 5000 });
   await app.listen({ port: 0, host: '127.0.0.1' });
   const port = (app.server.address() as { port: number }).port;
   const base = `http://127.0.0.1:${port}`;

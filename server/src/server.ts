@@ -8,6 +8,9 @@ import type { Database } from './db/index.js';
 import { noopMailer, type Mailer } from './mail.js';
 import { LocalDiskMediaStore, type MediaStore } from './media/store.js';
 import type { CruiseSource, RestStopFinder } from './ports.js';
+import { Notifier } from './push/notifier.js';
+import { pushFromConfig, type PushSender } from './push/sender.js';
+import type { Fetch } from './http.js';
 import { MemoryCruiseSource, noRestStops } from './stubs.js';
 
 export interface ServerDeps {
@@ -18,17 +21,21 @@ export interface ServerDeps {
   media?: MediaStore;
   cruises?: CruiseSource;
   restStops?: RestStopFinder;
+  push?: PushSender;
+  /** Used for OSRM; tests hand in a fake. */
+  fetch?: Fetch;
   logger?: boolean;
   heartbeatMs?: number;
   sweepMs?: number;
 }
 
 /** The whole server: REST + socket, wired to a database. `index.ts` and the tests both come through here. */
-export function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
+export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   const { config, database } = deps;
   const tokens = new Tokens(database.db, config);
   const jwt = jwtAuthenticator(tokens, database.db);
-  return buildApp({
+  const notifier = new Notifier(database.db, deps.push ?? pushFromConfig(config));
+  const app = await buildApp({
     auth: config.devAuth ? firstOf(jwt, devAuthenticator) : jwt,
     cruises: deps.cruises ?? new MemoryCruiseSource(),
     restStops: deps.restStops ?? noRestStops,
@@ -42,6 +49,14 @@ export function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       mailer: deps.mailer ?? noopMailer,
       providers: deps.providers ?? providersFromConfig(config),
       media: deps.media ?? new LocalDiskMediaStore(config.mediaDir),
+      notifier,
+      fetch: deps.fetch ?? ((url, init) => fetch(url, init)),
     },
   });
+  // Expired guest accounts (and everything they own) are removed hourly.
+  const sweep = setInterval(() => {
+    database.db.deleteFrom('users').where('kind', '=', 'guest').where('expires_at', '<', new Date()).execute().catch(() => {});
+  }, 3_600_000);
+  sweep.unref();
+  return app;
 }

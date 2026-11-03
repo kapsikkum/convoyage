@@ -291,6 +291,13 @@
               "string"
             ]
           },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "user",
+              "guest"
+            ]
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -324,6 +331,7 @@
           "avatarMediaId",
           "isPrivate",
           "email",
+          "kind",
           "createdAt",
           "followerCount",
           "followingCount",
@@ -584,6 +592,13 @@
               "integer"
             ]
           },
+          "movingTimeS": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "description": "Seconds spent moving (stops excluded); null if the client did not send it."
+          },
           "maxSpeedMps": {
             "type": [
               "null",
@@ -632,6 +647,7 @@
           "startLng",
           "distanceM",
           "durationS",
+          "movingTimeS",
           "maxSpeedMps",
           "avgSpeedMps",
           "elevationGainM",
@@ -712,6 +728,13 @@
               "integer"
             ]
           },
+          "movingTimeS": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "description": "Seconds spent moving (stops excluded); null if the client did not send it."
+          },
           "maxSpeedMps": {
             "type": [
               "null",
@@ -780,6 +803,7 @@
           "startLng",
           "distanceM",
           "durationS",
+          "movingTimeS",
           "maxSpeedMps",
           "avgSpeedMps",
           "elevationGainM",
@@ -789,6 +813,330 @@
           "polyline",
           "polylinePrecision",
           "photos"
+        ],
+        "additionalProperties": false
+      },
+      "RoutePreview": {
+        "type": "object",
+        "properties": {
+          "polyline": {
+            "type": "string",
+            "description": "Simplified trace, at most about 100 points."
+          },
+          "polylinePrecision": {
+            "type": "integer",
+            "enum": [
+              5
+            ]
+          },
+          "pointCount": {
+            "type": "integer"
+          },
+          "bbox": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "south": {
+                "type": "number"
+              },
+              "west": {
+                "type": "number"
+              },
+              "north": {
+                "type": "number"
+              },
+              "east": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "south",
+              "west",
+              "north",
+              "east"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "polyline",
+          "polylinePrecision",
+          "pointCount",
+          "bbox"
+        ],
+        "additionalProperties": false
+      },
+      "FeedRide": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ownerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "vehicleId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "finished"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "followers",
+              "private"
+            ]
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "startLat": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "startLng": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "distanceM": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "durationS": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "movingTimeS": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "maxSpeedMps": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "avgSpeedMps": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "elevationGainM": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "maxLeanDeg": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "convoyCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "preview": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoutePreview"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "ownerId",
+          "vehicleId",
+          "title",
+          "status",
+          "visibility",
+          "startedAt",
+          "endedAt",
+          "startLat",
+          "startLng",
+          "distanceM",
+          "durationS",
+          "movingTimeS",
+          "maxSpeedMps",
+          "avgSpeedMps",
+          "elevationGainM",
+          "maxLeanDeg",
+          "convoyCode",
+          "createdAt",
+          "preview"
+        ],
+        "additionalProperties": false
+      },
+      "PhotoItem": {
+        "type": "object",
+        "properties": {
+          "media": {
+            "$ref": "#/components/schemas/Media"
+          },
+          "rideId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "postId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "lat": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "lng": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "takenAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "media",
+          "rideId",
+          "postId",
+          "lat",
+          "lng",
+          "takenAt",
+          "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "PhotoPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PhotoItem"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "additionalProperties": false
+      },
+      "GuestAuthResult": {
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": "string"
+          },
+          "tokenType": {
+            "type": "string",
+            "enum": [
+              "Bearer"
+            ]
+          },
+          "expiresIn": {
+            "type": "integer",
+            "description": "Seconds until the guest session ends (24 h). There is no refresh token."
+          },
+          "user": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "guest"
+                ]
+              },
+              "displayName": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "displayName"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "accessToken",
+          "tokenType",
+          "expiresIn",
+          "user"
         ],
         "additionalProperties": false
       },
@@ -862,7 +1210,7 @@
           "ride": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/RideSummary"
+                "$ref": "#/components/schemas/FeedRide"
               },
               {
                 "type": "null"
@@ -1037,16 +1385,19 @@
             "type": "integer"
           },
           "myAction": {
-            "type": [
-              "null",
-              "string"
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "confirm",
+                  "dismiss"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ],
-            "enum": [
-              "confirm",
-              "dismiss",
-              null
-            ],
-            "description": "The viewer's confirm/dismiss vote, if any."
+            "description": "The viewer vote: null when none, never an empty string."
           }
         },
         "required": [
@@ -1595,6 +1946,108 @@
         }
       }
     },
+    "/auth/guest": {
+      "post": {
+        "summary": "Join as a guest (no account)",
+        "tags": [
+          "auth"
+        ],
+        "description": "Issues a short-lived (24 h) access token for an anonymous guest: no email, no refresh token. Guests can open the convoy WebSocket, request a voice token and report hazards, but every other write endpoint answers 403. Rate limited per IP.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 40
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestAuthResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (also used when the viewer may not see the thing)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict with the current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/auth/refresh": {
       "post": {
         "summary": "Rotate a refresh token",
@@ -1906,7 +2359,10 @@
                     "maxLength": 60
                   },
                   "bio": {
-                    "type": "string",
+                    "type": [
+                      "string",
+                      "null"
+                    ],
                     "maxLength": 300
                   },
                   "isPrivate": {
@@ -3165,7 +3621,10 @@
                     "maximum": 2028
                   },
                   "nickname": {
-                    "type": "string",
+                    "type": [
+                      "string",
+                      "null"
+                    ],
                     "maxLength": 60
                   },
                   "build": {
@@ -3557,7 +4016,10 @@
                     "maximum": 2028
                   },
                   "nickname": {
-                    "type": "string",
+                    "type": [
+                      "string",
+                      "null"
+                    ],
                     "maxLength": 60
                   },
                   "build": {
@@ -4291,6 +4753,12 @@
                     "minimum": 0,
                     "maximum": 604800
                   },
+                  "movingTimeS": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 604800,
+                    "description": "Seconds spent moving, stops excluded."
+                  },
                   "maxSpeedMps": {
                     "type": "number",
                     "minimum": 0,
@@ -4663,7 +5131,10 @@
                 "type": "object",
                 "properties": {
                   "title": {
-                    "type": "string",
+                    "type": [
+                      "string",
+                      "null"
+                    ],
                     "maxLength": 120
                   },
                   "visibility": {
@@ -7162,6 +7633,1022 @@
           }
         }
       }
+    },
+    "/v1/me/photos": {
+      "get": {
+        "summary": "My photos (ride photos and photo posts), newest first",
+        "tags": [
+          "users"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "description": "Opaque cursor from a previous page."
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            },
+            "in": "query",
+            "name": "limit",
+            "required": false
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhotoPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (also used when the viewer may not see the thing)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict with the current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/users/{handle}/photos": {
+      "get": {
+        "summary": "A user photos that I may see",
+        "tags": [
+          "users"
+        ],
+        "description": "Respects ride and post visibility, private accounts and blocks (a blocked pair sees nothing).",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "description": "Opaque cursor from a previous page."
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            },
+            "in": "query",
+            "name": "limit",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "in": "path",
+            "name": "handle",
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhotoPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (also used when the viewer may not see the thing)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict with the current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/catalogue": {
+      "get": {
+        "summary": "Garage catalogue: vehicle kinds, paints, finishes, wheels and decal presets",
+        "tags": [
+          "catalogue"
+        ],
+        "description": "Public and static. The ids are what `build.paint` (use `hex`), `build.finish`, `build.wheel` and `build.decals[].id` carry.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "version": {
+                      "type": "integer"
+                    },
+                    "kinds": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "paints": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "hex": {
+                            "type": "string",
+                            "pattern": "^#[0-9a-f]{6}$"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "hex"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "finishes": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "wheels": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "decals": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "slot": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "slot"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "kinds",
+                    "paints",
+                    "finishes",
+                    "wheels",
+                    "decals"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (also used when the viewer may not see the thing)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict with the current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/route": {
+      "get": {
+        "summary": "Driving route with turn-by-turn steps (OSRM)",
+        "tags": [
+          "navigation"
+        ],
+        "description": "Proxies OSRM (OSRM_URL). `from`, `to` and each `via` are \"lng,lat\"; `via` is a `;`-separated list. Geometry is a polyline with 6 decimals of precision. Cached for a minute, limited per user. 404 when no route exists, 502 when the routing server fails.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "in": "query",
+            "name": "from",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "in": "query",
+            "name": "to",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 800
+            },
+            "in": "query",
+            "name": "via",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "car",
+                "motorcycle"
+              ],
+              "default": "car"
+            },
+            "in": "query",
+            "name": "profile",
+            "required": false
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "profile": {
+                      "type": "string",
+                      "enum": [
+                        "car",
+                        "motorcycle"
+                      ]
+                    },
+                    "geometry": {
+                      "type": "string",
+                      "description": "Polyline, precision 6."
+                    },
+                    "geometryPrecision": {
+                      "type": "integer",
+                      "enum": [
+                        6
+                      ]
+                    },
+                    "distanceM": {
+                      "type": "number"
+                    },
+                    "durationS": {
+                      "type": "number"
+                    },
+                    "steps": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "maneuver": {
+                            "type": "object",
+                            "properties": {
+                              "type": {
+                                "type": "string"
+                              },
+                              "modifier": {
+                                "type": [
+                                  "null",
+                                  "string"
+                                ]
+                              },
+                              "location": {
+                                "type": "array",
+                                "items": {
+                                  "type": "number"
+                                },
+                                "minItems": 2,
+                                "maxItems": 2
+                              }
+                            },
+                            "required": [
+                              "type",
+                              "modifier",
+                              "location"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "distanceM": {
+                            "type": "number"
+                          },
+                          "durationS": {
+                            "type": "number"
+                          },
+                          "instruction": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "maneuver",
+                          "name",
+                          "distanceM",
+                          "durationS",
+                          "instruction"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "profile",
+                    "geometry",
+                    "geometryPrecision",
+                    "distanceM",
+                    "durationS",
+                    "steps"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (also used when the viewer may not see the thing)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict with the current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream (routing) server failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/voice/token": {
+      "post": {
+        "summary": "LiveKit access token for push-to-talk in my convoy",
+        "tags": [
+          "voice"
+        ],
+        "description": "Only while I am a member of the convoy room. The LiveKit room is `convoy-<code>`, the identity is my user id and the name my display name. 501 when LiveKit is not configured.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "convoyCode": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 32
+                  }
+                },
+                "required": [
+                  "convoyCode"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "token": {
+                      "type": "string"
+                    },
+                    "url": {
+                      "type": "string",
+                      "description": "LiveKit server URL (ws://...)."
+                    },
+                    "room": {
+                      "type": "string"
+                    },
+                    "identity": {
+                      "type": "string"
+                    },
+                    "expiresIn": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "token",
+                    "url",
+                    "room",
+                    "identity",
+                    "expiresIn"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (also used when the viewer may not see the thing)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict with the current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Not configured on this server",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/me/devices": {
+      "post": {
+        "summary": "Register (or refresh) a push token for this device",
+        "tags": [
+          "devices"
+        ],
+        "description": "Idempotent. A token already registered to another account moves to this one. At most 10 devices per account (oldest dropped).",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "platform": {
+                    "type": "string",
+                    "enum": [
+                      "ios",
+                      "android"
+                    ]
+                  },
+                  "token": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 4096
+                  }
+                },
+                "required": [
+                  "platform",
+                  "token"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (also used when the viewer may not see the thing)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict with the current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Forget a push token (sign-out, or notifications turned off)",
+        "tags": [
+          "devices"
+        ],
+        "description": "Send `{ \"token\": ... }` as the JSON body. Idempotent; only removes tokens that belong to me.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "token": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 4096
+                  }
+                },
+                "required": [
+                  "token"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (also used when the viewer may not see the thing)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict with the current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "servers": [
@@ -7197,6 +8684,18 @@
     },
     {
       "name": "hazards"
+    },
+    {
+      "name": "catalogue"
+    },
+    {
+      "name": "navigation"
+    },
+    {
+      "name": "voice"
+    },
+    {
+      "name": "devices"
     }
   ]
 }

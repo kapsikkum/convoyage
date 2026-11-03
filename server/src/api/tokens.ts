@@ -25,7 +25,7 @@ export class Tokens {
     this.key = new TextEncoder().encode(cfg.jwtSecret);
   }
 
-  async signAccess(userId: string): Promise<string> {
+  async signAccess(userId: string, ttlS: number = this.cfg.accessTtlS): Promise<string> {
     const now = Math.floor(Date.now() / 1000);
     return new SignJWT({})
       .setProtectedHeader({ alg: 'HS256' })
@@ -33,7 +33,7 @@ export class Tokens {
       .setIssuer(JWT_ISSUER)
       .setAudience(JWT_AUDIENCE)
       .setIssuedAt(now)
-      .setExpirationTime(now + this.cfg.accessTtlS)
+      .setExpirationTime(now + ttlS)
       .sign(this.key);
   }
 
@@ -49,10 +49,17 @@ export class Tokens {
 
   /** Like verifyAccess, but also requires the account to still exist and not be disabled. */
   async authenticate(token: string): Promise<string | null> {
+    return (await this.principal(token))?.id ?? null;
+  }
+
+  /** Like authenticate, with the account kind. Expired guests are refused. */
+  async principal(token: string): Promise<{ id: string; kind: 'user' | 'guest' } | null> {
     const id = await this.verifyAccess(token);
     if (!id) return null;
-    const u = await this.db.selectFrom('users').select('disabled_at').where('id', '=', id).executeTakeFirst();
-    return u && !u.disabled_at ? id : null;
+    const u = await this.db.selectFrom('users').select(['disabled_at', 'kind', 'expires_at']).where('id', '=', id).executeTakeFirst();
+    if (!u || u.disabled_at) return null;
+    if (u.expires_at && new Date(u.expires_at).getTime() <= Date.now()) return null;
+    return { id, kind: u.kind };
   }
 
   private async pair(userId: string, familyId: string, userAgent: string | null, db: Kysely<DB>): Promise<TokenPair> {

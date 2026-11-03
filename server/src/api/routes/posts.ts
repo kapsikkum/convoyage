@@ -7,6 +7,7 @@ import {
 } from '../common.js';
 import { mediaDto, rideSummaryDto, vehicleDto } from '../dto.js';
 import { limits } from '../limits.js';
+import { routePreview } from '../preview.js';
 import { userByHandle } from './users.js';
 import { bearer, bodyObj, cursorQuery, errorResponses, idParams, ref, uuid } from '../schemas.js';
 
@@ -40,7 +41,7 @@ export async function postRoutes(app: FastifyInstance, ctx: ApiContext): Promise
       db.selectFrom('post_likes').select('post_id').where('post_id', 'in', ids).where('user_id', '=', viewer).execute(),
     ]);
     const authorBy = new Map(authors.map((a) => [a.user_id, { id: a.user_id, handle: a.handle, displayName: a.display_name, avatarMediaId: a.avatar_media_id }]));
-    const rideBy = new Map(rides.filter((r) => r.can_view).map((r) => [r.id, rideSummaryDto(r)]));
+    const rideBy = new Map(rides.filter((r) => r.can_view).map((r) => [r.id, { ...rideSummaryDto(r), preview: routePreview(r.polyline, r.polyline_precision) }]));
     const vehicleBy = new Map(vehicles.map((v) => [v.id, vehicleDto(v)]));
     const likeBy = new Map(likes.map((l) => [l.post_id, Number(l.n)]));
     const commentBy = new Map(comments.map((c) => [c.post_id, Number(c.n)]));
@@ -202,7 +203,8 @@ export async function postRoutes(app: FastifyInstance, ctx: ApiContext): Promise
     schema: { ...security('posts'), summary: 'Like a post (idempotent)', params: idParams, response: { 200: likeResult, ...errorResponses } },
   }, async (req) => {
     const post = await visiblePost(idOf(req), req.userId);
-    await db.insertInto('post_likes').values({ post_id: post.id, user_id: req.userId }).onConflict((oc) => oc.doNothing()).execute();
+    const ins = await db.insertInto('post_likes').values({ post_id: post.id, user_id: req.userId }).onConflict((oc) => oc.doNothing()).executeTakeFirst();
+    if (Number(ins.numInsertedOrUpdatedRows) > 0) ctx.notifier.like(post.id, req.userId);
     return likeState(post.id, req.userId, true);
   });
 
@@ -252,6 +254,7 @@ export async function postRoutes(app: FastifyInstance, ctx: ApiContext): Promise
     const text = (req.body as { body: string }).body.trim();
     if (!text) throw badRequest('Empty comment');
     const row = await db.insertInto('comments').values({ post_id: post.id, author_id: req.userId, body: text }).returning('id').executeTakeFirstOrThrow();
+    ctx.notifier.comment(post.id, req.userId, text);
     return reply.code(201).send(commentDto(await commentRows().where('comments.id', '=', row.id).executeTakeFirstOrThrow()));
   });
 

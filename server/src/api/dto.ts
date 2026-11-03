@@ -25,7 +25,7 @@ export function rideSummaryDto(r: Row<RidesTable>) {
     id: r.id, ownerId: r.owner_id, vehicleId: r.vehicle_id, title: r.title, status: r.status, visibility: r.visibility,
     startedAt: iso(r.started_at), endedAt: isoOrNull(r.ended_at), startLat: r.start_lat, startLng: r.start_lng,
     distanceM: r.distance_m, durationS: r.duration_s, maxSpeedMps: r.max_speed_mps, avgSpeedMps: r.avg_speed_mps,
-    elevationGainM: r.elevation_gain_m, maxLeanDeg: r.max_lean_deg, convoyCode: r.convoy_code, createdAt: iso(r.created_at),
+    movingTimeS: r.moving_time_s, elevationGainM: r.elevation_gain_m, maxLeanDeg: r.max_lean_deg, convoyCode: r.convoy_code, createdAt: iso(r.created_at),
   };
 }
 

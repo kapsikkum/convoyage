@@ -56,7 +56,7 @@ const models: Record<string, object> = {
   }),
   Me: obj({
     id: uuid, handle: string, handleChosen: bool, displayName: string, bio: string, avatarMediaId: nUuid, isPrivate: bool,
-    email: nString, createdAt: dateTime, followerCount: int, followingCount: int, pendingRequestCount: int, primaryVehicle: nullableRef('Vehicle'),
+    email: nString, kind: { type: 'string', enum: ['user', 'guest'] }, createdAt: dateTime, followerCount: int, followingCount: int, pendingRequestCount: int, primaryVehicle: nullableRef('Vehicle'),
   }),
   Profile: obj({
     id: uuid, handle: string, displayName: string, bio: string, avatarMediaId: nUuid, isPrivate: bool, createdAt: dateTime,
@@ -70,23 +70,39 @@ const models: Record<string, object> = {
   RideSummary: obj({
     id: uuid, ownerId: uuid, vehicleId: nUuid, title: string, status: { type: 'string', enum: ['active', 'finished'] },
     visibility: { type: 'string', enum: [...VISIBILITIES] }, startedAt: dateTime, endedAt: nDate, startLat: nNum, startLng: nNum,
-    distanceM: nNum, durationS: nInt, maxSpeedMps: nNum, avgSpeedMps: nNum, elevationGainM: nNum, maxLeanDeg: nNum, convoyCode: nString,
+    distanceM: nNum, durationS: nInt, movingTimeS: { ...nInt, description: 'Seconds spent moving (stops excluded); null if the client did not send it.' }, maxSpeedMps: nNum, avgSpeedMps: nNum, elevationGainM: nNum, maxLeanDeg: nNum, convoyCode: nString,
     createdAt: dateTime,
   }),
   Ride: obj({
     id: uuid, ownerId: uuid, vehicleId: nUuid, title: string, status: { type: 'string', enum: ['active', 'finished'] },
     visibility: { type: 'string', enum: [...VISIBILITIES] }, startedAt: dateTime, endedAt: nDate, startLat: nNum, startLng: nNum,
-    distanceM: nNum, durationS: nInt, maxSpeedMps: nNum, avgSpeedMps: nNum, elevationGainM: nNum, maxLeanDeg: nNum, convoyCode: nString,
+    distanceM: nNum, durationS: nInt, movingTimeS: { ...nInt, description: 'Seconds spent moving (stops excluded); null if the client did not send it.' }, maxSpeedMps: nNum, avgSpeedMps: nNum, elevationGainM: nNum, maxLeanDeg: nNum, convoyCode: nString,
     createdAt: dateTime,
     polyline: { ...nString, description: 'Google encoded polyline of the trace.' },
     polylinePrecision: { type: 'integer', enum: [5, 6] },
     photos: arrayOf(ref('RidePhoto')),
   }),
+  RoutePreview: obj({
+    polyline: { type: 'string', description: 'Simplified trace, at most about 100 points.' }, polylinePrecision: { type: 'integer', enum: [5] }, pointCount: int,
+    bbox: nullable(obj({ south: num, west: num, north: num, east: num })),
+  }),
+  FeedRide: obj({
+    id: uuid, ownerId: uuid, vehicleId: nUuid, title: string, status: { type: 'string', enum: ['active', 'finished'] },
+    visibility: { type: 'string', enum: [...VISIBILITIES] }, startedAt: dateTime, endedAt: nDate, startLat: nNum, startLng: nNum,
+    distanceM: nNum, durationS: nInt, movingTimeS: nInt, maxSpeedMps: nNum, avgSpeedMps: nNum, elevationGainM: nNum, maxLeanDeg: nNum, convoyCode: nString,
+    createdAt: dateTime, preview: nullableRef('RoutePreview'),
+  }),
+  PhotoItem: obj({ media: ref('Media'), rideId: nUuid, postId: nUuid, lat: nNum, lng: nNum, takenAt: nDate, createdAt: dateTime }),
+  PhotoPage: obj({ items: arrayOf(ref('PhotoItem')), nextCursor: nString }),
+  GuestAuthResult: obj({
+    accessToken: string, tokenType: { type: 'string', enum: ['Bearer'] }, expiresIn: { ...int, description: 'Seconds until the guest session ends (24 h). There is no refresh token.' },
+    user: obj({ id: uuid, kind: { type: 'string', enum: ['guest'] }, displayName: string }),
+  }),
   RidePage: obj({ items: arrayOf(ref('RideSummary')), nextCursor: nString }),
   Post: obj({
     id: uuid, kind: { type: 'string', enum: ['ride', 'build', 'photo', 'text'] }, author: ref('UserRef'), body: string,
     visibility: { type: 'string', enum: ['public', 'followers'] }, createdAt: dateTime, lat: nNum, lng: nNum,
-    ride: nullableRef('RideSummary'), vehicle: nullableRef('Vehicle'), media: arrayOf(ref('Media')),
+    ride: nullableRef('FeedRide'), vehicle: nullableRef('Vehicle'), media: arrayOf(ref('Media')),
     likeCount: int, commentCount: int, likedByMe: bool,
   }),
   FeedPage: obj({ items: arrayOf(ref('Post')), nextCursor: { ...nString, description: 'Pass as `before` for the next page; null at the end.' } }),
@@ -95,7 +111,7 @@ const models: Record<string, object> = {
   Hazard: obj({
     id: uuid, kind: { type: 'string', enum: [...HAZARD_KINDS] }, subkind: string, lat: num, lng: num, heading: nNum,
     createdAt: dateTime, expiresAt: dateTime, confirmations: int, dismissals: int,
-    myAction: { type: ['string', 'null'], enum: ['confirm', 'dismiss', null], description: 'The viewer\'s confirm/dismiss vote, if any.' },
+    myAction: { anyOf: [{ type: 'string', enum: ['confirm', 'dismiss'] }, { type: 'null' }], description: 'The viewer vote: null when none, never an empty string.' },
   }),
   HandleAvailability: obj({ handle: string, available: bool, reason: nString }),
   FollowResult: obj({ status: { type: 'string', enum: ['none', 'pending', 'accepted'] } }),

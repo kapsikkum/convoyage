@@ -4,18 +4,22 @@ import type { Config } from '../config.js';
 import type { DB } from '../db/index.js';
 import type { Mailer } from '../mail.js';
 import type { MediaStore } from '../media/store.js';
-import { badRequest, notFound, unauthorized } from '../errors.js';
+import { badRequest, forbidden, notFound, unauthorized } from '../errors.js';
 import type { Providers } from './providers.js';
+import type { Notifier } from '../push/notifier.js';
+import type { Fetch } from '../http.js';
 import type { Tokens } from './tokens.js';
 
 declare module 'fastify' {
-  interface FastifyRequest { userId: string }
+  interface FastifyRequest { userId: string; userKind: 'user' | 'guest' }
 }
 
 /** How the REST layer reaches the live convoy rooms (for hazard broadcast). */
 export interface ConvoyLink {
   roomsOf(userId: string): string[];
   sendToRoom(code: string, message: unknown): void;
+  /** Members of a room with no live socket. */
+  offlineMemberIds(code: string): string[];
 }
 
 export interface ApiContext {
@@ -26,17 +30,26 @@ export interface ApiContext {
   providers: Providers;
   media: MediaStore;
   convoy: ConvoyLink;
+  notifier: Notifier;
+  fetch: Fetch;
 }
 
 export const iso = (d: Date | string): string => new Date(d).toISOString();
 export const isoOrNull = (d: Date | string | null): string | null => (d ? iso(d) : null);
 
-/** preHandler: require a valid bearer access token and set `request.userId`. */
+/** Writes a guest may still make: convoy-adjacent things only. Everything else that is not a GET is 403 for guests. */
+const GUEST_WRITES = new Set(['/v1/voice/token', '/v1/hazards', '/v1/hazards/:id/confirm', '/v1/hazards/:id/dismiss', '/v1/hazards/:id/ack', '/v1/me/devices']);
+
+/** preHandler: require a valid bearer access token and set `request.userId`. Guests may only read, plus GUEST_WRITES. */
 export const authenticate = (tokens: Tokens) => async (request: FastifyRequest): Promise<void> => {
   const m = /^Bearer\s+(\S+)$/i.exec(request.headers.authorization ?? '');
-  const userId = m ? await tokens.authenticate(m[1]) : null;
-  if (!userId) throw unauthorized('Missing or invalid access token');
-  request.userId = userId;
+  const who = m ? await tokens.principal(m[1]) : null;
+  if (!who) throw unauthorized('Missing or invalid access token');
+  request.userId = who.id;
+  request.userKind = who.kind;
+  if (who.kind === 'guest' && request.method !== 'GET' && request.method !== 'HEAD' && !GUEST_WRITES.has(request.routeOptions.url ?? '')) {
+    throw forbidden('Guests cannot do this: sign in with an account');
+  }
 };
 
 // ---- cursors: (timestamp, id) keyset paging ------------------------------------------------------------------
