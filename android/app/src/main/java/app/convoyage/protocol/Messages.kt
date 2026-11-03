@@ -153,6 +153,10 @@ sealed interface ClientMessage {
     @Serializable @SerialName("convoy.remove")
     data class ConvoyRemove(val room: String, val id: String) : ClientMessage
 
+    /** status: "stopping" | "moving" | "sos" (note up to 140 chars). The server adds our position to an sos. */
+    @Serializable @SerialName("convoy.status")
+    data class ConvoyStatus(val status: String, val note: String? = null) : ClientMessage
+
     @Serializable @SerialName("convoy.message")
     data class ConvoyChat(val room: String, val text: String, val clientId: String) : ClientMessage
 }
@@ -191,6 +195,10 @@ sealed interface ServerMessage {
 
     @Serializable @SerialName("convoy.message")
     data class Chat(val room: String, val message: ConvoyMessage) : ServerMessage
+
+    /** A member sent convoy.status. [position] is only present for sos. Sent to every member, the sender included. */
+    @Serializable @SerialName("status")
+    data class Status(val room: String, val id: String, val status: String, val note: String? = null, val position: Position? = null) : ServerMessage
 
     /** A member reported a hazard (POST /v1/hazards) while in this convoy. Sent to every member, the reporter included. */
     @Serializable @SerialName("hazard")

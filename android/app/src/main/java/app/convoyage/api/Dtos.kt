@@ -80,7 +80,7 @@ data class Me(
 
 /** PATCH /v1/me. Only the fields that are set are sent. */
 @Serializable
-data class UpdateMe(val displayName: String? = null)
+data class UpdateMe(val displayName: String? = null, val handle: String? = null)
 
 /** POST /v1/hazards. [kind] is one of [HazardKinds.ALL]; [subkind] matches `^[a-z0-9_]{0,24}$`. */
 @Serializable

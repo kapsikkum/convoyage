@@ -1,14 +1,22 @@
 package app.convoyage.map
 
 import org.maplibre.android.maps.Style
+import org.maplibre.android.style.layers.BackgroundLayer
+import org.maplibre.android.style.layers.RasterLayer
 import org.maplibre.android.style.layers.FillExtrusionLayer
 import org.maplibre.android.style.layers.FillLayer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
+import org.maplibre.android.style.layers.PropertyFactory.backgroundColor
+import org.maplibre.android.style.layers.PropertyFactory.rasterOpacity
 import org.maplibre.android.style.layers.PropertyFactory.fillColor
 import org.maplibre.android.style.layers.PropertyFactory.fillExtrusionColor
 import org.maplibre.android.style.layers.PropertyFactory.fillExtrusionOpacity
 import org.maplibre.android.style.layers.PropertyFactory.fillOpacity
+import org.maplibre.android.style.layers.PropertyFactory.iconAllowOverlap
+import org.maplibre.android.style.layers.PropertyFactory.iconIgnorePlacement
+import org.maplibre.android.style.layers.PropertyFactory.iconImage
+import org.maplibre.android.style.layers.PropertyFactory.iconPadding
 import org.maplibre.android.style.layers.PropertyFactory.lineBlur
 import org.maplibre.android.style.layers.PropertyFactory.lineCap
 import org.maplibre.android.style.layers.PropertyFactory.lineColor
@@ -42,7 +50,16 @@ object MapNightStyle {
     const val HALO = "#0b0f16"
     const val HALO_WIDTH = 1.4f
     const val MOOD_COLOR = "#0a0c1a"
-    const val MOOD_OPACITY = 0.72f
+    const val MOOD_OPACITY = 0.66f
+
+    /** Night HUD road palette. The mood sits under the roads, so these are the colours you actually see. */
+    const val ROAD_MINOR = "#3a4660"
+    const val ROAD_MAJOR = "#56627e"
+    const val ROAD_PATH = "#2c3650"
+    const val ROAD_RAIL = "#273044"
+    const val ROAD_CASING = "#070a10"
+    const val BUILDING_2D = "#151c2a"
+    const val BOUNDARY = "#2a3346"
 
     /** Flat layers that end up above the mood (boundaries) are faded to this. */
     const val ABOVE_MOOD_OPACITY = 0.35f
@@ -79,6 +96,71 @@ object MapNightStyle {
         return layers.drop(lastFlat + 1).firstOrNull()?.id
     }
 
+    // What the land should look like once the mood is over it (the reference palette of the night HUD).
+    const val LAND_BACKGROUND = "#0b0f17"
+    const val LAND_RESIDENTIAL = "#101624"
+    const val LAND_GREEN = "#0f1f20"
+    const val LAND_OTHER = "#121a28"
+    const val LAND_SAND = "#17181f"
+    const val LAND_WATER = "#0f2a42"
+    const val LAND_WATERWAY = "#14344f"
+    const val LAND_AERO = "#131a27"
+
+    /** The colour to paint under the mood so that it ends up as [target] on screen: (target - mood * a) / (1 - a). */
+    fun underMood(target: String, moodColor: String = MOOD_COLOR, alpha: Float = MOOD_OPACITY): String {
+        fun ch(hex: String, i: Int) = hex.substring(1 + 2 * i, 3 + 2 * i).toInt(16)
+        val out = (0..2).map { i ->
+            ((ch(target, i) - ch(moodColor, i) * alpha) / (1 - alpha)).toInt().coerceIn(0, 255)
+        }
+        return "#%02x%02x%02x".format(out[0], out[1], out[2])
+    }
+
+    /** The on-screen colour a land/water fill layer should end up with, or null to leave the layer alone. */
+    fun landTarget(id: String): String? = when {
+        id == "background" -> LAND_BACKGROUND
+        id == "park" || id == "landcover_wood" || id == "landcover_grass" -> LAND_GREEN
+        id == "landuse_residential" -> LAND_RESIDENTIAL
+        id == "landcover_sand" -> LAND_SAND
+        id == "landcover_ice" || id == "landcover_wetland" -> LAND_OTHER
+        id.startsWith("landuse_") -> LAND_OTHER
+        id == "water" -> LAND_WATER
+        id.startsWith("waterway_") && !id.endsWith("label") -> LAND_WATERWAY
+        id == "aeroway_fill" -> LAND_AERO
+        id == "aeroway_runway" || id == "aeroway_taxiway" -> ROAD_PATH
+        else -> null
+    }
+
+    /** How a road-ish line layer is coloured. */
+    enum class RoadClass { Minor, Major, Path, Rail, Casing }
+
+    private val ROAD_PREFIX = Regex("^(road|bridge|tunnel)_")
+    private val MAJOR = Regex("motorway|trunk|primary|secondary|tertiary|link")
+
+    fun isRoadLayer(id: String) = ROAD_PREFIX.containsMatchIn(id)
+
+    /** Null for layers that are not roads, bridges or tunnels (and for the one-way arrows and the area pattern). */
+    fun roadClass(id: String): RoadClass? {
+        if (!isRoadLayer(id) || id.contains("arrow") || id.contains("area_pattern")) return null
+        return when {
+            id.contains("casing") -> RoadClass.Casing
+            id.contains("rail") -> RoadClass.Rail
+            id.contains("path") || id.contains("pedestrian") -> RoadClass.Path
+            MAJOR.containsMatchIn(id) -> RoadClass.Major
+            else -> RoadClass.Minor
+        }
+    }
+
+    fun roadColor(c: RoadClass) = when (c) {
+        RoadClass.Minor -> ROAD_MINOR
+        RoadClass.Major -> ROAD_MAJOR
+        RoadClass.Path -> ROAD_PATH
+        RoadClass.Rail -> ROAD_RAIL
+        RoadClass.Casing -> ROAD_CASING
+    }
+
+    /** The mood goes directly under the first tunnel/road/bridge layer, so roads are not washed out by it. */
+    fun moodBelowRoads(layerIds: List<String>): String? = layerIds.firstOrNull { isRoadLayer(it) }
+
     fun shouldHide(layerId: String) = HIDDEN_LAYERS.containsMatchIn(layerId)
     fun labelColor(layerId: String) = if (layerId.contains("water")) TEXT_WATER else TEXT
 
@@ -89,6 +171,7 @@ object MapNightStyle {
         for (layer in layers) {
             val id = layer.id
             if (shouldHide(id)) layer.setProperties(visibility(Property.NONE))
+            recolourLand(layer)
             if (layer is SymbolLayer) {
                 runCatching {
                     layer.setProperties(textColor(labelColor(id)), textHaloColor(HALO), textHaloWidth(HALO_WIDTH))
@@ -118,21 +201,77 @@ object MapNightStyle {
         )
         style.addSource(GeoJsonSource(MOOD_SOURCE, Feature.fromGeometry(world)))
         val mood = FillLayer(MOOD_LAYER, MOOD_SOURCE).withProperties(fillColor(MOOD_COLOR), fillOpacity(MOOD_OPACITY))
-        val above = moodInsertBefore(layers.map { LayerKind(it.id, it is FillExtrusionLayer, it is SymbolLayer) })
+        // Mood under the roads: everything below (land, water, parks) is darkened, the roads keep the HUD colours.
+        val above = moodBelowRoads(layers.map { it.id })
+            ?: moodInsertBefore(layers.map { LayerKind(it.id, it is FillExtrusionLayer, it is SymbolLayer) })
         if (above != null) style.addLayerBelow(mood, above) else style.addLayer(mood)
-        // Whatever flat layers still sit above the mood (liberty's boundary lines come after building-3d)
-        // would stay bright, so push them back.
         val aboveIdx = if (above == null) layers.size else layers.indexOfFirst { it.id == above }
         for (layer in layers.drop(aboveIdx)) {
-            when (layer) {
-                is LineLayer -> layer.setProperties(lineOpacity(ABOVE_MOOD_OPACITY))
-                is FillLayer -> layer.setProperties(fillOpacity(ABOVE_MOOD_OPACITY))
-                else -> Unit
+            val id = layer.id
+            val road = roadClass(id)
+            if (layer is LineLayer && road != null) {
+                runCatching { layer.setProperties(lineColor(roadColor(road)), lineOpacity(1f)) }
+            } else if (layer is FillLayer && id.contains("area_pattern")) {
+                runCatching { layer.setProperties(fillOpacity(0f)) }
+            } else if (layer is FillLayer && id == "building") {
+                runCatching { layer.setProperties(fillColor(BUILDING_2D), fillOpacity(0.9f)) }
+            } else if (layer is LineLayer) {
+                // Boundaries and anything else flat that sits above the mood.
+                runCatching { layer.setProperties(lineColor(BOUNDARY), lineOpacity(ABOVE_MOOD_OPACITY)) }
+            } else if (layer is FillLayer) {
+                runCatching { layer.setProperties(fillOpacity(ABOVE_MOOD_OPACITY)) }
             }
         }
 
         addRoute(style)
+        addColliders(style)
         return extrusions
+    }
+
+    const val COLLIDER_SOURCE = "pin-colliders"
+    const val COLLIDER_LAYER = "pin-colliders"
+    const val COLLIDER_IMAGE = "pin-collider"
+
+    /**
+     * The pins (puck, members, hazards, destination) are Compose overlays, so the map does not know they are there
+     * and a place label ("Bathurst") can sit right under one. Each pin gets an invisible symbol on this layer, on top
+     * of every label: it always draws (icon-allow-overlap) and, by not ignoring placement, makes the labels around it yield.
+     */
+    private fun addColliders(style: Style) {
+        val bmp = android.graphics.Bitmap.createBitmap(COLLIDER_PX, COLLIDER_PX, android.graphics.Bitmap.Config.ARGB_8888)
+        style.addImage(COLLIDER_IMAGE, bmp)
+        style.addSource(GeoJsonSource(COLLIDER_SOURCE, FeatureCollection.fromFeatures(emptyList<Feature>())))
+        style.addLayer(
+            SymbolLayer(COLLIDER_LAYER, COLLIDER_SOURCE).withProperties(
+                iconImage(COLLIDER_IMAGE),
+                iconAllowOverlap(true),
+                iconIgnorePlacement(false),
+                iconPadding(6f),
+            ),
+        )
+    }
+
+    private const val COLLIDER_PX = 96
+
+    fun setColliders(style: Style, points: List<Pair<Double, Double>>) {
+        val source = style.getSourceAs<GeoJsonSource>(COLLIDER_SOURCE) ?: return
+        source.setGeoJson(FeatureCollection.fromFeatures(points.map { (lat, lng) -> Feature.fromGeometry(Point.fromLngLat(lng, lat)) }))
+    }
+
+    private fun recolourLand(layer: org.maplibre.android.style.layers.Layer) {
+        val id = layer.id
+        runCatching {
+            when (layer) {
+                is BackgroundLayer -> landTarget(id)?.let { layer.setProperties(backgroundColor(underMood(it))) }
+                is FillLayer -> landTarget(id)?.let { layer.setProperties(fillColor(underMood(it)), fillOpacity(1f)) }
+                is LineLayer -> {
+                    if (id == "park_outline") layer.setProperties(visibility(Property.NONE))
+                    else landTarget(id)?.let { layer.setProperties(lineColor(underMood(it))) }
+                }
+                is RasterLayer -> layer.setProperties(rasterOpacity(0f))
+                else -> Unit
+            }
+        }
     }
 
     private fun addRoute(style: Style) {

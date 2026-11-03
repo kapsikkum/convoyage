@@ -53,6 +53,7 @@ fun SettingsScreen(onBack: () -> Unit) {
     val night by session.night.collectAsStateWithLifecycle()
     val auto by session.autoRecordConvoy.collectAsStateWithLifecycle()
     val kind by session.kind.collectAsStateWithLifecycle()
+    val crashOn by session.crashDetection.collectAsStateWithLifecycle()
     var draft by rememberSaveable(serverUrl) { mutableStateOf(serverUrl) }
     var message by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -124,9 +125,28 @@ fun SettingsScreen(onBack: () -> Unit) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f).padding(end = Space.s3)) {
                 CvText("Record convoy rides automatically", Cv.type.bodyStrong, c.ink)
-                CvText("Starts with a convoy, stops when you leave it. The app must stay open.", Cv.type.bodyS, c.inkMuted)
+                CvText("Starts with a convoy, stops when you leave it. Keeps recording with the screen off.", Cv.type.bodyS, c.inkMuted)
             }
             CvChipToggle(if (auto) "On" else "Off", auto, { session.setAutoRecordConvoy(!auto) })
+        }
+
+        Eyebrow("SAFETY")
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f).padding(end = Space.s3)) {
+                CvText("Crash detection (Ride mode)", Cv.type.bodyStrong, c.ink)
+                CvText(
+                    "While you are in a convoy or recording a ride, a hard impact followed by about 10 seconds of standing still asks " +
+                        "\"Are you OK?\". No answer in 30 seconds sends an SOS with your location to your convoy chat. " +
+                        "It never calls emergency services.",
+                    Cv.type.bodyS, c.inkMuted,
+                )
+            }
+            CvChipToggle(if (crashOn) "On" else "Off", crashOn, { session.setCrashDetection(!crashOn) })
+        }
+
+        if (BuildConfig.DEBUG) {
+            Eyebrow("DEBUG")
+            CvButton("Simulate a crash", { container.crash.trigger(simulated = true) }, Modifier.fillMaxWidth(), CvButtonKind.Ghost)
         }
 
         Eyebrow("ABOUT")

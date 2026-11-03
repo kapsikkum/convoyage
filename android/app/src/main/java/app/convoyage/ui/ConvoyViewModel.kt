@@ -3,16 +3,20 @@ package app.convoyage.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.convoyage.AppContainer
+import app.convoyage.data.Chat
 import app.convoyage.data.ConvoyAlert
 import app.convoyage.data.Fix
 import app.convoyage.data.Geo
 import app.convoyage.data.Link
 import app.convoyage.data.Roster
+import app.convoyage.data.StatusEvent
 import app.convoyage.data.RosterEntry
 import app.convoyage.data.Side
 import app.convoyage.design.MemberState
 import app.convoyage.design.PttState
 import app.convoyage.protocol.ConvoyMessage
+import app.convoyage.protocol.Destination
+import kotlinx.coroutines.launch
 import app.convoyage.protocol.Room
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -33,6 +37,12 @@ data class ConvoyUi(
     val removed: Boolean = false,
     val spreadM: Double = 0.0,
     val isLeader: Boolean = false,
+    /** Messages from others that arrived since the chat was last open. */
+    val unread: Int = 0,
+    /** The newest unread SOS from somebody else, for the banner. */
+    val sos: StatusEvent? = null,
+    /** Display name of [sos] sender. */
+    val sosName: String = "",
 ) {
     val me: RosterEntry? get() = roster.firstOrNull { it.isMe }
     val onlineCount: Int get() = roster.count { it.state != MemberState.Offline }
@@ -49,33 +59,105 @@ data class ConvoyLocal(
     val recenterTick: Int = 0,
     val ptt: PttState = PttState.Idle,
     val iAmStopping: Boolean = false,
+    /** A spot the leader long-pressed on the map and has not confirmed yet. */
+    val pendingDest: PendingDest? = null,
+    /** A short, self-clearing note ("Only the leader can set the destination"). */
+    val hint: String? = null,
 )
+
+/** A destination waiting for the leader's confirmation. */
+data class PendingDest(val lat: Double, val lng: Double)
 
 class ConvoyViewModel(private val container: AppContainer) : ViewModel() {
     private val repo = container.convoy
     private val _local = MutableStateFlow(ConvoyLocal())
     val local: StateFlow<ConvoyLocal> = _local
 
-    val ui: StateFlow<ConvoyUi> = combine(repo.state, container.tracker.fix) { s, fix ->
+    /** Per room: the timestamp of the newest chat message that has been read (seeded when the room first appears). */
+    private val reads = MutableStateFlow<Map<String, Long>>(emptyMap())
+
+    init {
+        viewModelScope.launch {
+            repo.state.collect { s ->
+                val missing = s.rooms.keys.filter { it !in reads.value }
+                if (missing.isNotEmpty()) reads.update { r -> r + missing.associateWith { Chat.latestTs(s.chat[it].orEmpty()) } }
+            }
+        }
+    }
+
+    private val sosDismissedAt = MutableStateFlow(0L)
+    fun dismissSos() { sosDismissedAt.value = System.currentTimeMillis() }
+
+    val ui: StateFlow<ConvoyUi> = combine(repo.state, container.tracker.fix, reads, sosDismissedAt) { s, fix, readMap, dismissed ->
         val room = s.active
-        val roster = room?.let { Roster.build(it, s.meId, fix) }.orEmpty()
+        val roster = room?.let { Roster.build(it, s.meId, fix, container.session.name.value) }.orEmpty()
+        val chat = s.active?.let { s.chat[it.code] }.orEmpty()
+        val readTs = room?.let { readMap[it.code] } ?: Long.MAX_VALUE
+        val sosEvent = room?.let { s.statuses[it.code].orEmpty().values }.orEmpty()
+            .filter { it.isSos && it.memberId != s.meId && it.atMs > dismissed }.maxByOrNull { it.atMs }
         ConvoyUi(
             link = s.link,
             meId = s.meId,
             room = room,
             roster = roster,
             alert = room?.let { Roster.alert(it, roster, s.meId) },
-            chat = s.active?.let { s.chat[it.code] }.orEmpty(),
+            chat = chat,
             fix = fix,
             error = s.error,
             removed = s.removedFrom != null,
             spreadM = room?.let { Roster.spreadM(it) } ?: 0.0,
             isLeader = room != null && s.meId == room.leader,
+            unread = Chat.unread(chat, s.meId, readTs),
+            sos = sosEvent,
+            sosName = sosEvent?.let { e -> roster.firstOrNull { it.id == e.memberId }?.name } ?: "",
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ConvoyUi())
 
-    fun create(name: String) = repo.createConvoy(name.ifBlank { "${container.session.name.value ?: "My"}'s convoy" })
+    /** The chat is on screen: everything in it counts as read. */
+    fun markChatRead() {
+        val s = repo.state.value
+        val code = s.activeCode ?: return
+        val latest = Chat.latestTs(s.chat[code].orEmpty())
+        reads.update { r -> if ((r[code] ?: 0L) >= latest) r else r + (code to latest) }
+    }
+
+    /** Sends exactly what was typed (blank = the server's default name). [regroupSeparationM] non-null = automatic regroup on. */
+    fun create(name: String, regroupSeparationM: Double? = null) = repo.createConvoy(name.trim(), regroupSeparationM)
     fun join(code: String) = repo.join(code)
+    fun sendChat(text: String) = repo.sendChat(text)
+
+    // ---- leader tools ----
+    fun proposeDestination(lat: Double, lng: Double) {
+        if (!ui.value.isLeader) {
+            flashHint("Only the leader can set the destination")
+            return
+        }
+        _local.update { it.copy(pendingDest = PendingDest(lat, lng)) }
+    }
+
+    fun cancelPendingDestination() = _local.update { it.copy(pendingDest = null) }
+
+    fun confirmDestination(label: String) {
+        val p = _local.value.pendingDest ?: return
+        repo.setDestination(Destination(p.lat, p.lng, label.trim().ifBlank { "Dropped pin" }.take(80)), ui.value.fix)
+        _local.update { it.copy(pendingDest = null) }
+    }
+
+    fun clearDestination() = repo.setDestination(null, null)
+    fun handOver(memberId: String) = repo.handOver(memberId)
+    fun remove(memberId: String) = repo.remove(memberId)
+    fun continueFromRest() = repo.continueFromRest()
+
+    private var hintJob: kotlinx.coroutines.Job? = null
+    private fun flashHint(text: String) {
+        _local.update { it.copy(hint = text) }
+        hintJob?.cancel()
+        hintJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(3_000)
+            _local.update { it.copy(hint = null) }
+        }
+    }
+
     fun leave() = repo.leave()
     fun findRestStop() = repo.findRestStop()
     fun dismissError() = repo.clearError()
@@ -95,7 +177,7 @@ class ConvoyViewModel(private val container: AppContainer) : ViewModel() {
     fun toggleStopping() {
         val stopping = !_local.value.iAmStopping
         _local.update { it.copy(iAmStopping = stopping) }
-        repo.sendChat(if (stopping) "I'm stopping" else "Moving again")
+        repo.sendStatus(if (stopping) "stopping" else "moving")
     }
 
 

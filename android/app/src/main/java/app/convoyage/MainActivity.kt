@@ -9,6 +9,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.lifecycleScope
+import app.convoyage.data.AppLink
+import app.convoyage.data.DeepLink
 import app.convoyage.data.SignInOutcome
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -23,10 +25,12 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         val container = (application as ConvoyageApp).container
         handleAuthLink(intent)
-        // A ride being recorded keeps the screen on: with no background service yet, a dark screen means no GPS fixes.
-        // TODO(background): drop this once recording runs in a foreground service.
+        // Ride recording and the convoy now run in a foreground service, so the screen may go dark.
+        // A crash countdown wakes the screen and shows over the lock screen.
         lifecycleScope.launch {
-            container.recorder.state.map { it.isRecording }.distinctUntilChanged().collect { on ->
+            container.crash.ui.map { it is app.convoyage.service.CrashUi.Counting }.distinctUntilChanged().collect { on ->
+                setShowWhenLocked(on)
+                setTurnScreenOn(on)
                 if (on) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             }
@@ -44,16 +48,28 @@ class MainActivity : ComponentActivity() {
         handleAuthLink(intent)
     }
 
-    /** `convoyage://auth/magic?token=...` (what the server emails): finish sign-in. */
+    /**
+     * `convoyage://auth/magic?token=...` (what the server emails) finishes sign-in; `convoyage://join/<CODE>` (and the
+     * https fallback) asks to join a convoy, which waits for sign-in and a connection.
+     */
     private fun handleAuthLink(intent: Intent?) {
-        val link = intent?.data?.takeIf { it.scheme == "convoyage" && it.host == "auth" }?.toString() ?: return
-        intent.data = null // handle each link once, not again after a rotation
+        val uri = intent?.data?.toString() ?: return
         val container = (application as ConvoyageApp).container
-        lifecycleScope.launch {
-            when (val r = container.signInWithLink(link)) {
-                is SignInOutcome.SignedIn -> Unit // AppRoot notices the session and opens Home
-                is SignInOutcome.Failed -> Toast.makeText(this@MainActivity, r.message, Toast.LENGTH_LONG).show()
+        when (val link = DeepLink.parse(uri)) {
+            is AppLink.Auth -> {
+                intent.data = null // handle each link once, not again after a rotation
+                lifecycleScope.launch {
+                    when (val r = container.signInWithLink(link.link)) {
+                        is SignInOutcome.SignedIn -> Unit // AppRoot notices the session and opens Home
+                        is SignInOutcome.Failed -> Toast.makeText(this@MainActivity, r.message, Toast.LENGTH_LONG).show()
+                    }
+                }
             }
+            is AppLink.Join -> {
+                intent.data = null
+                container.setPendingJoin(link.code)
+            }
+            null -> Unit
         }
     }
 }

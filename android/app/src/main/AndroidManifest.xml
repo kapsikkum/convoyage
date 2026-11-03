@@ -5,7 +5,15 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <!-- TODO(background): ACCESS_BACKGROUND_LOCATION + FOREGROUND_SERVICE_LOCATION when the convoy foreground service lands. -->
+    <!-- Convoy and ride recording keep running with the screen off: a foreground service of type location.
+         ACCESS_BACKGROUND_LOCATION is only requested at runtime, after a rationale screen, once a convoy or ride is on. -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Crash alert: vibrate and show the "Are you OK?" screen over the lock screen. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
@@ -35,6 +43,19 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Convoy invite: convoyage://join/<CODE>, and the https fallback https://convoyage.app/join/<CODE>. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="convoyage" android:host="join" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="convoyage.app" android:pathPrefix="/join/" />
+            </intent-filter>
             <!-- Magic link emailed by the server: convoyage://auth/magic?token=... (MAGIC_LINK_BASE_URL). -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -43,6 +64,11 @@
                 <data android:scheme="convoyage" android:host="auth" android:pathPrefix="/magic" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".service.ConvoyService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
 
         <!-- Lets the system camera write a photo into cache/camera/ (TakePicture). -->
         <provider

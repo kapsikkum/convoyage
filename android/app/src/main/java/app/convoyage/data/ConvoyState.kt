@@ -5,6 +5,11 @@ import app.convoyage.protocol.Position
 import app.convoyage.protocol.Room
 import app.convoyage.protocol.ServerMessage
 
+/** A member's last `status` message. [atMs] is when we received it. */
+data class StatusEvent(val memberId: String, val status: String, val note: String?, val position: Position?, val atMs: Long) {
+    val isSos: Boolean get() = status == "sos"
+}
+
 enum class Link { Offline, Connecting, Online, Rejected }
 
 /** Everything the UI knows about the socket and the convoys on it. Pure data; see [apply]. */
@@ -18,6 +23,8 @@ data class ConvoyState(
     val error: String? = null,
     /** Set when the server removed us from [removedFrom]'s convoy. */
     val removedFrom: String? = null,
+    /** The latest `status` frame per room per member (stopping / moving / sos). */
+    val statuses: Map<String, Map<String, StatusEvent>> = emptyMap(),
 ) {
     val active: Room? get() = activeCode?.let { rooms[it] }
 
@@ -49,6 +56,7 @@ data class ConvoyState(
         is ServerMessage.Left -> copy(
             rooms = rooms - message.room,
             chat = chat - message.room,
+            statuses = statuses - message.room,
             activeCode = if (activeCode == message.room) (rooms.keys - message.room).firstOrNull() else activeCode,
             removedFrom = if (message.removed) message.room else removedFrom,
         )
@@ -64,6 +72,11 @@ data class ConvoyState(
 
         // Hazards are kept by HazardRepository, which is fed the same frames.
         is ServerMessage.HazardReported -> this
+
+        is ServerMessage.Status -> copy(
+            statuses = statuses + (message.room to (statuses[message.room].orEmpty() +
+                (message.id to StatusEvent(message.id, message.status, message.note, message.position, System.currentTimeMillis())))),
+        )
 
         is ServerMessage.Error -> copy(error = message.error)
 

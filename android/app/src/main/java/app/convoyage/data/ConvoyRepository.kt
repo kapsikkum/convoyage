@@ -7,6 +7,8 @@ import app.convoyage.net.accountSocketRequest
 import app.convoyage.net.devSocketRequest
 import app.convoyage.protocol.AutomaticRegroup
 import app.convoyage.protocol.ClientMessage
+import app.convoyage.protocol.ConvoyRoute
+import app.convoyage.protocol.Destination
 import app.convoyage.protocol.ServerMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -148,10 +150,53 @@ class ConvoyRepository(
         send(ClientMessage.ConvoyRest(code, "find"))
     }
 
-    fun sendChat(text: String) {
+    /** Leader: leave rest mode and go back to the destination the convoy had. */
+    fun continueFromRest() {
         val code = _state.value.activeCode ?: return
-        if (text.isBlank()) return
+        send(ClientMessage.ConvoyRest(code, "continue"))
+    }
+
+    /**
+     * Leader: set (or clear, with null) the destination. The server's rest-stop search needs a shared route and the
+     * members draw it as a line, so a destination also sets a direct two-stop route from [from] to it.
+     */
+    fun setDestination(destination: Destination?, from: Fix?) {
+        val code = _state.value.activeCode ?: return
+        send(ClientMessage.ConvoyDest(code, destination))
+        if (destination == null) {
+            send(ClientMessage.ConvoyRouteSet(code, null))
+        } else if (from != null) {
+            val name = destination.label.ifBlank { "Convoy route" }.take(40)
+            send(ClientMessage.ConvoyRouteSet(code, ConvoyRoute(name, listOf(listOf(from.lng, from.lat), listOf(destination.lng, destination.lat)))))
+        }
+    }
+
+    /** Leader: pass the lead to [memberId]. */
+    fun handOver(memberId: String) {
+        val code = _state.value.activeCode ?: return
+        send(ClientMessage.ConvoyLead(code, memberId))
+    }
+
+    /** Leader: put [memberId] out of the convoy (they cannot come back with the code). */
+    fun remove(memberId: String) {
+        val code = _state.value.activeCode ?: return
+        send(ClientMessage.ConvoyRemove(code, memberId))
+    }
+
+    /** "stopping" | "moving" | "sos". True if it went out. */
+    fun sendStatus(status: String, note: String? = null): Boolean {
+        if (_state.value.activeCode == null) return false
+        val ok = socket.send(ClientMessage.ConvoyStatus(status, note?.take(140)))
+        if (!ok) _state.update { it.copy(error = "Not connected") }
+        return ok
+    }
+
+    /** Sends a chat message to the active convoy. False if there is nothing to send to. */
+    fun sendChat(text: String): Boolean {
+        val code = _state.value.activeCode ?: return false
+        if (text.isBlank()) return false
         send(ClientMessage.ConvoyChat(code, text.trim().take(500), UUID.randomUUID().toString()))
+        return true
     }
 
     private fun send(message: ClientMessage) {

@@ -85,6 +85,7 @@ fun TrackWhileVisible(permission: LocationPermission) {
     LifecycleStartEffect(permission.granted) {
         container.tracker.acquire()
         container.convoy.setVisible(true)
+        container.ensureService()
         view.keepScreenOn = true
         onStopOrDispose {
             view.keepScreenOn = false

@@ -8,6 +8,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import app.convoyage.design.ChamferShape
 import app.convoyage.design.chamferPoints
+import app.convoyage.design.sheetPoints
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -59,5 +60,12 @@ class ChamferTest {
     @Test fun shapesWithEqualCutsAreEqual() {
         assertEquals(ChamferShape(6.dp), ChamferShape(6.dp))
         assertTrue(ChamferShape(6.dp) != ChamferShape(12.dp))
+    }
+
+    @Test fun sheetOnlyCutsTheTopLeftAndIsFlushAtTheBottom() {
+        val p = sheetPoints(100f, 300f, 20f)
+        assertEquals(listOf(Offset(20f, 0f), Offset(100f, 0f), Offset(100f, 300f), Offset(0f, 300f), Offset(0f, 20f)), p)
+        assertTrue("bottom-right is square", Offset(100f, 300f) in p)
+        assertTrue("bottom-left is square", Offset(0f, 300f) in p)
     }
 }

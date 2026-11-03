@@ -49,6 +49,16 @@ class SessionStore(context: Context) {
     /** When on, joining or starting a convoy starts recording a ride, and leaving the convoy stops it. */
     val autoRecordConvoy: StateFlow<Boolean> = _autoRecord.asStateFlow()
 
+    private val _crash = MutableStateFlow(prefs.getBoolean("crashDetection", false))
+
+    /** Opt-in: watch for a crash while in a convoy or recording a ride. */
+    val crashDetection: StateFlow<Boolean> = _crash.asStateFlow()
+
+    private val _bgSeen = MutableStateFlow(prefs.getBoolean("bgRationaleSeen", false))
+
+    /** The background-location rationale has been shown (and answered) once; do not nag. */
+    val bgRationaleSeen: StateFlow<Boolean> = _bgSeen.asStateFlow()
+
     val signedIn: Boolean get() = !_name.value.isNullOrBlank()
 
     init {
@@ -80,6 +90,16 @@ class SessionStore(context: Context) {
     fun setMode(mode: RideMode) {
         prefs.edit().putString("mode", mode.name).apply()
         _mode.value = mode
+    }
+
+    fun setCrashDetection(on: Boolean) {
+        prefs.edit().putBoolean("crashDetection", on).apply()
+        _crash.value = on
+    }
+
+    fun setBgRationaleSeen(seen: Boolean) {
+        prefs.edit().putBoolean("bgRationaleSeen", seen).apply()
+        _bgSeen.value = seen
     }
 
     fun setNight(night: Boolean) {

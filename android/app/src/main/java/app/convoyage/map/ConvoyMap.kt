@@ -75,6 +75,8 @@ fun ConvoyMap(
     fitTo: List<LatLng> = emptyList(),
     /** False for a map inside a scrolling page: no pan/zoom/rotate gestures. */
     interactive: Boolean = true,
+    /** A long press on the map (the leader sets the destination with it). Null = long press does nothing. */
+    onLongPress: ((LatLng) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -87,6 +89,7 @@ fun ConvoyMap(
     var size by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
     val onUserMovedNow by rememberUpdatedState(onUserMoved)
     val onViewportNow by rememberUpdatedState(onViewport)
+    val onLongPressNow by rememberUpdatedState(onLongPress)
     val initial3d = remember { buildings3d }
 
     DisposableEffect(lifecycle, mapView) {
@@ -128,6 +131,11 @@ fun ConvoyMap(
                     onViewportNow(Bbox(b.latitudeSouth, b.longitudeWest, b.latitudeNorth, b.longitudeEast))
                 }
             }
+            m.addOnMapLongClickListener { latLng ->
+                val handler = onLongPressNow
+                if (handler != null) handler(latLng)
+                handler != null
+            }
             m.addOnMoveListener(object : MapLibreMap.OnMoveListener {
                 override fun onMoveBegin(detector: org.maplibre.android.gestures.MoveGestureDetector) = onUserMovedNow()
                 override fun onMove(detector: org.maplibre.android.gestures.MoveGestureDetector) = Unit
@@ -146,6 +154,12 @@ fun ConvoyMap(
         val bottom = with(density) { bottomPadding.toPx() }.toInt()
         m.setPadding(0, 0, 0, bottom)
         m.uiSettings.setAttributionMargins(with(density) { 12.dp.toPx() }.toInt(), 0, 0, bottom + with(density) { 4.dp.toPx() }.toInt())
+    }
+
+    // Invisible collision boxes under every pin, so place labels make room for them.
+    LaunchedEffect(style, pins) {
+        val s = style ?: return@LaunchedEffect
+        MapNightStyle.setColliders(s, pins.map { it.lat to it.lng })
     }
 
     LaunchedEffect(style, route) {

@@ -22,7 +22,14 @@ data class RosterEntry(
 
 enum class AlertKind { Stopped, Resting }
 
-data class ConvoyAlert(val kind: AlertKind, val title: String, val sub: String, val canRegroup: Boolean)
+data class ConvoyAlert(
+    val kind: AlertKind,
+    val title: String,
+    val sub: String,
+    val canRegroup: Boolean,
+    /** The leader can end a regroup stop and carry on. */
+    val canContinue: Boolean = false,
+)
 
 /** Turns a server [Room] plus our own fix into what the roster, pins and banners show. */
 object Roster {
@@ -47,7 +54,7 @@ object Roster {
         else -> MemberState.Online
     }
 
-    fun build(room: Room, meId: String?, me: Fix?): List<RosterEntry> =
+    fun build(room: Room, meId: String?, me: Fix?, myName: String? = null): List<RosterEntry> =
         room.members.map { m ->
             val p = m.position
             val isMe = m.id == meId
@@ -59,8 +66,8 @@ object Roster {
             }
             RosterEntry(
                 id = m.id,
-                name = if (isMe) "You" else m.username.ifBlank { m.id },
-                initials = initials(m.username.ifBlank { m.id }),
+                name = if (isMe) "You" else Names.friendly(m.username),
+                initials = initials(if (isMe && !myName.isNullOrBlank()) myName else Names.friendly(m.username)),
                 state = stateOf(m, room),
                 isMe = isMe,
                 speedKmh = p?.speed?.let { Geo.mpsToKmh(it).toInt() },
@@ -75,7 +82,11 @@ object Roster {
     /** The single most important alert for the banner, or null. */
     fun alert(room: Room, entries: List<RosterEntry>, meId: String?): ConvoyAlert? {
         if (room.resting) {
-            return ConvoyAlert(AlertKind.Resting, "Regroup stop", room.destination?.label ?: "The leader called a break", canRegroup = false)
+            val iAmLeader = meId != null && meId == room.leader
+            return ConvoyAlert(
+                AlertKind.Resting, "Regroup stop", room.destination?.label?.ifBlank { null } ?: "The convoy is regrouping",
+                canRegroup = false, canContinue = iAmLeader,
+            )
         }
         val stopped = entries.firstOrNull { it.state == MemberState.Stopped && !it.isMe } ?: return null
         val where = stopped.distanceM?.let { " · " + Geo.formatDistance(it) + (if (stopped.side == Side.Behind) " behind" else if (stopped.side == Side.Ahead) " ahead" else " away") } ?: ""

@@ -96,6 +96,16 @@ class AccountRepository(
         return r
     }
 
+    /** The onboarding step: display name plus an optional handle, in one PATCH. */
+    suspend fun saveProfile(displayName: String, handle: String?): ApiResult<Me> {
+        val r = api.updateMe(UpdateMe(displayName = displayName.trim(), handle = handle?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }))
+        if (r is ApiResult.Ok) {
+            _me.value = r.value
+            session.setName(displayNameOf(r.value))
+        }
+        return r
+    }
+
     /**
      * Signs out on this device at once and tells the server in the background (which revokes the session
      * family, so the refresh token is useless afterwards).

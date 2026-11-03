@@ -39,6 +39,53 @@ fun chamferPoints(width: Float, height: Float, cut: Float): List<Offset> {
     )
 }
 
+/**
+ * Polygon of a bottom sheet: only the top-left corner is cut, the other three are square, so the bottom edge
+ * sits flush with the screen: (c,0) (w,0) (w,h) (0,h) (0,c).
+ */
+fun sheetPoints(width: Float, height: Float, cut: Float): List<Offset> {
+    val c = cut.coerceIn(0f, minOf(width, height) / 2f)
+    return listOf(Offset(c, 0f), Offset(width, 0f), Offset(width, height), Offset(0f, height), Offset(0f, c))
+}
+
+/** A bottom sheet: top-left chamfer only, square (flush) everywhere else. */
+class SheetShape(val cut: Dp) : Shape {
+    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline =
+        GenericShape { s, _ ->
+            val pts = sheetPoints(s.width, s.height, with(density) { cut.toPx() })
+            moveTo(pts[0].x, pts[0].y)
+            for (i in 1 until pts.size) lineTo(pts[i].x, pts[i].y)
+            close()
+        }.createOutline(size, layoutDirection, density)
+
+    override fun equals(other: Any?) = other is SheetShape && other.cut == cut
+    override fun hashCode() = cut.hashCode() + 1
+}
+
+val SheetLShape = SheetShape(CutL)
+
+/** Sheet panel: filled, with a 1dp edge along the top-left cut, the top and both sides, but none along the bottom. */
+@Composable
+fun Modifier.sheetPanel(
+    fill: Color = Cv.colors.surface100,
+    edge: Color = Cv.colors.lineStrong,
+    shape: Shape = SheetLShape,
+): Modifier = this
+    .clip(shape)
+    .background(fill, shape)
+    .drawBehind {
+        val cut = with(this) { (shape as? SheetShape)?.cut?.toPx() } ?: 0f
+        val pts = sheetPoints(size.width, size.height, cut)
+        val path = androidx.compose.ui.graphics.Path().apply {
+            moveTo(0f, size.height)
+            lineTo(pts[4].x, pts[4].y)
+            lineTo(pts[0].x, pts[0].y)
+            lineTo(pts[1].x, pts[1].y)
+            lineTo(size.width, size.height)
+        }
+        drawPath(path, edge, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx()))
+    }
+
 /** A rectangle with the top-left and bottom-right corners cut diagonally by [cut]. Never rounded. */
 class ChamferShape(val cut: Dp) : Shape {
     override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline =

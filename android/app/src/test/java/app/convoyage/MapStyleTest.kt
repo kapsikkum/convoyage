@@ -47,4 +47,38 @@ class MapStyleTest {
         assertEquals("#0a0c1a", MapNightStyle.MOOD_COLOR)
         assert(MapNightStyle.MOOD_OPACITY in 0.62f..0.72f)
     }
+
+    @Test
+    fun moodGoesUnderTheFirstRoadLayerSoRoadsKeepTheirColours() {
+        val ids = listOf("background", "park", "water", "tunnel_minor", "road_minor", "bridge_motorway", "building", "label_city")
+        assertEquals("tunnel_minor", MapNightStyle.moodBelowRoads(ids))
+        assertNull(MapNightStyle.moodBelowRoads(listOf("background", "water")))
+    }
+
+    @Test
+    fun roadsAreClassifiedForTheNightPalette() {
+        assertEquals(MapNightStyle.RoadClass.Minor, MapNightStyle.roadClass("road_minor"))
+        assertEquals(MapNightStyle.RoadClass.Minor, MapNightStyle.roadClass("bridge_street"))
+        assertEquals(MapNightStyle.RoadClass.Major, MapNightStyle.roadClass("road_motorway"))
+        assertEquals(MapNightStyle.RoadClass.Major, MapNightStyle.roadClass("bridge_trunk_primary"))
+        assertEquals(MapNightStyle.RoadClass.Major, MapNightStyle.roadClass("road_secondary_tertiary"))
+        assertEquals(MapNightStyle.RoadClass.Casing, MapNightStyle.roadClass("road_motorway_casing"))
+        assertEquals(MapNightStyle.RoadClass.Rail, MapNightStyle.roadClass("road_major_rail"))
+        assertNull(MapNightStyle.roadClass("road_one_way_arrow"))
+        assertNull(MapNightStyle.roadClass("building"))
+        assertEquals("#3a4660", MapNightStyle.roadColor(MapNightStyle.RoadClass.Minor))
+        assertEquals("#56627e", MapNightStyle.roadColor(MapNightStyle.RoadClass.Major))
+    }
+
+    @Test
+    fun underMoodInvertsTheTint() {
+        // Painting underMood(t) below the mood must give back t (within rounding).
+        val t = "#0f2a42"
+        val under = MapNightStyle.underMood(t)
+        fun ch(h: String, i: Int) = h.substring(1 + 2 * i, 3 + 2 * i).toInt(16)
+        for (i in 0..2) {
+            val shown = ch(under, i) * (1 - MapNightStyle.MOOD_OPACITY) + ch(MapNightStyle.MOOD_COLOR, i) * MapNightStyle.MOOD_OPACITY
+            assert(Math.abs(shown - ch(t, i)) < 3.0)
+        }
+    }
 }

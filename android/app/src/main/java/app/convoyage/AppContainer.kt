@@ -21,6 +21,12 @@ import app.convoyage.data.SessionStore
 import app.convoyage.data.SignInOutcome
 import app.convoyage.data.SocketAuth
 import app.convoyage.net.ConvoySocket
+import app.convoyage.service.ConvoyService
+import app.convoyage.service.CrashAlertController
+import app.convoyage.service.Notifications
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -61,7 +67,27 @@ class AppContainer(private val context: Context) {
         preparePhoto = { ImageLoader.prepareForUpload(it, context.cacheDir) },
     )
 
+    /** The "Are you OK?" countdown after a detected (or, in debug builds, simulated) crash. */
+    val crash = CrashAlertController(context, appScope, convoy, tracker, session)
+
+    /** A convoy code from a `convoyage://join/<CODE>` link that is waiting for sign-in and a connection. */
+    private val _pendingJoin = MutableStateFlow<String?>(null)
+    val pendingJoin: StateFlow<String?> = _pendingJoin
+    fun setPendingJoin(code: String?) { _pendingJoin.value = code }
+
+    /** Starts the foreground service if a convoy or a ride is on and the location permission is there. */
+    fun ensureService() {
+        if (!tracker.hasPermission()) return
+        if (convoy.state.value.activeCode != null || recorder.state.value.isActive) ConvoyService.start(context)
+    }
+
     init {
+        Notifications.ensureChannels(context)
+        appScope.launch {
+            combine(convoy.state.map { it.activeCode != null }, recorder.state.map { it.isActive }) { a, b -> a || b }
+                .distinctUntilChanged()
+                .collect { on -> if (on) ensureService() }
+        }
         recorder.restore()
         // "Record convoy rides automatically": a convoy appearing starts a ride, the convoy going away stops it.
         appScope.launch {

@@ -479,7 +479,7 @@ fun CvSheet(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .cutPanel(c.surface100, c.lineStrong, CutLShape)
+            .sheetPanel(c.surface100, c.lineStrong)
             .animateContentSize()
             .navigationBarsPadding()
             .padding(horizontal = Space.gutter, vertical = Space.s2),
