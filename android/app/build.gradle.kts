@@ -15,16 +15,22 @@ android {
         versionCode = 1
         versionName = "0.1.0"
 
-        // Server base URL. 10.0.2.2 is the host machine as seen from the Android emulator;
-        // the server (server/src/index.ts) listens on PORT, default 8080.
-        // Override: ./gradlew assembleDebug -PconvoyServerUrl=http://192.168.1.20:8080
-        val serverUrl = (project.findProperty("convoyServerUrl") as String?) ?: "http://10.0.2.2:8080"
-        buildConfigField("String", "SERVER_URL", "\"$serverUrl\"")
         buildConfigField("String", "MAP_STYLE_URL", "\"https://tiles.openfreemap.org/styles/liberty\"")
     }
 
+    // Server base URL, per build type; -PconvoyServerUrl=... overrides both.
+    //   debug:   http://127.0.0.1:8090, which the emulator reaches through `adb reverse tcp:8090 tcp:8090`.
+    //   release: placeholder below.
+    // Example: ./gradlew assembleDebug -PconvoyServerUrl=http://192.168.1.20:8080
+    val serverUrlOverride = project.findProperty("convoyServerUrl") as String?
+
     buildTypes {
+        debug {
+            buildConfigField("String", "SERVER_URL", "\"${serverUrlOverride ?: "http://127.0.0.1:8090"}\"")
+        }
         release {
+            // TODO(deploy): replace the placeholder with the real production API origin once it exists.
+            buildConfigField("String", "SERVER_URL", "\"${serverUrlOverride ?: "https://api.convoyage.app"}\"")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -74,4 +80,5 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.okhttp.mockwebserver)
 }
