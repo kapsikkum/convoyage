@@ -292,6 +292,23 @@ final class ApiClient: @unchecked Sendable {
         return await send("POST", "/v1/reports", json: body, as: Empty.self)
     }
 
+    // MARK: Routing and voice
+
+    /// `GET /v1/route`. Points are `lng,lat`; `profile` is "car" or "motorcycle".
+    func route(fromLng: Double, fromLat: Double, toLng: Double, toLat: Double, profile: String) async -> ApiResult<RouteDto> {
+        let q: [URLQueryItem] = [
+            URLQueryItem(name: "from", value: String(format: "%.6f,%.6f", fromLng, fromLat)),
+            URLQueryItem(name: "to", value: String(format: "%.6f,%.6f", toLng, toLat)),
+            URLQueryItem(name: "profile", value: profile)
+        ]
+        return await send("GET", "/v1/route", query: q, as: RouteDto.self)
+    }
+
+    /// `POST /v1/voice/token`: a LiveKit token for the push-to-talk room of `convoyCode`.
+    func voiceToken(convoyCode: String) async -> ApiResult<VoiceTokenDto> {
+        return await send("POST", "/v1/voice/token", json: ["convoyCode": convoyCode], as: VoiceTokenDto.self)
+    }
+
     // MARK: Plumbing
 
     private func send<T: Decodable>(_ method: String, _ path: String, query: [URLQueryItem] = [], json: [String: Any]? = nil, auth: Bool = true, as type: T.Type) async -> ApiResult<T> {

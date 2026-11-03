@@ -46,6 +46,8 @@ final class ConvoyViewModel {
     var pendingJoin: String?
     /// An invite code that needs a decision because I am already in another convoy.
     var joinPrompt: String?
+    /// A road-following line fetched by this device (the leader) while the server has none.
+    var leaderRoute: [CLLocationCoordinate2D] = []
 
     let location: LocationService = LocationService()
 
@@ -57,6 +59,18 @@ final class ConvoyViewModel {
     @ObservationIgnored var onHazard: ((String, HazardDto) -> Void)?
     /// Called when I enter or leave a convoy (background location follows it).
     @ObservationIgnored var onRoomChange: (() -> Void)?
+    /// REST access for `/v1/route` (set by AppState).
+    @ObservationIgnored var api: ApiClient?
+    /// "car" or "motorcycle", from the saved drive / ride choice.
+    @ObservationIgnored var profileProvider: () -> String = { return "car" }
+    /// Navigation started a convoy: set this destination (and use this route line) as soon as the room exists.
+    @ObservationIgnored private var pendingNav: (place: NavPlace, line: [CLLocationCoordinate2D])?
+    /// The navigation route to reuse for the destination it ends at, so the leader does not fetch it twice.
+    @ObservationIgnored private var navHint: (dest: CLLocationCoordinate2D, line: [CLLocationCoordinate2D])?
+    @ObservationIgnored private var routeKey: String?
+    @ObservationIgnored private var routeFetch: Task<Void, Never>?
+    @ObservationIgnored private var lastLeaderCommand: Date?
+    @ObservationIgnored private var geometryCache: (text: String, coords: [CLLocationCoordinate2D])?
     /// False once the server answered "Unknown message" to `convoy.status`: fall back to chat lines.
     @ObservationIgnored private var statusSupported: Bool = true
     @ObservationIgnored private var lastStatusSend: (kind: MemberStatusKind, at: Date)?
@@ -105,6 +119,8 @@ final class ConvoyViewModel {
         iAmStopping = false
         statuses = [:]
         sosNotices = [:]
+        resetLeaderRoute()
+        pendingNav = nil
         statusSupported = true
         onRoomChange?()
     }
@@ -348,6 +364,125 @@ final class ConvoyViewModel {
         if let r = room { socket.send(.destination(room: r.code, destination: nil)) }
     }
 
+    /// Leader renames the convoy. An older server answers "Unknown message": see `handle(.error)`.
+    func renameConvoy(_ name: String) {
+        guard let r = room else { return }
+        let clean: String = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if clean.isEmpty { return }
+        lastLeaderCommand = Date()
+        socket.send(.rename(room: r.code, name: String(clean.prefix(40))))
+    }
+
+    /// Leader changes automatic regroup. An older server answers "Unknown message".
+    func setAutomaticRegroup(enabled: Bool, separationM: Double) {
+        guard let r = room else { return }
+        lastLeaderCommand = Date()
+        socket.send(.regroup(room: r.code, enabled: enabled, separationM: min(20000, max(1000, separationM))))
+    }
+
+    /// Navigation's "Invite friends": start a convoy that heads for the navigation destination along the navigation
+    /// route. If I am already in a convoy, I only set the destination (when I lead it).
+    func startConvoyForNavigation(place: NavPlace, line: [CLLocationCoordinate2D]) {
+        if room != nil {
+            if isLeader { applyNavDestination(place: place, line: line) }
+            return
+        }
+        pendingNav = (place: place, line: line)
+        createConvoy(name: "")
+    }
+
+    private func applyNavDestination(place: NavPlace, line: [CLLocationCoordinate2D]) {
+        navHint = (dest: place.coordinate, line: line)
+        setDestination(place.coordinate, label: place.title)
+    }
+
+    // MARK: Road-following route line
+
+    /// Decoded `routeGeometry` of the room (polyline6), cached by its text.
+    private var serverRouteLine: [CLLocationCoordinate2D] {
+        guard let g = room?.routeGeometry, !g.isEmpty else { return [] }
+        if let c = geometryCache, c.text == g { return c.coords }
+        let coords: [CLLocationCoordinate2D] = Polyline.decode(g, precision: 6)
+        geometryCache = (text: g, coords: coords)
+        return coords
+    }
+
+    private func resetLeaderRoute() {
+        routeFetch?.cancel()
+        routeFetch = nil
+        routeKey = nil
+        navHint = nil
+        if !leaderRoute.isEmpty { leaderRoute = [] }
+    }
+
+    /// When I lead and the server has no road line for the destination, fetch one from `/v1/route` and draw it
+    /// (and share a simplified copy so the others and the rest-stop search have it too).
+    private func updateLeaderRoute() {
+        guard let r = room, let d = r.destination, r.leader == myId else {
+            resetLeaderRoute()
+            return
+        }
+        if r.routeGeometry != nil {
+            // The server's line wins; drop mine.
+            if !leaderRoute.isEmpty { leaderRoute = [] }
+            return
+        }
+        let key: String = "\(r.code)|\(d.lat)|\(d.lng)"
+        if routeKey == key { return }
+        routeKey = key
+        routeFetch?.cancel()
+        let dest: CLLocationCoordinate2D = CLLocationCoordinate2D(latitude: d.lat, longitude: d.lng)
+        routeFetch = Task { [weak self] in
+            await self?.fetchLeaderRoute(code: r.code, dest: dest, key: key)
+        }
+    }
+
+    private func fetchLeaderRoute(code: String, dest: CLLocationCoordinate2D, key: String) async {
+        var line: [CLLocationCoordinate2D] = []
+        if let hint = navHint, abs(hint.dest.latitude - dest.latitude) < 0.00002, abs(hint.dest.longitude - dest.longitude) < 0.00002 {
+            line = hint.line
+        } else {
+            // The server may deliver its own line in a moment; give it three seconds first.
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            if Task.isCancelled || routeKey != key { return }
+            if room?.routeGeometry != nil { return }
+            guard let api = api, let loc = location.latest else {
+                if routeKey == key { routeKey = nil }
+                return
+            }
+            let result: ApiResult<RouteDto> = await api.route(fromLng: loc.coordinate.longitude, fromLat: loc.coordinate.latitude,
+                                                               toLng: dest.longitude, toLat: dest.latitude,
+                                                               profile: profileProvider())
+            if Task.isCancelled || routeKey != key { return }
+            guard case .ok(let dto) = result else {
+                if routeKey == key { routeKey = nil }
+                return
+            }
+            line = Polyline.decode(dto.geometry, precision: dto.geometryPrecision ?? 6)
+        }
+        if line.count < 2 || room?.code != code || room?.routeGeometry != nil { return }
+        leaderRoute = line
+        if room?.route == nil || (room?.route?.stops.count ?? 0) <= 2 {
+            let stops: [[Double]] = ConvoyViewModel.simplify(line, maxPoints: 25).map { (c: CLLocationCoordinate2D) -> [Double] in
+                return [c.longitude, c.latitude]
+            }
+            if let r = room, stops.count >= 2 {
+                socket.send(.route(room: r.code, name: String("To \(r.destination?.label ?? "destination")".prefix(40)), stops: stops))
+            }
+        }
+    }
+
+    /// At most `maxPoints` points of a line, evenly spaced along it, keeping the first and the last.
+    static func simplify(_ line: [CLLocationCoordinate2D], maxPoints: Int) -> [CLLocationCoordinate2D] {
+        if line.count <= maxPoints || maxPoints < 2 { return line }
+        var out: [CLLocationCoordinate2D] = []
+        let step: Double = Double(line.count - 1) / Double(maxPoints - 1)
+        for i in 0..<maxPoints {
+            out.append(line[Int((Double(i) * step).rounded())])
+        }
+        return out
+    }
+
     func handOver(to id: String) {
         if let r = room { socket.send(.lead(room: r.code, to: id)) }
     }
@@ -363,7 +498,12 @@ final class ConvoyViewModel {
             lastError = "Need a destination and a GPS fix first"
             return
         }
-        let stops: [[Double]] = [[loc.coordinate.longitude, loc.coordinate.latitude], [d.lng, d.lat]]
+        var stops: [[Double]] = [[loc.coordinate.longitude, loc.coordinate.latitude], [d.lng, d.lat]]
+        if leaderRoute.count >= 2 {
+            stops = ConvoyViewModel.simplify(leaderRoute, maxPoints: 25).map { (c: CLLocationCoordinate2D) -> [Double] in
+                return [c.longitude, c.latitude]
+            }
+        }
         socket.send(.route(room: r.code, name: String("To \(d.label)".prefix(40)), stops: stops))
     }
 
@@ -385,6 +525,7 @@ final class ConvoyViewModel {
                 pendingJoin = nil
                 requestJoin(code: p)
             }
+            updateLeaderRoute()
         case .room(let r):
             if room == nil || room?.code == r.code {
                 let first: Bool = (room == nil)
@@ -392,6 +533,11 @@ final class ConvoyViewModel {
                 if first { seedRead() }
                 livePositions = [:]
                 pruneStatuses()
+                if first, let nav = pendingNav {
+                    pendingNav = nil
+                    if r.leader == myId { applyNavDestination(place: nav.place, line: nav.line) }
+                }
+                updateLeaderRoute()
             }
         case .left(let code, _):
             if room?.code == code {
@@ -400,6 +546,7 @@ final class ConvoyViewModel {
                 statuses = [:]
                 sosNotices = [:]
                 iAmStopping = false
+                resetLeaderRoute()
             }
         case .pos(let u):
             if room?.code == u.room {
@@ -411,7 +558,11 @@ final class ConvoyViewModel {
                 statusSupported = false
                 lastStatusSend = nil
                 sendStatusFallback(probe.kind)
+            } else if message == "Unknown message", let sent = lastLeaderCommand, Date().timeIntervalSince(sent) < 6 {
+                lastLeaderCommand = nil
+                lastError = "This server cannot do that yet"
             } else {
+                pendingNav = nil
                 lastError = message
             }
         case .chat(let code, let message):
@@ -577,8 +728,12 @@ final class ConvoyViewModel {
         return out
     }
 
-    /// The shared route as map coordinates ([lng, lat] on the wire).
+    /// The route to draw: the server's road-following line when it has one, else the one I fetched as leader, else the
+    /// shared stops (a straight line or a simplified road line).
     var mapRoute: [CLLocationCoordinate2D] {
+        let server: [CLLocationCoordinate2D] = serverRouteLine
+        if server.count >= 2 { return server }
+        if room?.destination != nil && leaderRoute.count >= 2 { return leaderRoute }
         guard let stops = room?.route?.stops else { return [] }
         return stops.compactMap { (s: [Double]) -> CLLocationCoordinate2D? in
             if s.count < 2 { return nil }

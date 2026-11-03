@@ -10,7 +10,6 @@ struct ConvoyView: View {
     @State private var showJoin: Bool = false
     @State private var showCreate: Bool = false
     @State private var code: String = ""
-    @State private var talking: Bool = false
     @State private var showReport: Bool = false
     @State private var detent: SheetDetent = .peek
     @GestureState private var dragY: CGFloat = 0
@@ -165,6 +164,7 @@ struct ConvoyView: View {
         VStack(spacing: 8) {
             HazardAlertBanner()
             StatusBanners()
+            VoiceBanner()
             if let m = app.photos.message {
                 Banner(title: m, kind: .info, icon: "camera.fill", actionTitle: "OK", action: { app.photos.message = nil })
             }
@@ -362,9 +362,7 @@ struct ConvoyView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(vm.unreadCount > 0 ? "Convoy chat, \(vm.unreadCount) unread" : "Convoy chat")
-            PushToTalk(size: 56, label: talking ? "LIVE" : "HOLD") { (down: Bool) in
-                talking = down
-            }
+            ConvoyPTT(size: 56)
         }
         .padding(.horizontal, 16)
         .frame(height: ConvoyView.headerHeight - 24)

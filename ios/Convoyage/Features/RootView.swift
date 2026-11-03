@@ -9,6 +9,10 @@ struct RootView: View {
             get: { app.tab },
             set: { (newValue: AppTab) in app.tab = newValue }
         )
+        let navBinding: Binding<Bool> = Binding<Bool>(
+            get: { app.showNav },
+            set: { (newValue: Bool) in app.showNav = newValue }
+        )
         let rideBinding: Binding<Bool> = Binding<Bool>(
             get: { app.showRide },
             set: { (newValue: Bool) in app.showRide = newValue }
@@ -16,6 +20,9 @@ struct RootView: View {
 
         ZStack(alignment: .bottom) {
             theme.void.ignoresSafeArea()
+                .fullScreenCover(isPresented: navBinding) {
+                    NavigationScreen()
+                }
             if app.isSignedIn {
                 Group {
                     switch app.tab {

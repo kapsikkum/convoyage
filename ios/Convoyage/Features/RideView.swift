@@ -92,7 +92,7 @@ struct RideView: View {
             HStack {
                 Readout(caption: "ETA", value: "--:--", size: 24)
                 Spacer()
-                PushToTalk(size: 84, label: "HOLD")
+                ConvoyPTT(size: 84)
                 Spacer()
                 Readout(caption: "Fuel", value: "--", unit: "km", size: 24, alignment: .trailing)
             }

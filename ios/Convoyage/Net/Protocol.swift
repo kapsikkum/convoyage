@@ -57,10 +57,43 @@ struct Room: Codable, Equatable, Identifiable {
     var destination: Destination?
     var resting: Bool
     var route: ConvoyRoute?
+    /// Road-following polyline (6 decimals) from the leader to the destination, when the server has one.
+    /// Optional and read tolerantly: a missing or malformed value just means "no road line yet".
+    var routeGeometry: String?
     var automaticRegroup: AutomaticRegroup
     var members: [Member]
 
     var id: String { return code }
+
+    private enum CodingKeys: String, CodingKey {
+        case messages
+        case code
+        case name
+        case eventId
+        case leader
+        case destination
+        case resting
+        case route
+        case routeGeometry
+        case automaticRegroup
+        case members
+    }
+
+    init(from decoder: Decoder) throws {
+        let c: KeyedDecodingContainer<CodingKeys> = try decoder.container(keyedBy: CodingKeys.self)
+        messages = try c.decode([ConvoyChatMessage].self, forKey: .messages)
+        code = try c.decode(String.self, forKey: .code)
+        name = try c.decode(String.self, forKey: .name)
+        eventId = try c.decodeIfPresent(String.self, forKey: .eventId)
+        leader = try c.decode(String.self, forKey: .leader)
+        destination = try c.decodeIfPresent(Destination.self, forKey: .destination)
+        resting = try c.decode(Bool.self, forKey: .resting)
+        route = try c.decodeIfPresent(ConvoyRoute.self, forKey: .route)
+        let geometry: String? = (try? c.decodeIfPresent(String.self, forKey: .routeGeometry)) ?? nil
+        routeGeometry = (geometry?.isEmpty ?? true) ? nil : geometry
+        automaticRegroup = try c.decode(AutomaticRegroup.self, forKey: .automaticRegroup)
+        members = try c.decode([Member].self, forKey: .members)
+    }
 }
 
 /// A live position update for one member (server "pos").
@@ -180,6 +213,8 @@ enum ClientMessage {
     case chat(room: String, text: String, clientId: String)
     case status(status: String, note: String?)
     case route(room: String, name: String, stops: [[Double]])
+    case rename(room: String, name: String)
+    case regroup(room: String, enabled: Bool, separationM: Double)
 
     var payload: [String: Any] {
         switch self {
@@ -218,6 +253,10 @@ enum ClientMessage {
             var o: [String: Any] = ["t": "convoy.status", "status": status]
             if let n = note, !n.isEmpty { o["note"] = String(n.prefix(200)) }
             return o
+        case let .rename(room, name):
+            return ["t": "convoy.rename", "room": room, "name": name]
+        case let .regroup(room, enabled, separationM):
+            return ["t": "convoy.regroup", "room": room, "enabled": enabled, "separationM": separationM]
         case let .route(room, name, stops):
             return ["t": "convoy.route", "room": room, "route": ["name": name, "stops": stops] as [String: Any]]
         }

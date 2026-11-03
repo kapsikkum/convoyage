@@ -45,6 +45,8 @@ final class AppState {
     var authKind: AuthKind?
     var tab: AppTab = .home
     var showRide: Bool = false
+    /// The navigation screen is up (navigation itself can keep running with it hidden).
+    var showNav: Bool = false
     /// The last `/v1/me` we fetched (nil until loaded or after sign-out).
     var me: MeDto?
     /// A deep-link sign-in in progress or failed: shown on Welcome.
@@ -60,6 +62,8 @@ final class AppState {
     let api: ApiClient
     let convoy: ConvoyViewModel
     let hazards: HazardStore
+    let nav: NavigationSession
+    let voice: VoiceChannel
     let recorder: RideRecorder
     let garage: GarageStore
     let feed: FeedStore
@@ -87,7 +91,10 @@ final class AppState {
         crash = CrashMonitor(location: convoyModel.location)
         api = client
         convoy = convoyModel
-        hazards = HazardStore(api: client)
+        let hazardStore: HazardStore = HazardStore(api: client)
+        hazards = hazardStore
+        nav = NavigationSession(api: client, location: convoyModel.location, hazards: hazardStore)
+        voice = VoiceChannel(api: client)
         recorder = recorderModel
         garage = GarageStore(api: client)
         feed = feedStore
@@ -109,6 +116,16 @@ final class AppState {
         convoyModel.displayName = name
         convoyModel.tokenProvider = { [client] (force: Bool) async -> String? in
             return await client.freshAccessToken(force: force)
+        }
+        convoyModel.api = client
+        convoyModel.profileProvider = { [weak self] () -> String in
+            return self?.routeProfile ?? "car"
+        }
+        nav.profileProvider = { [weak self] () -> String in
+            return self?.routeProfile ?? "car"
+        }
+        nav.onActiveChange = { [weak self] in
+            self?.updateServices()
         }
         convoyModel.onHazard = { [weak self] (room: String, hazard: HazardDto) in
             self?.hazards.onSocketHazard(room: room, hazard: hazard)
@@ -323,6 +340,11 @@ final class AppState {
         return defaults.string(forKey: "rideMode") ?? "both"
     }
 
+    /// The routing profile for the saved drive / ride choice: two wheels get the motorcycle profile.
+    var routeProfile: String {
+        return rideMode == "ride" ? "motorcycle" : "car"
+    }
+
     /// PATCH /v1/me with the chosen name (and handle). Returns an error message, or nil.
     func completeOnboarding(name: String, handle: String, mode: String) async -> String? {
         let clean: String = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -351,10 +373,15 @@ final class AppState {
 
     /// Background location while a convoy or a recording needs it; crash detection while Ride mode is up.
     func updateServices() {
-        let needBackground: Bool = convoy.room != nil || recorder.isActive
+        let needBackground: Bool = convoy.room != nil || recorder.isActive || nav.isActive
         convoy.location.setBackground(needBackground)
         if needBackground { maybeAskAlways() }
         crash.update(shouldRun: recorder.isActive || showRide)
+        if let code = convoy.room?.code, authKind == .account {
+            voice.join(code: code)
+        } else {
+            voice.leave()
+        }
     }
 
     private func maybeAskAlways() {
@@ -389,6 +416,8 @@ final class AppState {
     }
 
     private func clearSession() {
+        nav.end()
+        showNav = false
         convoy.disconnect()
         hazards.clear()
         garage.clear()

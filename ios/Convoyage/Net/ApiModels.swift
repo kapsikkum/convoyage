@@ -247,3 +247,68 @@ enum HazardKinds {
     static let rest: String = "rest"
     static let crash: String = "crash"
 }
+
+// MARK: - Routing and voice
+
+/// `GET /v1/route`. Everything the app does not strictly need is optional so a small server change cannot break decoding.
+struct RouteManeuverDto: Decodable, Equatable {
+    var type: String
+    var modifier: String?
+    var location: [Double]?
+
+    private enum Keys: String, CodingKey {
+        case type
+        case modifier
+        case location
+    }
+
+    init(from decoder: Decoder) throws {
+        let c: KeyedDecodingContainer<Keys> = try decoder.container(keyedBy: Keys.self)
+        type = (try? c.decodeIfPresent(String.self, forKey: .type)) ?? ""
+        modifier = try? c.decodeIfPresent(String.self, forKey: .modifier)
+        location = try? c.decodeIfPresent([Double].self, forKey: .location)
+    }
+}
+
+struct RouteStepDto: Decodable, Equatable {
+    var maneuver: RouteManeuverDto
+    var name: String
+    var distanceM: Double
+    var durationS: Double
+    var instruction: String
+
+    private enum Keys: String, CodingKey {
+        case maneuver
+        case name
+        case distanceM
+        case durationS
+        case instruction
+    }
+
+    init(from decoder: Decoder) throws {
+        let c: KeyedDecodingContainer<Keys> = try decoder.container(keyedBy: Keys.self)
+        maneuver = try c.decode(RouteManeuverDto.self, forKey: .maneuver)
+        name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? ""
+        distanceM = (try? c.decodeIfPresent(Double.self, forKey: .distanceM)) ?? 0
+        durationS = (try? c.decodeIfPresent(Double.self, forKey: .durationS)) ?? 0
+        instruction = (try? c.decodeIfPresent(String.self, forKey: .instruction)) ?? ""
+    }
+}
+
+struct RouteDto: Decodable, Equatable {
+    var profile: String?
+    var geometry: String
+    var geometryPrecision: Int?
+    var distanceM: Double
+    var durationS: Double
+    var steps: [RouteStepDto]
+}
+
+/// `POST /v1/voice/token`.
+struct VoiceTokenDto: Decodable, Equatable {
+    var token: String
+    var url: String
+    var room: String?
+    var identity: String?
+    var expiresIn: Int?
+}

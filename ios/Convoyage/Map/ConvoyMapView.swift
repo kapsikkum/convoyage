@@ -114,6 +114,17 @@ enum NightMap {
     }
 }
 
+/// Where the navigation camera looks: at the person, turned to their heading, tilted to 60 degrees.
+struct FollowCamera: Equatable {
+    var coordinate: CLLocationCoordinate2D
+    var heading: Double
+
+    static func == (a: FollowCamera, b: FollowCamera) -> Bool {
+        return a.coordinate.latitude == b.coordinate.latitude && a.coordinate.longitude == b.coordinate.longitude
+            && a.heading == b.heading
+    }
+}
+
 struct ConvoyMapView: UIViewRepresentable {
     let pins: [MapPin]
     let is3D: Bool
@@ -128,6 +139,11 @@ struct ConvoyMapView: UIViewRepresentable {
     var onViewport: ((GeoBox) -> Void)? = nil
     /// Called when the person long-presses the map.
     var onLongPress: ((CLLocationCoordinate2D) -> Void)? = nil
+    /// Navigation: follow the person from behind, pitched to 60 degrees. Nil leaves the camera alone.
+    var follow: FollowCamera? = nil
+    /// Increment to fit `fitCoordinates` (the whole route) in view.
+    var fitToken: Int = 0
+    var fitCoordinates: [CLLocationCoordinate2D] = []
 
     func makeCoordinator() -> Coordinator {
         return Coordinator()
@@ -158,6 +174,11 @@ struct ConvoyMapView: UIViewRepresentable {
         c.syncPins(pins)
         c.setRoute(route)
         c.setUser(userCoordinate)
+        c.applyFollow(follow)
+        if c.lastFit != fitToken {
+            c.lastFit = fitToken
+            c.fit(fitCoordinates)
+        }
         if c.is3D != is3D {
             c.is3D = is3D
             c.applyBuildings()
@@ -174,6 +195,9 @@ struct ConvoyMapView: UIViewRepresentable {
         var theme: Theme = Theme.night
         var is3D: Bool = false
         var lastRecenter: Int = 0
+        var lastFit: Int = 0
+        private var following: Bool = false
+        private var followApplied: FollowCamera?
         var onViewport: ((GeoBox) -> Void)?
         var onLongPress: ((CLLocationCoordinate2D) -> Void)?
         private var viewportTask: Task<Void, Never>?
@@ -371,6 +395,50 @@ struct ConvoyMapView: UIViewRepresentable {
             map.setCenter(c, zoomLevel: max(map.zoomLevel, 15), animated: true)
         }
 
+        // MARK: Navigation camera
+
+        func applyFollow(_ f: FollowCamera?) {
+            guard let map = map else { return }
+            guard let target = f else {
+                if following {
+                    following = false
+                    followApplied = nil
+                    let cam: MLNMapCamera = map.camera
+                    cam.pitch = is3D ? 60 : 0
+                    cam.heading = 0
+                    map.setCamera(cam, animated: true)
+                }
+                return
+            }
+            following = true
+            if let last = followApplied, last == target { return }
+            followApplied = target
+            let cam: MLNMapCamera = MLNMapCamera(lookingAtCenter: target.coordinate, altitude: 900, pitch: 60, heading: target.heading)
+            // The top padding moves the person down the screen so there is more road to see ahead.
+            map.setCamera(cam,
+                          withDuration: 1.0,
+                          animationTimingFunction: CAMediaTimingFunction(name: .linear),
+                          edgePadding: UIEdgeInsets(top: 260, left: 0, bottom: 0, right: 0),
+                          completionHandler: nil)
+        }
+
+        /// Shows the whole route: north up, flat, with room for the cards at the top and the sheet at the bottom.
+        func fit(_ coords: [CLLocationCoordinate2D]) {
+            guard let map = map, coords.count >= 2 else { return }
+            var pts: [CLLocationCoordinate2D] = stride(from: 0, to: coords.count, by: max(1, coords.count / 300)).map { (i: Int) -> CLLocationCoordinate2D in
+                return coords[i]
+            }
+            if let last = coords.last { pts.append(last) }
+            let cam: MLNMapCamera = map.camera
+            cam.pitch = 0
+            cam.heading = 0
+            map.setCamera(cam, animated: false)
+            map.setVisibleCoordinates(&pts,
+                                      count: UInt(pts.count),
+                                      edgePadding: UIEdgeInsets(top: 200, left: 40, bottom: 340, right: 40),
+                                      animated: true)
+        }
+
         // MARK: Long press
 
         @objc func handleLongPress(_ g: UILongPressGestureRecognizer) {
@@ -405,6 +473,7 @@ struct ConvoyMapView: UIViewRepresentable {
 
         func applyPitch() {
             guard let map = map else { return }
+            if following { return }
             let cam: MLNMapCamera = map.camera
             cam.pitch = is3D ? 60 : 0
             map.setCamera(cam, animated: true)

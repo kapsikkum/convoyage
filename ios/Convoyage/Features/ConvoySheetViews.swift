@@ -212,6 +212,22 @@ struct StatusBanners: View {
     }
 }
 
+/// "Voice unavailable" when the push-to-talk connection failed. Everything else keeps working.
+struct VoiceBanner: View {
+    @Environment(AppState.self) private var app
+
+    var body: some View {
+        let voice: VoiceChannel = app.voice
+        if case .unavailable(let why) = voice.state, !voice.bannerDismissed, app.convoy.room != nil {
+            Banner(title: "Voice unavailable", subtitle: why, kind: .hazard, icon: "mic.slash.fill",
+                   actionTitle: "Retry", action: { voice.retry() },
+                   secondaryTitle: "Hide", secondaryAction: { voice.bannerDismissed = true })
+        } else if let n = voice.notice {
+            Banner(title: n, kind: .hazard, icon: "mic.slash.fill", actionTitle: "OK", action: { voice.notice = nil })
+        }
+    }
+}
+
 // MARK: - Roster
 
 struct RosterPanel: View {
@@ -498,6 +514,7 @@ struct SharePanel: View {
 struct RoutePanel: View {
     @Environment(AppState.self) private var app
     @Environment(\.theme) private var theme
+    @State private var newName: String = ""
 
     var body: some View {
         let vm: ConvoyViewModel = app.convoy
@@ -549,6 +566,29 @@ struct RoutePanel: View {
     private func leaderTools(_ vm: ConvoyViewModel, _ room: Room) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionLabel(text: "Leader tools")
+            VStack(alignment: .leading, spacing: 8) {
+                SectionLabel(text: "Convoy name")
+                HStack(spacing: 8) {
+                    CvField(placeholder: room.name, text: $newName, autocap: .words)
+                    let blank: Bool = newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    Button {
+                        vm.renameConvoy(newName)
+                        newName = ""
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                    } label: {
+                        Text("RENAME")
+                            .font(CvFont.label(12))
+                            .tracking(1.0)
+                            .foregroundStyle(theme.signalInk)
+                            .padding(.horizontal, 12)
+                            .frame(minHeight: 52)
+                            .background(ChamferShape(cut: Cut.m).fill(blank ? theme.lineStrong : theme.signal))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(blank)
+                    .accessibilityLabel("Rename the convoy")
+                }
+            }
             if room.destination != nil {
                 CvButton(title: "Clear destination", icon: "xmark", kind: .ghost) { vm.clearDestination() }
                 if room.route == nil {

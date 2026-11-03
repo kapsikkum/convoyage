@@ -33,8 +33,8 @@ struct HomeView: View {
                 HStack(spacing: 10) {
                     CvButton(title: "Convoy") { app.tab = .convoy }
                     CvButton(title: "Join", kind: .ghost) { showJoin = true }
-                    CvButton(title: "Navigate", icon: "location.north.fill", kind: .ghost) {
-                        // TODO(nav): turn-by-turn navigation.
+                    CvButton(title: app.nav.isActive ? "Navigating" : "Navigate", icon: "location.north.fill", kind: .ghost) {
+                        app.showNav = true
                     }
                 }
 

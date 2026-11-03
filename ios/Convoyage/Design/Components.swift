@@ -367,29 +367,36 @@ struct RideTile: View {
 
 // MARK: - PushToTalk
 
-/// UI only. TODO(voice): wire to audio capture and the voice channel.
+/// The push-to-talk button. Three looks: idle (signal), live while held (pulse) and receiving someone else (go).
+/// `unavailable` greys it out and ignores presses (no voice connection).
 struct PushToTalk: View {
     var size: CGFloat = 72
     var label: String = "HOLD"
     var receiving: Bool = false
+    var live: Bool = false
+    var unavailable: Bool = false
     var onChange: (Bool) -> Void = { (_: Bool) in }
     @State private var pressed: Bool = false
     @Environment(\.theme) private var theme
 
     var body: some View {
-        let tint: Color = receiving ? theme.go : theme.signal
+        let tint: Color = unavailable ? theme.inkMuted : (live || pressed ? theme.pulse : (receiving ? theme.go : theme.signal))
+        let filled: Bool = (pressed || live) && !unavailable
         VStack(spacing: 2) {
-            Image(systemName: receiving ? "speaker.wave.2.fill" : "mic.fill")
+            Image(systemName: unavailable ? "mic.slash.fill" : (receiving && !filled ? "speaker.wave.2.fill" : "mic.fill"))
                 .font(.system(size: size * 0.32, weight: .semibold))
             Text(label.uppercased())
                 .font(CvFont.label(9))
-                .tracking(1.2)
+                .tracking(1.0)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
         }
-        .foregroundStyle(pressed ? theme.signalInk : tint)
+        .foregroundStyle(filled ? Color.white : tint)
         .frame(width: size, height: size)
-        .background(Circle().fill(pressed ? tint : theme.glass))
+        .background(Circle().fill(filled ? tint : theme.glass))
         .overlay(Circle().stroke(tint, lineWidth: 2))
-        .shadow(color: tint.opacity(pressed ? 0.6 : 0.25), radius: pressed ? 16 : 8)
+        .shadow(color: tint.opacity(filled ? 0.6 : 0.25), radius: filled ? 16 : 8)
+        .contentShape(Circle())
         .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { (_: DragGesture.Value) in
@@ -399,11 +406,51 @@ struct PushToTalk: View {
                     }
                 }
                 .onEnded { (_: DragGesture.Value) in
-                    pressed = false
-                    onChange(false)
+                    if pressed {
+                        pressed = false
+                        onChange(false)
+                    }
                 }
         )
-        .accessibilityLabel("Hold to talk")
+        .accessibilityLabel(unavailable ? "Voice unavailable" : "Hold to talk")
+    }
+}
+
+/// The push-to-talk button wired to the voice channel: HOLD, LIVE while talking, or the name of who is talking.
+struct ConvoyPTT: View {
+    var size: CGFloat = 56
+    @Environment(AppState.self) private var app
+
+    private struct Look {
+        var text: String
+        var unavailable: Bool
+        var receiving: Bool
+    }
+
+    private func look(_ voice: VoiceChannel) -> Look {
+        if voice.state != .ready && voice.state != .connecting {
+            return Look(text: "N/A", unavailable: true, receiving: false)
+        }
+        if voice.state == .connecting {
+            return Look(text: "...", unavailable: false, receiving: false)
+        }
+        if voice.talking {
+            return Look(text: "LIVE", unavailable: false, receiving: false)
+        }
+        if let s = voice.speakers.first {
+            let known: String = app.convoy.nameOf(userId: s.id)
+            let shown: String = (known == "Someone" && !s.name.isEmpty) ? Formatters.shownName(s.name) : known
+            return Look(text: String(shown.prefix(7)), unavailable: false, receiving: true)
+        }
+        return Look(text: "HOLD", unavailable: false, receiving: false)
+    }
+
+    var body: some View {
+        let voice: VoiceChannel = app.voice
+        let l: Look = look(voice)
+        PushToTalk(size: size, label: l.text, receiving: l.receiving, live: voice.talking, unavailable: l.unavailable) { (down: Bool) in
+            voice.setTalking(down)
+        }
     }
 }
 
