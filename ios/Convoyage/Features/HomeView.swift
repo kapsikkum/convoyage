@@ -6,7 +6,6 @@ struct HomeView: View {
     @State private var showJoin: Bool = false
     @State private var showCreate: Bool = false
     @State private var code: String = ""
-    @State private var convoyName: String = ""
 
     private var greeting: String {
         let hour: Int = Calendar.current.component(.hour, from: Date())
@@ -22,7 +21,7 @@ struct HomeView: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
                         SectionLabel(text: vm.socketState == .open ? "Connected" : "Offline")
-                        Text("\(greeting), \(app.displayName)")
+                        Text("\(greeting), \(Formatters.shownName(app.displayName))")
                             .font(CvFont.display(28))
                     }
                     Spacer()
@@ -85,14 +84,9 @@ struct HomeView: View {
             }
             Button("Cancel", role: .cancel) {}
         }
-        .alert("Start a convoy", isPresented: $showCreate) {
-            TextField("Convoy name", text: $convoyName)
-            Button("Start") {
-                vm.createConvoy(name: convoyName)
-                convoyName = ""
-                app.tab = .convoy
-            }
-            Button("Cancel", role: .cancel) {}
+        .sheet(isPresented: $showCreate) {
+            CreateConvoySheet(onCreated: { app.tab = .convoy })
+                .presentationDetents([.medium, .large])
         }
     }
 

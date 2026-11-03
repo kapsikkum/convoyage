@@ -44,10 +44,17 @@ struct RideView: View {
                     }
                     Text(vm.room?.name ?? "No convoy").font(CvFont.text(14, weight: .bold)).lineLimit(1)
                     Spacer()
+                    if app.crash.enabled {
+                        Image(systemName: "shield.lefthalf.filled")
+                            .foregroundStyle(theme.signal)
+                            .accessibilityLabel("Crash detection is on")
+                    }
                 }
                 .padding(.horizontal, 12)
                 .frame(minHeight: 48)
                 .cvPanel(fill: theme.surface200, edge: rec.phase == .recording ? theme.pulse : theme.go, cut: Cut.s)
+
+                rideMenu
             }
 
             noticeStack(vm)
@@ -96,8 +103,15 @@ struct RideView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(theme.void.ignoresSafeArea())
         .foregroundStyle(theme.ink)
-        .onAppear { UIApplication.shared.isIdleTimerDisabled = true }
-        .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
+        .overlay { AppOverlays() }
+        .onAppear {
+            UIApplication.shared.isIdleTimerDisabled = true
+            app.updateServices()
+        }
+        .onDisappear {
+            UIApplication.shared.isIdleTimerDisabled = false
+            app.updateServices()
+        }
         .sheet(isPresented: $showReport) {
             ReportView()
         }
@@ -109,13 +123,34 @@ struct RideView: View {
 
     // MARK: Pieces
 
+    /// Ride settings: the opt-in crash detection, and a DEBUG item that starts the countdown.
+    private var rideMenu: some View {
+        let crashBinding: Binding<Bool> = Binding<Bool>(
+            get: { return app.crash.enabled },
+            set: { (v: Bool) in
+                app.crash.setEnabled(v)
+                app.updateServices()
+            }
+        )
+        return Menu {
+            Toggle("Crash detection", isOn: crashBinding)
+            #if DEBUG
+            Button("Test crash alert") { app.crash.debugTrigger() }
+            #endif
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(theme.ink)
+                .frame(width: 48, height: 48)
+                .cvPanel(fill: theme.surface200, edge: theme.lineStrong, cut: Cut.s)
+        }
+        .accessibilityLabel("Ride settings")
+    }
+
     @ViewBuilder
     private func noticeStack(_ vm: ConvoyViewModel) -> some View {
         VStack(spacing: 8) {
-            if let n = vm.stopNotice {
-                Banner(title: n, subtitle: "Slow down and find them", kind: .pulse, icon: "stop.fill",
-                       actionTitle: "OK", action: { vm.stopNotice = nil })
-            }
+            StatusBanners()
             HazardAlertBanner()
             if let m = app.photos.message {
                 Banner(title: m, kind: .info, icon: "camera.fill", actionTitle: "OK", action: { app.photos.message = nil })

@@ -32,6 +32,11 @@ struct RootView: View {
             } else {
                 WelcomeView()
             }
+            if app.needsOnboarding {
+                OnboardingView()
+                    .transition(.opacity)
+            }
+            AppOverlays()
         }
         .foregroundStyle(theme.ink)
         .fullScreenCover(isPresented: rideBinding) {

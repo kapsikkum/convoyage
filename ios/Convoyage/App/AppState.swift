@@ -50,6 +50,10 @@ final class AppState {
     /// A deep-link sign-in in progress or failed: shown on Welcome.
     var linkStatus: String?
     var serverURL: String
+    /// Show the "keep sharing with the screen off" explanation before asking for Always location.
+    var showAlwaysExplainer: Bool = false
+    /// The person skipped the "what should the convoy call you" screen (per account).
+    var onboardingSkipped: Bool = false
 
     let userId: String
     let tokens: TokenStore
@@ -60,6 +64,7 @@ final class AppState {
     let garage: GarageStore
     let feed: FeedStore
     let photos: PhotoCapture
+    let crash: CrashMonitor
 
     @ObservationIgnored private let defaults: UserDefaults = UserDefaults.standard
 
@@ -79,6 +84,7 @@ final class AppState {
         let feedStore: FeedStore = FeedStore(api: client, location: convoyModel.location)
         let recorderModel: RideRecorder = RideRecorder(api: client, location: convoyModel.location)
         tokens = tokenStore
+        crash = CrashMonitor(location: convoyModel.location)
         api = client
         convoy = convoyModel
         hazards = HazardStore(api: client)
@@ -106,6 +112,15 @@ final class AppState {
         }
         convoyModel.onHazard = { [weak self] (room: String, hazard: HazardDto) in
             self?.hazards.onSocketHazard(room: room, hazard: hazard)
+        }
+        convoyModel.onRoomChange = { [weak self] in
+            self?.updateServices()
+        }
+        recorderModel.onPhaseChange = { [weak self] in
+            self?.updateServices()
+        }
+        crash.onExpire = { [weak self] () -> Bool in
+            return self?.convoy.sendSOS() ?? false
         }
         client.setSessionLostHandler { [weak self] in
             Task { @MainActor in
@@ -146,6 +161,7 @@ final class AppState {
             var name: String = "Driver"
             if case .ok(let m) = meResult {
                 me = m
+                onboardingSkipped = defaults.bool(forKey: skipKey)
                 name = nameOf(m)
             }
             finishSignIn(name: name, kind: .account)
@@ -153,8 +169,36 @@ final class AppState {
         }
     }
 
-    /// The `convoyage://auth/magic?token=...` deep link.
+    /// The invite code in `convoyage://join/<CODE>` or `https://convoyage.app/join/<CODE>`.
+    static func joinCode(from url: URL) -> String? {
+        let parts: [String] = url.pathComponents.filter { (c: String) -> Bool in return c != "/" }
+        if url.scheme == "convoyage", url.host == "join" {
+            return parts.first
+        }
+        if url.scheme == "https" || url.scheme == "http" {
+            if let host = url.host, host == "convoyage.app" || host.hasSuffix(".convoyage.app") {
+                if parts.count >= 2 && parts[0] == "join" { return parts[1] }
+            }
+        }
+        return nil
+    }
+
+    /// Opens the convoy tab and joins; the join waits for sign-in and for the socket if it has to.
+    private func handleJoinLink(_ code: String) {
+        convoy.requestJoin(code: code)
+        if isSignedIn {
+            tab = .convoy
+        } else {
+            linkStatus = "Sign in to join the convoy."
+        }
+    }
+
+    /// The `convoyage://auth/magic?token=...` and `convoyage://join/<CODE>` deep links.
     func handleURL(_ url: URL) {
+        if let code = AppState.joinCode(from: url) {
+            handleJoinLink(code)
+            return
+        }
         guard url.scheme == "convoyage", url.host == "auth" else { return }
         guard let token = extractMagicToken(url.absoluteString) else {
             linkStatus = "That sign-in link is not valid."
@@ -230,6 +274,7 @@ final class AppState {
         switch r {
         case .ok(let m):
             me = m
+            onboardingSkipped = defaults.bool(forKey: skipKey)
             let n: String = nameOf(m)
             displayName = n
             convoy.displayName = n
@@ -257,6 +302,74 @@ final class AppState {
         }
     }
 
+    // MARK: Onboarding
+
+    private var skipKey: String { return "onboardingSkipped." + (me?.id ?? userId) }
+
+    /// True when the account has no real display name yet (unset, or the generated `rider_xxxxxxxx`).
+    var needsOnboarding: Bool {
+        guard isSignedIn, authKind == .account, let m = me else { return false }
+        if onboardingSkipped { return false }
+        return Formatters.isGeneratedName(m.displayName ?? "")
+    }
+
+    func skipOnboarding() {
+        onboardingSkipped = true
+        defaults.set(true, forKey: skipKey)
+    }
+
+    /// The saved drive / ride / both choice.
+    var rideMode: String {
+        return defaults.string(forKey: "rideMode") ?? "both"
+    }
+
+    /// PATCH /v1/me with the chosen name (and handle). Returns an error message, or nil.
+    func completeOnboarding(name: String, handle: String, mode: String) async -> String? {
+        let clean: String = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if clean.isEmpty { return "Enter a name" }
+        let h: String = handle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !h.isEmpty && h.range(of: "^[a-z0-9_]{3,30}$", options: .regularExpression) == nil {
+            return "Handles are 3 to 30 characters: letters, digits and underscores"
+        }
+        let r: ApiResult<MeDto> = await api.updateProfile(displayName: String(clean.prefix(60)), handle: h.isEmpty ? nil : h)
+        switch r {
+        case .ok(let m):
+            me = m
+            let n: String = nameOf(m)
+            displayName = n
+            convoy.displayName = n
+            defaults.set(n, forKey: "displayName")
+            defaults.set(mode, forKey: "rideMode")
+            return nil
+        case .failure(let f):
+            if f.status == 409 { return "That handle is taken" }
+            return f.message
+        }
+    }
+
+    // MARK: Background services
+
+    /// Background location while a convoy or a recording needs it; crash detection while Ride mode is up.
+    func updateServices() {
+        let needBackground: Bool = convoy.room != nil || recorder.isActive
+        convoy.location.setBackground(needBackground)
+        if needBackground { maybeAskAlways() }
+        crash.update(shouldRun: recorder.isActive || showRide)
+    }
+
+    private func maybeAskAlways() {
+        guard convoy.location.authorization == .authorizedWhenInUse else { return }
+        if defaults.bool(forKey: "alwaysExplained") { return }
+        showAlwaysExplainer = true
+    }
+
+    /// The answer to the explanation screen. "Allow" asks iOS for Always.
+    func answerAlways(allow: Bool) {
+        defaults.set(true, forKey: "alwaysExplained")
+        showAlwaysExplainer = false
+        if allow { convoy.location.requestAlways() }
+    }
+
     // MARK: Sign-out
 
     /// Signs out on this device at once and tells the server in the background (which revokes the session family).
@@ -281,6 +394,7 @@ final class AppState {
         garage.clear()
         feed.clear()
         me = nil
+        onboardingSkipped = false
         defaults.removeObject(forKey: "displayName")
         defaults.removeObject(forKey: "authKind")
         displayName = ""
