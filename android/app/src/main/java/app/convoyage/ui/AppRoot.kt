@@ -125,7 +125,8 @@ fun AppRoot(container: AppContainer) {
                 }
                 composable(Routes.HOME) {
                     HomeScreen(
-                        onOpenConvoy = { join -> nav.navigate(Routes.convoy(join)) },
+                        onOpenConvoy = { _ -> nav.switchTab(Routes.DRIVE) },
+                        onOpenRide = { nav.navigate(Routes.ride(it)) },
                         onOpenNavigation = { nav.switchTab(Routes.DRIVE) },
                         onOpenGarage = { nav.switchTab(Routes.GARAGE) },
                         onOpenRoutes = { nav.navigate(Routes.ROUTES) { launchSingleTop = true } },

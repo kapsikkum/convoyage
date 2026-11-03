@@ -88,7 +88,7 @@ class HomeViewModel(container: AppContainer) : ViewModel() {
 }
 
 @Composable
-fun HomeScreen(onOpenConvoy: (join: Boolean) -> Unit, onOpenNavigation: () -> Unit, onOpenGarage: () -> Unit, onOpenRoutes: () -> Unit = {}) {
+fun HomeScreen(onOpenConvoy: (join: Boolean) -> Unit, onOpenNavigation: () -> Unit, onOpenGarage: () -> Unit, onOpenRoutes: () -> Unit = {}, onOpenRide: (String) -> Unit = {}) {
     val container = LocalContainer.current
     val vm: HomeViewModel = viewModel(factory = viewModelFactory { initializer { HomeViewModel(container) } })
     val ui by vm.ui.collectAsStateWithLifecycle()
@@ -121,16 +121,12 @@ fun HomeScreen(onOpenConvoy: (join: Boolean) -> Unit, onOpenNavigation: () -> Un
             CvAvatar(me?.avatarPath, garage.primary?.badge() ?: me?.primaryVehicle?.badge(), Roster.initials(ui.name))
         }
 
-        LiveConvoyCard(ui, eta = if (navState.isOn) navState.etaMs?.let { Fmt.clockOfDay(it) } ?: "--:--" else "--:--", onClick = { onOpenConvoy(false) })
+        // Home is the dashboard now; driving, convoys and recording live on the Drive tab.
+        if (ui.room != null) LiveConvoyCard(ui, eta = if (navState.isOn) navState.etaMs?.let { Fmt.clockOfDay(it) } ?: "--:--" else "--:--", onClick = { onOpenConvoy(false) })
 
-        RecordCard(onOpenSheet = { showRecord = true })
+        DashboardCard(onOpenRide = onOpenRide)
 
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            // Three across at 360 to 390dp: compact padding, and the label shrinks rather than being cut off.
-            CvButton(if (ui.room != null) "Convoy" else "Start", { onOpenConvoy(false) }, Modifier.weight(1f), CvButtonKind.Primary, compact = true)
-            CvButton("Join", { onOpenConvoy(true) }, Modifier.weight(1f), CvButtonKind.Ghost, compact = true)
-            CvButton(if (navState.isOn) "Navigating" else "Navigate", onOpenNavigation, Modifier.weight(1f), CvButtonKind.Ghost, icon = CvIcons.Navigate, compact = true)
-        }
+        CvButton(if (navState.isOn) "Back to navigation" else "Drive", onOpenNavigation, Modifier.fillMaxWidth(), icon = CvIcons.Navigate)
 
         CvCard(Modifier.fillMaxWidth(), edge = c.line, shape = app.convoyage.design.CutSShape, onClick = onOpenRoutes) {
             Row(Modifier.padding(Space.s4), horizontalArrangement = Arrangement.spacedBy(Space.s3), verticalAlignment = Alignment.CenterVertically) {
