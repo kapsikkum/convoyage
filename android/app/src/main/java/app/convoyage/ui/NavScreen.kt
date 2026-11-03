@@ -124,6 +124,7 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
     val rec by container.recorder.state.collectAsStateWithLifecycle()
     val chrome = LocalBottomChrome.current
     var showRecord by remember { mutableStateOf(false) }
+    val capture = rememberRidePhotoCapture()
     var dockDetent by rememberSaveable { mutableStateOf(Detent.Peek) }
     var boxH by remember { mutableStateOf(0) }
     val density = androidx.compose.ui.platform.LocalDensity.current
@@ -168,7 +169,7 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
         }
     }
     val following = nav.phase == NavPhase.Active && local.follow
-    val sheetHeight = when (nav.phase) { NavPhase.Idle -> if (drive != null) DriveDockPeek else 0.dp; else -> 236.dp } + chrome
+    val sheetHeight = when (nav.phase) { NavPhase.Idle -> if (drive != null) DriveDockPeek else 0.dp; NavPhase.Active, NavPhase.Arrived -> 296.dp; else -> 236.dp } + chrome
 
     Box(Modifier.fillMaxSize().onSizeChanged { boxH = it.height }) {
         ConvoyMap(
@@ -242,11 +243,16 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
                     if (nav.rerouting) Banner(BannerTone.Hazard, "Rerouting", icon = CvIcons.Route)
                     nav.error?.let { Banner(BannerTone.Pulse, it, icon = CvIcons.Alert, actionLabel = "OK", onAction = vm::clearError) }
                     nav.hazardAhead?.let { h ->
+                        val camera = app.convoyage.nav.RouteHazards.isCamera(h.hazard)
                         Banner(
-                            if (h.hazard.isPolice) BannerTone.Police else BannerTone.Hazard,
-                            hazardLabel(h.hazard.kind, h.hazard.subkind) + " · " + app.convoyage.data.Geo.formatDistance(h.aheadM),
-                            sub = "On your route",
+                            when { camera -> BannerTone.Pulse; h.hazard.isPolice -> BannerTone.Police; else -> BannerTone.Hazard },
+                            (if (camera) "Speed camera ahead" else hazardLabel(h.hazard.kind, h.hazard.subkind)) + " · " + app.convoyage.data.Geo.formatDistance(h.aheadM),
+                            sub = if (nav.alertsMuted) "On your route · alerts muted" else "On your route",
                             icon = CvIcons.Alert,
+                            actionLabel = if (nav.alertsMuted) "Unmute" else "Mute",
+                            onAction = container.nav::toggleAlertsMuted,
+                            secondaryLabel = "Close",
+                            onSecondary = { container.nav.dismissHazard(h.hazard.id) },
                         )
                     }
                 }
@@ -304,6 +310,7 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
                     onInvite = vm::inviteFriends,
                     onEnd = { vm.end(); if (drive == null) onBack() },
                 )
+                if (active) DriveRecordBar(rec, onRecord = { showRecord = true }, onPhoto = { capture.shoot(rec.isActive) })
             }
         }
 
@@ -332,6 +339,7 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
             }
         }
         if (showRecord) RecordSheet(onDismiss = { showRecord = false }, bottomInset = chrome)
+        PhotoConfirmSheet(capture)
     }
 }
 

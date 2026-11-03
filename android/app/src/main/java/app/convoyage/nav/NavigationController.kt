@@ -31,6 +31,8 @@ data class NavState(
     val hazardAhead: HazardAhead? = null,
     /** Estimated arrival, ms since the epoch (null before the route is known). */
     val etaMs: Long? = null,
+    /** Hazard and camera alerts are not spoken (the banner still shows). */
+    val alertsMuted: Boolean = false,
 ) {
     val isOn: Boolean get() = phase == NavPhase.Active || phase == NavPhase.Arrived
 
@@ -69,6 +71,29 @@ class NavigationController(
     private var knownHazards: List<Hazard> = emptyList()
     private var fetch: Job? = null
     private var announcedArrival = false
+    /** Hazards closed from the banner for this drive. */
+    private val dismissed = mutableSetOf<String>()
+    private var spokenHazard: String? = null
+
+    private fun ahead(onRoute: List<RouteHazard>, along: Double): HazardAhead? =
+        RouteHazards.nextAhead(onRoute.filterNot { it.hazard.id in dismissed }, along)
+
+    /** Close the alert for one hazard for the rest of this drive. */
+    fun dismissHazard(id: String) {
+        dismissed += id
+        _state.update { it.copy(hazardAhead = it.hazardAhead?.takeIf { a -> a.hazard.id != id }) }
+    }
+
+    fun toggleAlertsMuted() = _state.update { it.copy(alertsMuted = !it.alertsMuted) }
+
+    /** Speak a hazard the first time it comes within warning range. */
+    private fun announceHazard() {
+        val s = _state.value
+        val a = s.hazardAhead ?: return
+        if (a.hazard.id == spokenHazard) return
+        spokenHazard = a.hazard.id
+        if (!s.alertsMuted) speaker.speak(RouteHazards.spoken(a))
+    }
 
     init {
         scope.launch { fixes.collect { if (it != null) onFix(it) } }
@@ -83,6 +108,8 @@ class NavigationController(
     /** Asks for a route from [from] to [place] and shows it as a preview (nothing is spoken until [start]). */
     fun navigateTo(place: Place, from: Fix?) {
         fetch?.cancel()
+        dismissed.clear()
+        spokenHazard = null
         if (from == null) {
             _state.update { it.copy(error = "Waiting for your location") }
             return
@@ -177,10 +204,11 @@ class NavigationController(
                 progress = p,
                 speedMps = speed,
                 bearing = bearing,
-                hazardAhead = RouteHazards.nextAhead(it.routeHazards, snap.along),
+                hazardAhead = ahead(it.routeHazards, snap.along),
                 etaMs = now + (p.remainingS * 1000).toLong(),
             )
         }
+        announceHazard()
         if (lost) reroute(fix)
     }
 
@@ -212,7 +240,7 @@ class NavigationController(
             val route = s.route
             val onRoute = if (route == null) emptyList() else RouteHazards.onRoute(route, knownHazards)
             val along = s.progress?.snap?.along
-            s.copy(routeHazards = onRoute, hazardAhead = if (along != null) RouteHazards.nextAhead(onRoute, along) else null)
+            s.copy(routeHazards = onRoute, hazardAhead = if (along != null) ahead(onRoute, along) else null)
         }
     }
 

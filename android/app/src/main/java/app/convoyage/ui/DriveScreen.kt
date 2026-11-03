@@ -295,6 +295,26 @@ private fun NearbyRow(icon: ImageVector, title: String, sub: String, action: Str
     }
 }
 
+/** While navigating: record the drive, or Pause / Photo / Stop once it is recording (Konvoi's bottom row). */
+@Composable
+internal fun DriveRecordBar(rec: app.convoyage.data.RecorderState, onRecord: () -> Unit, onPhoto: () -> Unit) {
+    val container = LocalContainer.current
+    val openRecap = LocalOpenRecap.current
+    val c = Cv.colors
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.s2), verticalAlignment = Alignment.CenterVertically) {
+        if (!rec.isActive) {
+            CvButton("Track drive", onRecord, Modifier.weight(1f), CvButtonKind.Ghost, icon = CvIcons.Rec, compact = true)
+            CvButton("Photo", onPhoto, Modifier.weight(1f), CvButtonKind.Ghost, icon = CvIcons.Camera, compact = true)
+        } else {
+            CvText((if (rec.isPaused) "II " else "REC ") + Fmt.clock(rec.elapsedS), Cv.type.telemetry, if (rec.isPaused) c.hazard else c.pulse)
+            if (rec.isPaused) CvButton("Resume", { container.recorder.resume() }, Modifier.weight(1f), icon = CvIcons.Play, compact = true)
+            else CvButton("Pause", { container.recorder.pause() }, Modifier.weight(1f), CvButtonKind.Ghost, icon = CvIcons.Pause, compact = true)
+            CvIconButton(CvIcons.Camera, "Take a photo", onPhoto, tint = c.signal, edge = c.signal)
+            CvButton("Stop", { container.recorder.stop(); openRecap() }, Modifier.weight(1f), CvButtonKind.Alert, icon = CvIcons.Stop, compact = true)
+        }
+    }
+}
+
 /** Current speed, Konvoi-style, bottom-left while navigating. */
 @Composable
 internal fun SpeedReadout(speedMps: Double, modifier: Modifier = Modifier) {
