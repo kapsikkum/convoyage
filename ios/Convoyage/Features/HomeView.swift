@@ -46,14 +46,29 @@ struct HomeView: View {
                     placeholderRow(day: "SUN", date: "17", title: "Reefton Spur ride", meta: "Placeholder event")
                 }
 
-                VStack(alignment: .leading, spacing: 4) {
-                    SectionLabel(text: "Your garage")
-                    Text("No cars yet").font(CvFont.display(20))
-                    Text("Add one in the Garage tab.").font(CvFont.text(13)).foregroundStyle(theme.inkMuted)
+                CvButton(title: app.recorder.isActive ? "Open ride mode" : "Record a ride", icon: "record.circle", kind: .ghost) {
+                    app.showRide = true
                 }
-                .padding(16)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .cvPanel(fill: Color.clear, edge: theme.lineStrong)
+
+                Button {
+                    app.tab = .garage
+                } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        SectionLabel(text: "Your garage")
+                        if let v = app.garage.primary {
+                            Text(v.title).font(CvFont.display(20))
+                            Text(v.subtitle).font(CvFont.text(13)).foregroundStyle(theme.inkMuted)
+                        } else {
+                            Text("No cars yet").font(CvFont.display(20))
+                            Text("Add one in the Garage tab.").font(CvFont.text(13)).foregroundStyle(theme.inkMuted)
+                        }
+                    }
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .foregroundStyle(theme.ink)
+                    .cvPanel(fill: Color.clear, edge: theme.lineStrong)
+                }
+                .buttonStyle(.plain)
             }
             .padding(.horizontal, 16)
             .padding(.top, 16)

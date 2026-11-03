@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreLocation
 
 struct ConvoyView: View {
     @Environment(AppState.self) private var app
@@ -9,17 +10,34 @@ struct ConvoyView: View {
     @State private var showJoin: Bool = false
     @State private var code: String = ""
     @State private var talking: Bool = false
+    @State private var showReport: Bool = false
+
+    private var hazardPins: [MapPin] {
+        return app.hazards.active.map { (h: HazardDto) -> MapPin in
+            return MapPin(id: "hazard-" + h.id,
+                          initials: h.isPolice ? "P" : "!",
+                          kind: h.isPolice ? .police : .hazard,
+                          coordinate: CLLocationCoordinate2D(latitude: h.lat, longitude: h.lng))
+        }
+    }
 
     var body: some View {
         let vm: ConvoyViewModel = app.convoy
+        let rec: RideRecorder = app.recorder
         ZStack {
-            ConvoyMapView(pins: vm.mapPins, is3D: is3D, recenterToken: recenter, theme: theme)
+            ConvoyMapView(pins: vm.mapPins + hazardPins, is3D: is3D, recenterToken: recenter, theme: theme,
+                          onViewport: { (box: GeoBox) in
+                              Task { await app.hazards.refresh(box: box) }
+                          })
                 .ignoresSafeArea()
 
             VStack(spacing: 8) {
                 bannerView(vm)
                 HStack(spacing: 8) {
                     toggleChip("3D", on: is3D) { is3D.toggle() }
+                    if rec.isActive {
+                        recordingChip(rec)
+                    }
                     Spacer()
                 }
                 Spacer()
@@ -32,9 +50,8 @@ struct ConvoyView: View {
                 VStack(spacing: 10) {
                     Spacer()
                     iconButton("location.north.fill", tint: theme.signal) { recenter += 1 }
-                    iconButton("exclamationmark.triangle", tint: theme.hazard) {
-                        // TODO(report): hazard reporting.
-                    }
+                    iconButton("camera.fill", tint: theme.signal) { app.photos.begin() }
+                    iconButton("exclamationmark.triangle", tint: theme.hazard) { showReport = true }
                     PushToTalk(size: 72, label: talking ? "LIVE" : "HOLD") { (down: Bool) in
                         talking = down
                     }
@@ -59,22 +76,63 @@ struct ConvoyView: View {
             }
             Button("Cancel", role: .cancel) {}
         }
+        .sheet(isPresented: $showReport) {
+            ReportView()
+        }
+        .photoCapture()
+        .task {
+            // Keep the hazard pins fresh while the map is up.
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 60_000_000_000)
+                await app.hazards.refreshLast()
+            }
+        }
     }
 
     // MARK: Pieces
 
+    private func recordingChip(_ rec: RideRecorder) -> some View {
+        Button {
+            app.showRide = true
+        } label: {
+            HStack(spacing: 6) {
+                Circle().fill(rec.phase == .recording ? theme.pulse : theme.hazard).frame(width: 8, height: 8)
+                Text(rec.phase == .recording ? "REC" : "PAUSED")
+                    .font(CvFont.label(11))
+                    .tracking(1.2)
+                Text(Formatters.duration(rec.elapsedS)).font(CvFont.mono(12, weight: .medium))
+            }
+            .foregroundStyle(theme.ink)
+            .padding(.horizontal, 12)
+            .frame(minHeight: 36)
+            .cvPanel(fill: theme.glass, edge: rec.phase == .recording ? theme.pulse : theme.hazard, cut: Cut.s)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Open ride mode")
+    }
+
     @ViewBuilder
     private func bannerView(_ vm: ConvoyViewModel) -> some View {
-        if let err = vm.lastError {
-            Banner(title: err, subtitle: "Tap to dismiss", kind: .hazard, icon: "exclamationmark.triangle",
-                   actionTitle: "OK") { vm.lastError = nil }
-        } else if let s = vm.straggler {
-            Banner(title: "\(s.member.username) is \(Formatters.distanceText(s.meters)) away",
-                   subtitle: "Regroup and let them catch up?", kind: .pulse,
-                   actionTitle: "Regroup") { vm.requestRegroup() }
-        } else if vm.socketState != .open {
-            Banner(title: "Not connected", subtitle: "Server: \(ServerConfig.baseURL.absoluteString)", kind: .hazard,
-                   icon: "wifi.slash", actionTitle: "Retry") { vm.reconnect() }
+        VStack(spacing: 8) {
+            HazardAlertBanner()
+            if let n = vm.stopNotice {
+                Banner(title: n, subtitle: "Slow down and find them", kind: .pulse, icon: "stop.fill",
+                       actionTitle: "OK", action: { vm.stopNotice = nil })
+            }
+            if let m = app.photos.message {
+                Banner(title: m, kind: .info, icon: "camera.fill", actionTitle: "OK", action: { app.photos.message = nil })
+            }
+            if let err = vm.lastError {
+                Banner(title: err, subtitle: "Tap to dismiss", kind: .hazard, icon: "exclamationmark.triangle",
+                       actionTitle: "OK", action: { vm.lastError = nil })
+            } else if let s = vm.straggler {
+                Banner(title: "\(s.member.username) is \(Formatters.distanceText(s.meters)) away",
+                       subtitle: "Regroup and let them catch up?", kind: .pulse,
+                       actionTitle: "Regroup", action: { vm.requestRegroup() })
+            } else if vm.socketState != .open {
+                Banner(title: "Not connected", subtitle: "Server: \(app.serverURL)", kind: .hazard,
+                       icon: "wifi.slash", actionTitle: "Retry", action: { vm.reconnect() })
+            }
         }
     }
 

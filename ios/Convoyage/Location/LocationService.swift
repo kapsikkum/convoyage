@@ -8,6 +8,8 @@ import Observation
 final class LocationService: NSObject, CLLocationManagerDelegate {
     var latest: CLLocation?
     var authorization: CLAuthorizationStatus = .notDetermined
+    /// Called for every raw fix (the ride recorder filters them itself).
+    @ObservationIgnored var onFix: ((CLLocation) -> Void)?
 
     @ObservationIgnored private let manager: CLLocationManager = CLLocationManager()
 
@@ -16,6 +18,8 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyBest
         manager.distanceFilter = kCLDistanceFilterNone
+        manager.activityType = .otherNavigation
+        manager.pausesLocationUpdatesAutomatically = false
         authorization = manager.authorizationStatus
     }
 
@@ -40,6 +44,9 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         if let last = locations.last {
             latest = last
+        }
+        for loc in locations {
+            onFix?(loc)
         }
     }
 

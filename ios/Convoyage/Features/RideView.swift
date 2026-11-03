@@ -4,17 +4,25 @@ import UIKit
 struct RideView: View {
     @Environment(AppState.self) private var app
     @Environment(\.theme) private var theme
+    @State private var showReport: Bool = false
 
     var body: some View {
         let vm: ConvoyViewModel = app.convoy
+        let rec: RideRecorder = app.recorder
         let speed: Int = Formatters.kmh(vm.location.latest?.speed)
         let leaderDist: String? = vm.leaderMember.flatMap { (m: Member) -> String? in
             if m.id == vm.myId { return nil }
             return vm.distance(to: m).map { Formatters.distanceText($0) }
         }
         let lastRider: String? = vm.spreadMeters.map { Formatters.distanceText($0) }
+        let recapBinding: Binding<Bool> = Binding<Bool>(
+            get: { return rec.showRecap },
+            set: { (v: Bool) in
+                if !v { rec.closeRecap() }
+            }
+        )
 
-        VStack(spacing: 16) {
+        VStack(spacing: 14) {
             HStack(spacing: 12) {
                 Button {
                     app.showRide = false
@@ -28,15 +36,21 @@ struct RideView: View {
                 .accessibilityLabel("Exit ride mode")
 
                 HStack(spacing: 10) {
-                    Image(systemName: "speaker.wave.2.fill").foregroundStyle(theme.go)
-                    Text(vm.room?.name ?? "No convoy").font(CvFont.text(14, weight: .bold))
-                    Text("quiet").font(CvFont.text(13)).foregroundStyle(theme.inkMuted)
+                    if rec.phase == .recording {
+                        Circle().fill(theme.pulse).frame(width: 10, height: 10)
+                        Text("REC").font(CvFont.label(12)).tracking(1.4).foregroundStyle(theme.pulse)
+                    } else {
+                        Image(systemName: "speaker.wave.2.fill").foregroundStyle(theme.go)
+                    }
+                    Text(vm.room?.name ?? "No convoy").font(CvFont.text(14, weight: .bold)).lineLimit(1)
                     Spacer()
                 }
                 .padding(.horizontal, 12)
                 .frame(minHeight: 48)
-                .cvPanel(fill: theme.surface200, edge: theme.go, cut: Cut.s)
+                .cvPanel(fill: theme.surface200, edge: rec.phase == .recording ? theme.pulse : theme.go, cut: Cut.s)
             }
+
+            noticeStack(vm)
 
             // TODO(nav): turn-by-turn instruction card goes here.
 
@@ -44,7 +58,7 @@ struct RideView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     Text("SPEED").font(CvFont.label(10)).tracking(1.4).foregroundStyle(theme.inkMuted)
                     HStack(alignment: .lastTextBaseline, spacing: 4) {
-                        Text("\(speed)").font(CvFont.mono(96)).foregroundStyle(theme.signal)
+                        Text("\(speed)").font(CvFont.mono(88)).foregroundStyle(theme.signal)
                         Text("KM/H").font(CvFont.mono(16, weight: .medium)).foregroundStyle(theme.inkMuted)
                     }
                 }
@@ -52,36 +66,105 @@ struct RideView: View {
                 // TODO(lean): lean angle needs CoreMotion.
                 Readout(caption: "Lean", value: "--", unit: "deg", size: 28, alignment: .trailing)
             }
-            .padding(.top, 8)
+            .padding(.top, 4)
+
+            recorderBlock(rec)
 
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
-                RideTile(caption: "To leader", value: leaderDist ?? "--", tone: .signal) {}
-                RideTile(caption: "Furthest rider", value: lastRider ?? "--", valueColor: theme.pulse) {}
-                RideTile(caption: "Report", icon: "exclamationmark.triangle", tone: .hazard) {
-                    // TODO(report): hazard reporting.
-                }
-                RideTile(caption: "I'm stopping", icon: "stop.fill", tone: .alert) {
-                    // TODO(stop): tell the convoy you are stopping.
-                }
+                RideTile(caption: "To leader", value: leaderDist ?? "--", tone: .signal, valueColor: nil, compact: true, action: {})
+                RideTile(caption: "Furthest rider", value: lastRider ?? "--", valueColor: theme.pulse, compact: true, action: {})
+                RideTile(caption: "Report", icon: "exclamationmark.triangle", tone: .hazard, compact: true, action: { showReport = true })
+                RideTile(caption: vm.iAmStopping ? "Moving again" : "I'm stopping", icon: vm.iAmStopping ? "play.fill" : "stop.fill",
+                         tone: .alert, compact: true, action: { vm.setStopping(!vm.iAmStopping) })
+                RideTile(caption: "Photo", icon: "camera.fill", tone: .signal, compact: true, action: { app.photos.begin() })
+                RideTile(caption: "Regroup", icon: "person.3.fill", compact: true, action: { vm.requestRegroup() })
             }
 
-            Spacer()
+            Spacer(minLength: 0)
 
             HStack {
-                Readout(caption: "ETA", value: "--:--", size: 28)
+                Readout(caption: "ETA", value: "--:--", size: 24)
                 Spacer()
-                PushToTalk(size: 96, label: "HOLD")
+                PushToTalk(size: 84, label: "HOLD")
                 Spacer()
-                Readout(caption: "Fuel", value: "--", unit: "km", size: 28, alignment: .trailing)
+                Readout(caption: "Fuel", value: "--", unit: "km", size: 24, alignment: .trailing)
             }
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
-        .padding(.bottom, 20)
+        .padding(.bottom, 16)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(theme.void.ignoresSafeArea())
         .foregroundStyle(theme.ink)
         .onAppear { UIApplication.shared.isIdleTimerDisabled = true }
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
+        .sheet(isPresented: $showReport) {
+            ReportView()
+        }
+        .fullScreenCover(isPresented: recapBinding) {
+            RecapView()
+        }
+        .photoCapture()
+    }
+
+    // MARK: Pieces
+
+    @ViewBuilder
+    private func noticeStack(_ vm: ConvoyViewModel) -> some View {
+        VStack(spacing: 8) {
+            if let n = vm.stopNotice {
+                Banner(title: n, subtitle: "Slow down and find them", kind: .pulse, icon: "stop.fill",
+                       actionTitle: "OK", action: { vm.stopNotice = nil })
+            }
+            HazardAlertBanner()
+            if let m = app.photos.message {
+                Banner(title: m, kind: .info, icon: "camera.fill", actionTitle: "OK", action: { app.photos.message = nil })
+            }
+            if vm.iAmStopping {
+                Banner(title: "You told the convoy you are stopping", kind: .pulse, icon: "stop.fill")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func recorderBlock(_ rec: RideRecorder) -> some View {
+        switch rec.phase {
+        case .idle:
+            CvButton(title: "Start ride", icon: "record.circle") {
+                rec.start(vehicleId: app.garage.primary?.id, convoyCode: app.convoy.room?.code)
+            }
+        case .recording, .paused:
+            VStack(spacing: 10) {
+                HStack {
+                    Readout(caption: "Time", value: Formatters.duration(rec.elapsedS), size: 24)
+                    Spacer()
+                    let d = Formatters.distance(rec.distanceM)
+                    Readout(caption: "Distance", value: d.value, unit: d.unit, size: 24)
+                    Spacer()
+                    Readout(caption: "Max", value: "\(Formatters.kmh(rec.maxSpeedMps))", unit: "km/h", size: 24, alignment: .trailing)
+                }
+                if rec.weakGps {
+                    Text("WAITING FOR A BETTER GPS FIX")
+                        .font(CvFont.label(10))
+                        .tracking(1.2)
+                        .foregroundStyle(theme.hazard)
+                }
+                HStack(spacing: 10) {
+                    if rec.phase == .recording {
+                        CvButton(title: "Pause", icon: "pause.fill", kind: .ghost) { rec.pause() }
+                    } else {
+                        CvButton(title: "Resume", icon: "play.fill") { rec.resume() }
+                    }
+                    CvButton(title: "Stop", icon: "stop.fill", kind: .alert) { rec.stop() }
+                }
+            }
+            .padding(12)
+            .cvPanel(fill: theme.surface200, edge: rec.phase == .recording ? theme.pulse : theme.lineStrong, cut: Cut.m)
+        case .finishing:
+            if !rec.showRecap {
+                Banner(title: "Ride not uploaded", subtitle: "Saved on this phone", kind: .hazard, icon: "exclamationmark.triangle",
+                       actionTitle: "Open", action: { rec.reopenRecap() })
+            }
+        }
     }
 }
