@@ -1,0 +1,23 @@
+# Local dev database. Works with `podman compose` or `docker compose` (compose-spec only).
+#   podman compose up -d
+#   cd server && npm run migrate
+services:
+  db:
+    image: docker.io/postgis/postgis:16-3.4
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: convoyage
+      POSTGRES_PASSWORD: convoyage
+      POSTGRES_DB: convoyage
+    ports:
+      - "127.0.0.1:${CONVOYAGE_DB_PORT:-5432}:5432"
+    volumes:
+      - convoyage-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U convoyage -d convoyage"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  convoyage-db:
