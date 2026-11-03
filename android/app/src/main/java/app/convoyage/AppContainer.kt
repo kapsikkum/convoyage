@@ -6,6 +6,14 @@ import app.convoyage.api.TokenStore
 import app.convoyage.data.AccountRepository
 import app.convoyage.data.AuthKind
 import app.convoyage.data.ConvoyRepository
+import app.convoyage.data.FeedRepository
+import app.convoyage.data.GarageRepository
+import app.convoyage.data.ImageLoader
+import app.convoyage.data.LatLngD
+import app.convoyage.data.RideRecorder
+import app.convoyage.data.RideStage
+import app.convoyage.data.RideStore
+import app.convoyage.data.RidesRepository
 import app.convoyage.data.HazardRepository
 import app.convoyage.data.KeystoreTokenStore
 import app.convoyage.data.LocationTracker
@@ -16,10 +24,13 @@ import app.convoyage.net.ConvoySocket
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import java.io.File
 
 /** Manual dependency container (no DI framework). One instance, owned by [ConvoyageApp]. */
-class AppContainer(context: Context) {
+class AppContainer(private val context: Context) {
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     val session = SessionStore(context)
     val tokenStore: TokenStore = KeystoreTokenStore(context)
@@ -29,17 +40,68 @@ class AppContainer(context: Context) {
         baseUrl = { session.serverUrl.value },
         tokens = tokenStore,
         // The refresh token was refused: the session is over. Called on an OkHttp thread.
-        onSessionLost = { appScope.launch { account.sessionLost(); convoy.disconnect(); hazards.clear() } },
+        onSessionLost = { appScope.launch { account.sessionLost(); convoy.disconnect(); hazards.clear(); clearAccountData() } },
     )
     val account = AccountRepository(api, session, appScope)
     val convoy = ConvoyRepository(appScope, ConvoySocket(), tracker) { force -> api.freshAccessToken(force) }
     val hazards = HazardRepository(appScope, api, convoy.hazardMessages)
+    val garage = GarageRepository(appScope, api)
+    val rides = RidesRepository(appScope, api)
+    val images = ImageLoader(appScope, api)
+    val feed = FeedRepository(appScope, api, location = { tracker.lastKnown()?.let { LatLngD(it.lat, it.lng) } })
+
+    /** The ride being recorded (or waiting to upload). Saved on disk as it goes. */
+    val recorder = RideRecorder(
+        scope = appScope,
+        store = RideStore(File(context.filesDir, "ride")),
+        fixes = tracker.fix,
+        api = api,
+        acquireTracker = tracker::acquire,
+        releaseTracker = tracker::release,
+        preparePhoto = { ImageLoader.prepareForUpload(it, context.cacheDir) },
+    )
+
+    init {
+        recorder.restore()
+        // "Record convoy rides automatically": a convoy appearing starts a ride, the convoy going away stops it.
+        appScope.launch {
+            var previous: String? = null
+            convoy.state.map { it.activeCode }.distinctUntilChanged().collect { code ->
+                val before = previous
+                previous = code
+                val rec = recorder.state.value
+                if (code != null && before == null && session.autoRecordConvoy.value && !rec.isActive && tracker.hasPermission()) {
+                    val v = garage.state.value.primary
+                    recorder.start(v?.id, v?.displayName, code, tracker.fix.value, auto = true)
+                } else if (code == null && before != null && rec.isActive && rec.meta?.autoStarted == true && rec.meta?.convoyCode == before) {
+                    recorder.stop()
+                }
+            }
+        }
+    }
+
+    /** Loads the person's own data after sign-in (or at startup when already signed in). */
+    fun refreshAccountData() {
+        garage.refresh()
+    }
+
+    /** Forgets everything that belongs to the signed-in person. A ride that has not uploaded stays on disk. */
+    private fun clearAccountData() {
+        garage.clear()
+        rides.clear()
+        feed.clear()
+        images.clear()
+        recorder.dismiss()
+    }
 
     /** (Re)connects the socket with the stored identity and server URL, if signed in. */
     fun connectIfSignedIn() {
         val name = session.name.value ?: return
         when (session.kind.value) {
-            AuthKind.Account -> if (tokenStore.tokens != null) convoy.connect(session.serverUrl.value, SocketAuth.Account)
+            AuthKind.Account -> if (tokenStore.tokens != null) {
+                convoy.connect(session.serverUrl.value, SocketAuth.Account)
+                refreshAccountData()
+            }
             AuthKind.Dev -> convoy.connect(session.serverUrl.value, SocketAuth.Dev(session.userId, name))
             null -> Unit
         }
@@ -56,6 +118,7 @@ class AppContainer(context: Context) {
     fun signOut() {
         convoy.disconnect()
         hazards.clear()
+        clearAccountData()
         account.logout()
     }
 }

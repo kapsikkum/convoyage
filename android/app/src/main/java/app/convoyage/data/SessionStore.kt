@@ -44,6 +44,11 @@ class SessionStore(context: Context) {
     private val _serverUrl = MutableStateFlow(prefs.getString("serverUrl", null)?.takeIf { it.isNotBlank() } ?: BuildConfig.SERVER_URL)
     val serverUrl: StateFlow<String> = _serverUrl.asStateFlow()
 
+    private val _autoRecord = MutableStateFlow(prefs.getBoolean("autoRecordConvoy", false))
+
+    /** When on, joining or starting a convoy starts recording a ride, and leaving the convoy stops it. */
+    val autoRecordConvoy: StateFlow<Boolean> = _autoRecord.asStateFlow()
+
     val signedIn: Boolean get() = !_name.value.isNullOrBlank()
 
     init {
@@ -82,6 +87,12 @@ class SessionStore(context: Context) {
         _night.value = night
     }
 
+    fun setAutoRecordConvoy(on: Boolean) {
+        prefs.edit().putBoolean("autoRecordConvoy", on).apply()
+        _autoRecord.value = on
+    }
+
+    /** Saves the server address (any build). Blank goes back to the build's default. */
     fun setServerUrl(url: String) {
         val clean = url.trim().trimEnd('/')
         prefs.edit().putString("serverUrl", clean).apply()

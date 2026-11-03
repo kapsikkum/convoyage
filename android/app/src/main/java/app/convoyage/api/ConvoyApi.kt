@@ -1,5 +1,6 @@
 package app.convoyage.api
 
+import app.convoyage.data.FeedApi
 import app.convoyage.protocol.Hazard
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -8,9 +9,13 @@ import kotlinx.serialization.builtins.ListSerializer
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
+import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
@@ -32,6 +37,17 @@ interface HazardApi {
     suspend fun dismissHazard(id: String): ApiResult<Hazard>
 }
 
+/** What the ride recorder needs from the server; an interface so [app.convoyage.data.RideRecorder] can be tested. */
+interface RideApi {
+    suspend fun createRide(body: CreateRide): ApiResult<Ride>
+    suspend fun finishRide(id: String, body: FinishRide): ApiResult<Ride>
+    suspend fun getRide(id: String): ApiResult<Ride>
+    suspend fun updateRide(id: String, body: UpdateRide): ApiResult<Ride>
+    suspend fun deleteRide(id: String): ApiResult<OkBody>
+    suspend fun uploadMedia(file: File, mime: String = "image/jpeg"): ApiResult<Media>
+    suspend fun attachRidePhoto(rideId: String, body: AttachPhoto): ApiResult<RidePhoto>
+}
+
 /**
  * The REST client: OkHttp + kotlinx.serialization against protocol/openapi.json.
  *
@@ -46,7 +62,7 @@ class ConvoyApi(
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .build(),
-) : HazardApi {
+) : HazardApi, RideApi, FeedApi {
     val refresher = TokenRefresher(tokens, client, baseUrl, onSessionLost)
     private val http: OkHttpClient = client.newBuilder().authenticator(TokenAuthenticator(refresher)).build()
     private val jsonType = "application/json".toMediaType()
@@ -83,6 +99,104 @@ class ConvoyApi(
     override suspend fun dismissHazard(id: String): ApiResult<Hazard> =
         send("POST", "v1/hazards/$id/dismiss", null, Hazard.serializer())
 
+    // ---- vehicles --------------------------------------------------------------------------------
+
+    suspend fun listVehicles(): ApiResult<List<Vehicle>> =
+        send("GET", "v1/vehicles", null, ListSerializer(Vehicle.serializer()))
+
+    suspend fun createVehicle(body: CreateVehicle): ApiResult<Vehicle> =
+        send("POST", "v1/vehicles", ApiJson.encodeToString(CreateVehicle.serializer(), body), Vehicle.serializer())
+
+    suspend fun updateVehicle(id: String, body: UpdateVehicle): ApiResult<Vehicle> =
+        send("PATCH", "v1/vehicles/$id", ApiJson.encodeToString(UpdateVehicle.serializer(), body), Vehicle.serializer())
+
+    suspend fun deleteVehicle(id: String): ApiResult<OkBody> = send("DELETE", "v1/vehicles/$id", null, OkBody.serializer())
+
+    suspend fun makePrimary(id: String): ApiResult<Vehicle> = send("POST", "v1/vehicles/$id/primary", null, Vehicle.serializer())
+
+    suspend fun markSold(id: String): ApiResult<Vehicle> =
+        send("POST", "v1/vehicles/$id/sold", ApiJson.encodeToString(SoldBody.serializer(), SoldBody()), Vehicle.serializer())
+
+    // ---- rides -----------------------------------------------------------------------------------
+
+    override suspend fun createRide(body: CreateRide): ApiResult<Ride> =
+        send("POST", "v1/rides", ApiJson.encodeToString(CreateRide.serializer(), body), Ride.serializer())
+
+    override suspend fun finishRide(id: String, body: FinishRide): ApiResult<Ride> =
+        send("POST", "v1/rides/$id/finish", ApiJson.encodeToString(FinishRide.serializer(), body), Ride.serializer())
+
+    override suspend fun getRide(id: String): ApiResult<Ride> = send("GET", "v1/rides/$id", null, Ride.serializer())
+
+    override suspend fun updateRide(id: String, body: UpdateRide): ApiResult<Ride> =
+        send("PATCH", "v1/rides/$id", ApiJson.encodeToString(UpdateRide.serializer(), body), Ride.serializer())
+
+    suspend fun listMyRides(before: String?, limit: Int = 50): ApiResult<RidePage> =
+        send("GET", "v1/rides", null, RidePage.serializer(), query = pageQuery(before, limit))
+
+    override suspend fun deleteRide(id: String): ApiResult<OkBody> = send("DELETE", "v1/rides/$id", null, OkBody.serializer())
+
+    override suspend fun attachRidePhoto(rideId: String, body: AttachPhoto): ApiResult<RidePhoto> =
+        send("POST", "v1/rides/$rideId/photos", ApiJson.encodeToString(AttachPhoto.serializer(), body), RidePhoto.serializer())
+
+    // ---- media -----------------------------------------------------------------------------------
+
+    /** `POST /v1/media`, multipart field "file". JPEG, PNG or WebP up to 15 MB. */
+    override suspend fun uploadMedia(file: File, mime: String): ApiResult<Media> {
+        val form = MultipartBody.Builder().setType(MultipartBody.FORM)
+            .addFormDataPart("file", file.name, file.asRequestBody(mime.toMediaType()))
+            .build()
+        return send("POST", "v1/media", null, Media.serializer(), body = form)
+    }
+
+    /** The bytes behind a server-relative media path (`/v1/media/<id>` or `.../thumb`); needs the bearer token. */
+    suspend fun fetchBytes(path: String): ApiResult<ByteArray> = withContext(Dispatchers.IO) {
+        val target = url(path.trimStart('/'), emptyMap()) ?: return@withContext ApiResult.Err(0, "Server URL is not valid")
+        val t = tokens.tokens ?: return@withContext ApiResult.Err(401, "Not signed in")
+        try {
+            http.newCall(Request.Builder().url(target).header("Authorization", "Bearer ${t.access}").build()).execute().use { res ->
+                if (res.isSuccessful) ApiResult.Ok(res.body.bytes()) else ApiResult.Err(res.code, errorMessage(res.body.string(), res.code))
+            }
+        } catch (e: IOException) {
+            ApiResult.Err(0, "Cannot reach the server (${e.message ?: e.javaClass.simpleName})")
+        }
+    }
+
+    // ---- posts, feed, likes, comments, reports ---------------------------------------------------
+
+    suspend fun createPost(body: CreatePost): ApiResult<Post> =
+        send("POST", "v1/posts", ApiJson.encodeToString(CreatePost.serializer(), body), Post.serializer())
+
+    suspend fun deletePost(id: String): ApiResult<OkBody> = send("DELETE", "v1/posts/$id", null, OkBody.serializer())
+
+    override suspend fun feed(scope: FeedScope, before: String?, limit: Int, lat: Double?, lng: Double?): ApiResult<FeedPage> {
+        val q = pageQuery(before, limit).toMutableMap()
+        q["scope"] = scope.wire
+        if (scope == FeedScope.Nearby && lat != null && lng != null) {
+            q["lat"] = lat.toString()
+            q["lng"] = lng.toString()
+        }
+        return send("GET", "v1/feed", null, FeedPage.serializer(), query = q)
+    }
+
+    override suspend fun userPosts(handle: String, before: String?, limit: Int): ApiResult<FeedPage> =
+        send("GET", "v1/users/$handle/posts", null, FeedPage.serializer(), query = pageQuery(before, limit))
+
+    suspend fun like(postId: String): ApiResult<LikeState> = send("POST", "v1/posts/$postId/like", null, LikeState.serializer())
+
+    suspend fun unlike(postId: String): ApiResult<LikeState> = send("DELETE", "v1/posts/$postId/like", null, LikeState.serializer())
+
+    suspend fun comments(postId: String, before: String?, limit: Int = 20): ApiResult<CommentPage> =
+        send("GET", "v1/posts/$postId/comments", null, CommentPage.serializer(), query = pageQuery(before, limit))
+
+    suspend fun addComment(postId: String, text: String): ApiResult<Comment> =
+        send("POST", "v1/posts/$postId/comments", ApiJson.encodeToString(CreateComment.serializer(), CreateComment(text)), Comment.serializer())
+
+    suspend fun report(body: CreateReport): ApiResult<OkBody> =
+        send("POST", "v1/reports", ApiJson.encodeToString(CreateReport.serializer(), body), OkBody.serializer())
+
+    private fun pageQuery(before: String?, limit: Int): Map<String, String> =
+        buildMap { put("limit", limit.toString()); if (before != null) put("before", before) }
+
     // ---- socket support --------------------------------------------------------------------------
 
     /**
@@ -110,12 +224,14 @@ class ConvoyApi(
         responseSerializer: KSerializer<R>?,
         auth: Boolean = true,
         query: Map<String, String> = emptyMap(),
+        /** Replaces [payload] (a multipart upload). */
+        body: RequestBody? = null,
     ): ApiResult<R> = withContext(Dispatchers.IO) {
         val target = url(path, query) ?: return@withContext ApiResult.Err(0, "Server URL is not valid")
         val builder = Request.Builder().url(target).header("Accept", "application/json")
         // A bodiless POST (confirm/dismiss) must carry NO content-type: Fastify answers 400
         // "Body cannot be empty when content-type is set to application/json" otherwise.
-        builder.method(method, payload?.toRequestBody(jsonType) ?: if (method == "GET") null else ByteArray(0).toRequestBody(null))
+        builder.method(method, body ?: payload?.toRequestBody(jsonType) ?: if (method == "GET") null else ByteArray(0).toRequestBody(null))
         if (auth) {
             val t = tokens.tokens ?: return@withContext ApiResult.Err(401, "Not signed in")
             builder.header("Authorization", "Bearer ${t.access}")

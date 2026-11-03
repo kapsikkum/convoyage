@@ -21,6 +21,8 @@ data class Fix(
     val speedMps: Double?,
     val accuracyM: Float,
     val timeMs: Long,
+    /** Metres above the WGS84 ellipsoid as the device reports it; null when unknown. Noisy: see [TraceMath]. */
+    val altitudeM: Double? = null,
 )
 
 /**
@@ -62,7 +64,31 @@ class LocationTracker(private val context: Context) {
             speedMps = if (l.hasSpeed()) l.speed.toDouble() else null,
             accuracyM = if (l.hasAccuracy()) l.accuracy else Float.MAX_VALUE,
             timeMs = now,
+            altitudeM = if (l.hasAltitude()) l.altitude else null,
         )
+    }
+
+    /**
+     * The newest position we have: the live fix, else whatever the system last saw (for "Nearby", where a position a
+     * few minutes old is fine). Its [Fix.timeMs] is when the position was measured, not now.
+     */
+    @Suppress("MissingPermission")
+    fun lastKnown(): Fix? {
+        _fix.value?.let { return it }
+        if (!hasPermission()) return null
+        return try {
+            listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+                .mapNotNull { if (manager.isProviderEnabled(it)) manager.getLastKnownLocation(it) else null }
+                .maxByOrNull { it.time }
+                ?.let { l ->
+                    Fix(
+                        l.latitude, l.longitude, if (l.hasBearing()) l.bearing.toDouble() else null,
+                        if (l.hasSpeed()) l.speed.toDouble() else null, if (l.hasAccuracy()) l.accuracy else Float.MAX_VALUE, l.time,
+                    )
+                }
+        } catch (_: SecurityException) {
+            null
+        }
     }
 
     /** Starts updates if this is the first user and the location permission has been granted. */
