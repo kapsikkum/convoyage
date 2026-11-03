@@ -1,7 +1,11 @@
+import net from 'node:net';
 import { buildServer } from './server.js';
 import { loadConfig } from './config.js';
 import { openDatabase } from './db/index.js';
 import { migrate } from './db/migrate.js';
+
+// Happy-eyeballs gives each address 250 ms by default: too short for OSRM over a slow NAT (the Podman VM), where IPv6 is also unreachable.
+net.setDefaultAutoSelectFamilyAttemptTimeout(3000);
 
 const config = loadConfig();
 for (const w of config.warnings) console.warn(`[convoyage] ${w}`);
