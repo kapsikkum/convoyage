@@ -1,10 +1,11 @@
 package app.convoyage.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,7 +13,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -27,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import app.convoyage.data.Chat
 import app.convoyage.data.Geo
@@ -43,6 +44,7 @@ import app.convoyage.design.CvChipToggle
 import app.convoyage.design.CvIconButton
 import app.convoyage.design.CvIcons
 import app.convoyage.design.CvText
+import app.convoyage.design.CvTextField
 import app.convoyage.design.Eyebrow
 import app.convoyage.design.MemberState
 import app.convoyage.design.RosterChip
@@ -76,7 +78,7 @@ private fun InviteRow(onShare: () -> Unit, onCopy: () -> Unit, onQr: () -> Unit)
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.s2)) {
         CvButton("Share", onShare, Modifier.weight(1f), icon = CvIcons.Share, compact = true)
         CvButton("Copy", onCopy, Modifier.weight(1f), CvButtonKind.Ghost, compact = true)
-        CvButton("QR", onQr, Modifier.weight(1f), CvButtonKind.Ghost, compact = true)
+        CvButton("QR", onQr, Modifier.weight(1f), CvButtonKind.Ghost, icon = CvIcons.Qr, compact = true)
     }
 }
 
@@ -102,6 +104,7 @@ private fun RosterRow(e: RosterEntry) {
 
 // ---- Chat ---------------------------------------------------------------------------------------
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ChatPanel(ui: ConvoyUi, onSend: (String) -> Boolean, onRead: () -> Unit, modifier: Modifier = Modifier) {
     val c = Cv.colors
@@ -123,7 +126,12 @@ fun ChatPanel(ui: ConvoyUi, onSend: (String) -> Boolean, onRead: () -> Unit, mod
                 }
             }
         }
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Space.s2)) {
+        // All four replies show: they wrap onto a second line on a narrow phone instead of running off the edge.
+        FlowRow(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(Space.s2),
+            verticalArrangement = Arrangement.spacedBy(Space.s2),
+        ) {
             Chat.QUICK_REPLIES.forEach { q -> CvChipToggle(q, false, { send(q) }) }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.s2), verticalAlignment = Alignment.CenterVertically) {
@@ -175,6 +183,7 @@ private fun ChatBubble(m: ConvoyMessage, mine: Boolean) {
 fun LeaderPanel(
     ui: ConvoyUi,
     onClearDestination: () -> Unit,
+    onRename: (String) -> Unit,
     onFindRest: () -> Unit,
     onContinue: () -> Unit,
     onHandOver: (RosterEntry) -> Unit,
@@ -185,6 +194,7 @@ fun LeaderPanel(
     val room = ui.room ?: return
     val regroup = room.automaticRegroup
     LazyColumn(modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(Space.s3)) {
+        item(key = "name") { RenameRow(room.name, onRename) }
         item(key = "dest") {
             Column(verticalArrangement = Arrangement.spacedBy(Space.s2)) {
                 Eyebrow("DESTINATION")
@@ -228,6 +238,26 @@ fun LeaderPanel(
                 CvButton("Lead", { onHandOver(e) }, kind = CvButtonKind.Ghost, compact = true)
                 CvButton("Remove", { onRemove(e) }, kind = CvButtonKind.Alert, compact = true)
             }
+        }
+    }
+}
+
+/** The convoy name, editable by the leader. Saves on the check button or the keyboard's Done. */
+@Composable
+private fun RenameRow(current: String, onRename: (String) -> Unit) {
+    val c = Cv.colors
+    var draft by rememberSaveable(current) { mutableStateOf(current) }
+    val changed = draft.trim().isNotEmpty() && draft.trim() != current
+    Column(verticalArrangement = Arrangement.spacedBy(Space.s2)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.s2), verticalAlignment = Alignment.Bottom) {
+            CvTextField(
+                draft, { draft = it.take(Names.NAME_MAX) }, "Convoy name", Modifier.weight(1f), placeholder = "Name your convoy",
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
+            )
+            CvIconButton(
+                CvIcons.Check, "Save convoy name", { if (changed) onRename(draft.trim()) },
+                tint = if (changed) c.signal else c.inkMuted, edge = if (changed) c.signal else c.lineStrong,
+            )
         }
     }
 }

@@ -161,9 +161,10 @@ fun RideScreen(onExit: () -> Unit, onReport: () -> Unit) {
             Modifier.fillMaxWidth().padding(vertical = Space.s2),
             horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically,
         ) {
-            // TODO(eta): needs routing.
-            Readout("ETA", "--:--", Modifier.width(96.dp))
-            PushToTalk(local.ptt, size = 128.dp, onPress = vm::pttDown, onRelease = vm::pttUp)
+            val navState by container.nav.state.collectAsStateWithLifecycle()
+            Readout("ETA", if (navState.isOn) navState.etaMs?.let { Fmt.clockOfDay(it) } ?: "--:--" else "--:--", Modifier.width(96.dp))
+            val ptt = rememberPtt()
+            PushToTalk(ptt.state, size = 128.dp, caption = ptt.caption, onPress = ptt.onPress, onRelease = ptt.onRelease)
             Readout("Heading", ui.fix?.headingDeg?.let { "%03d°".format(it.toInt()) } ?: "---", Modifier.width(96.dp), align = Alignment.End)
         }
     }

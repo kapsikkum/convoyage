@@ -164,6 +164,7 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
             pins = pins,
             me = ui.fix?.let { LatLng(it.lat, it.lng) },
             route = room?.route?.stops.orEmpty(),
+            routeLine = ui.routeLine,
             buildings3d = local.buildings3d,
             follow = local.follow,
             recenterTick = local.recenterTick,
@@ -271,7 +272,7 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
                 val tabs = buildList { add(SheetTab.Roster); add(SheetTab.Chat); if (ui.isLeader) add(SheetTab.Lead) }
                 val tab = tabs.getOrElse(tabIndex) { SheetTab.Roster }
                 ConvoyHeader(
-                    ui = ui, copied = copied, ptt = local.ptt, onPttDown = vm::pttDown, onPttUp = vm::pttUp,
+                    ui = ui, copied = copied, ptt = rememberPtt(),
                     onCopy = { copyInvite(context, room.code); copied = true },
                     onShare = { shareInvite(context, room.code, room.name) },
                     onQr = { showQr = true },
@@ -305,6 +306,7 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
                             SheetTab.Lead -> LeaderPanel(
                                 ui,
                                 onClearDestination = vm::clearDestination,
+                                onRename = vm::rename,
                                 onFindRest = vm::findRestStop,
                                 onContinue = vm::continueFromRest,
                                 onHandOver = { confirmLead = it },
@@ -377,9 +379,7 @@ private fun PendingDestinationCard(p: PendingDest, onConfirm: (String) -> Unit, 
 private fun ConvoyHeader(
     ui: ConvoyUi,
     copied: Boolean,
-    ptt: app.convoyage.design.PttState,
-    onPttDown: () -> Unit,
-    onPttUp: () -> Unit,
+    ptt: PttControl,
     onCopy: () -> Unit,
     onShare: () -> Unit,
     onQr: () -> Unit,
@@ -400,7 +400,7 @@ private fun ConvoyHeader(
                         .padding(horizontal = Space.s2, vertical = 6.dp),
                 ) { CvText(if (copied) "COPIED" else room.code, Cv.type.telemetry, if (copied) c.go else c.signal, maxLines = 1) }
                 CvIconButton(CvIcons.Share, "Share invite", onShare, size = 40.dp)
-                CvIconButton(CvIcons.Cube, "Show QR code", onQr, size = 40.dp)
+                CvIconButton(CvIcons.Qr, "Show QR code", onQr, size = 40.dp)
                 Box {
                     CvIconButton(CvIcons.Comment, "Open chat", onChat, size = 40.dp, tint = if (ui.unread > 0) c.signal else c.ink, edge = if (ui.unread > 0) c.signal else c.lineStrong)
                     if (ui.unread > 0) {
@@ -412,7 +412,7 @@ private fun ConvoyHeader(
                 }
             }
         }
-        PushToTalk(state = ptt, size = 64.dp, onPress = onPttDown, onRelease = onPttUp)
+        PushToTalk(state = ptt.state, size = 64.dp, caption = ptt.caption, onPress = ptt.onPress, onRelease = ptt.onRelease)
     }
 }
 

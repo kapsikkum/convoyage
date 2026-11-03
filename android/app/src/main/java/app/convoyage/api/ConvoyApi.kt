@@ -37,6 +37,12 @@ interface HazardApi {
     suspend fun dismissHazard(id: String): ApiResult<Hazard>
 }
 
+/** The routing endpoint, an interface so [app.convoyage.nav.NavigationController] can be tested. */
+interface RouteApi {
+    /** `GET /v1/route`. [profile] is "car" or "motorcycle". */
+    suspend fun route(from: app.convoyage.data.LatLngD, to: app.convoyage.data.LatLngD, profile: String, via: List<app.convoyage.data.LatLngD> = emptyList()): ApiResult<RouteResponse>
+}
+
 /** What the ride recorder needs from the server; an interface so [app.convoyage.data.RideRecorder] can be tested. */
 interface RideApi {
     suspend fun createRide(body: CreateRide): ApiResult<Ride>
@@ -62,7 +68,7 @@ class ConvoyApi(
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .build(),
-) : HazardApi, RideApi, FeedApi {
+) : HazardApi, RideApi, FeedApi, RouteApi {
     val refresher = TokenRefresher(tokens, client, baseUrl, onSessionLost)
     private val http: OkHttpClient = client.newBuilder().authenticator(TokenAuthenticator(refresher)).build()
     private val jsonType = "application/json".toMediaType()
@@ -98,6 +104,25 @@ class ConvoyApi(
 
     override suspend fun dismissHazard(id: String): ApiResult<Hazard> =
         send("POST", "v1/hazards/$id/dismiss", null, Hazard.serializer())
+
+    // ---- navigation and voice --------------------------------------------------------------------
+
+    override suspend fun route(
+        from: app.convoyage.data.LatLngD, to: app.convoyage.data.LatLngD, profile: String, via: List<app.convoyage.data.LatLngD>,
+    ): ApiResult<RouteResponse> {
+        fun p(l: app.convoyage.data.LatLngD) = String.format(java.util.Locale.US, "%.6f,%.6f", l.lng, l.lat)
+        val q = buildMap {
+            put("from", p(from))
+            put("to", p(to))
+            if (via.isNotEmpty()) put("via", via.joinToString(";") { p(it) })
+            put("profile", if (profile == "motorcycle") "motorcycle" else "car")
+        }
+        return send("GET", "v1/route", null, RouteResponse.serializer(), query = q)
+    }
+
+    /** `POST /v1/voice/token`: a LiveKit token for the room `convoy-<code>`. 501 when the server has no LiveKit. */
+    suspend fun voiceToken(convoyCode: String): ApiResult<VoiceToken> =
+        send("POST", "v1/voice/token", ApiJson.encodeToString(VoiceTokenRequest.serializer(), VoiceTokenRequest(convoyCode)), VoiceToken.serializer())
 
     // ---- vehicles --------------------------------------------------------------------------------
 

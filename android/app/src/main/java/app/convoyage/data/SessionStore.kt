@@ -59,6 +59,21 @@ class SessionStore(context: Context) {
     /** The background-location rationale has been shown (and answered) once; do not nag. */
     val bgRationaleSeen: StateFlow<Boolean> = _bgSeen.asStateFlow()
 
+    private val _navVoice = MutableStateFlow(prefs.getBoolean("navVoice", true))
+
+    /** Spoken turn-by-turn prompts on or off (the mute button on the maneuver card flips it). */
+    val navVoice: StateFlow<Boolean> = _navVoice.asStateFlow()
+
+    private val _navRate = MutableStateFlow(prefs.getFloat("navVoiceRate", 1.0f))
+
+    /** Text-to-speech rate for prompts: 1.0 is normal. */
+    val navVoiceRate: StateFlow<Float> = _navRate.asStateFlow()
+
+    private val _navVoiceName = MutableStateFlow(prefs.getString("navVoiceName", null))
+
+    /** The chosen text-to-speech voice, or null for the engine's default. */
+    val navVoiceName: StateFlow<String?> = _navVoiceName.asStateFlow()
+
     val signedIn: Boolean get() = !_name.value.isNullOrBlank()
 
     init {
@@ -100,6 +115,21 @@ class SessionStore(context: Context) {
     fun setBgRationaleSeen(seen: Boolean) {
         prefs.edit().putBoolean("bgRationaleSeen", seen).apply()
         _bgSeen.value = seen
+    }
+
+    fun setNavVoice(on: Boolean) {
+        prefs.edit().putBoolean("navVoice", on).apply()
+        _navVoice.value = on
+    }
+
+    fun setNavVoiceRate(rate: Float) {
+        prefs.edit().putFloat("navVoiceRate", rate).apply()
+        _navRate.value = rate
+    }
+
+    fun setNavVoiceName(name: String?) {
+        prefs.edit().apply { if (name == null) remove("navVoiceName") else putString("navVoiceName", name) }.apply()
+        _navVoiceName.value = name
     }
 
     fun setNight(night: Boolean) {

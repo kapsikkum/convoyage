@@ -10,6 +10,8 @@ import app.convoyage.data.FeedRepository
 import app.convoyage.data.GarageRepository
 import app.convoyage.data.ImageLoader
 import app.convoyage.data.LatLngD
+import app.convoyage.data.Link
+import app.convoyage.data.RideMode
 import app.convoyage.data.RideRecorder
 import app.convoyage.data.RideStage
 import app.convoyage.data.RideStore
@@ -20,7 +22,12 @@ import app.convoyage.data.LocationTracker
 import app.convoyage.data.SessionStore
 import app.convoyage.data.SignInOutcome
 import app.convoyage.data.SocketAuth
+import app.convoyage.nav.NavVoice
+import app.convoyage.nav.NavigationController
+import app.convoyage.nav.NominatimSearch
+import app.convoyage.nav.PlaceSearch
 import app.convoyage.net.ConvoySocket
+import app.convoyage.voice.VoiceChat
 import app.convoyage.service.ConvoyService
 import app.convoyage.service.CrashAlertController
 import app.convoyage.service.Notifications
@@ -49,8 +56,17 @@ class AppContainer(private val context: Context) {
         onSessionLost = { appScope.launch { account.sessionLost(); convoy.disconnect(); hazards.clear(); clearAccountData() } },
     )
     val account = AccountRepository(api, session, appScope)
-    val convoy = ConvoyRepository(appScope, ConvoySocket(), tracker) { force -> api.freshAccessToken(force) }
+    private val routeProfile: () -> String = { if (session.mode.value == RideMode.Ride) "motorcycle" else "car" }
+    val convoy = ConvoyRepository(appScope, ConvoySocket(), tracker, { force -> api.freshAccessToken(force) }, api, routeProfile)
     val hazards = HazardRepository(appScope, api, convoy.hazardMessages)
+
+    /** Turn-by-turn: spoken prompts, the route and where we are on it. */
+    val navVoice = NavVoice(context, session)
+    val nav = NavigationController(appScope, api, tracker.fix, hazards.active, navVoice, routeProfile)
+    val places: PlaceSearch = NominatimSearch()
+
+    /** Push-to-talk to the convoy (LiveKit). Connects while a convoy is on. */
+    val voice = VoiceChat(context, appScope, { code -> api.voiceToken(code) })
     val garage = GarageRepository(appScope, api)
     val rides = RidesRepository(appScope, api)
     val images = ImageLoader(appScope, api)
@@ -78,15 +94,21 @@ class AppContainer(private val context: Context) {
     /** Starts the foreground service if a convoy or a ride is on and the location permission is there. */
     fun ensureService() {
         if (!tracker.hasPermission()) return
-        if (convoy.state.value.activeCode != null || recorder.state.value.isActive) ConvoyService.start(context)
+        if (convoy.state.value.activeCode != null || recorder.state.value.isActive || nav.state.value.isOn) ConvoyService.start(context)
     }
 
     init {
         Notifications.ensureChannels(context)
         appScope.launch {
-            combine(convoy.state.map { it.activeCode != null }, recorder.state.map { it.isActive }) { a, b -> a || b }
+            combine(convoy.state.map { it.activeCode != null }, recorder.state.map { it.isActive }, nav.state.map { it.isOn }) { a, b, c -> a || b || c }
                 .distinctUntilChanged()
                 .collect { on -> if (on) ensureService() }
+        }
+        // Push-to-talk: a voice room per convoy, joined with the convoy and left with it.
+        appScope.launch {
+            convoy.state.map { if (it.link == Link.Online) it.activeCode else null }.distinctUntilChanged().collect { code ->
+                if (code != null) voice.join(code) else voice.leave()
+            }
         }
         recorder.restore()
         // "Record convoy rides automatically": a convoy appearing starts a ride, the convoy going away stops it.

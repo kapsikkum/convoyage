@@ -86,13 +86,12 @@ class HomeViewModel(container: AppContainer) : ViewModel() {
 }
 
 @Composable
-fun HomeScreen(onOpenConvoy: (join: Boolean) -> Unit, onOpenGarage: () -> Unit) {
+fun HomeScreen(onOpenConvoy: (join: Boolean) -> Unit, onOpenNavigation: () -> Unit, onOpenGarage: () -> Unit) {
     val container = LocalContainer.current
     val vm: HomeViewModel = viewModel(factory = viewModelFactory { initializer { HomeViewModel(container) } })
     val ui by vm.ui.collectAsStateWithLifecycle()
     val c = Cv.colors
-    var navigateHint by remember { mutableStateOf(false) }
-    LaunchedEffect(navigateHint) { if (navigateHint) { delay(4000); navigateHint = false } }
+    val navState by container.nav.state.collectAsStateWithLifecycle()
 
     var showRecord by remember { mutableStateOf(false) }
     val garage by container.garage.state.collectAsStateWithLifecycle()
@@ -119,7 +118,7 @@ fun HomeScreen(onOpenConvoy: (join: Boolean) -> Unit, onOpenGarage: () -> Unit) 
             CvAvatar(Roster.initials(ui.name), null)
         }
 
-        LiveConvoyCard(ui, onClick = { onOpenConvoy(false) })
+        LiveConvoyCard(ui, eta = if (navState.isOn) navState.etaMs?.let { Fmt.clockOfDay(it) } ?: "--:--" else "--:--", onClick = { onOpenConvoy(false) })
 
         RecordCard(onOpenSheet = { showRecord = true })
 
@@ -127,10 +126,8 @@ fun HomeScreen(onOpenConvoy: (join: Boolean) -> Unit, onOpenGarage: () -> Unit) 
             // Three across at 360 to 390dp: compact padding, and the label shrinks rather than being cut off.
             CvButton(if (ui.room != null) "Convoy" else "Start", { onOpenConvoy(false) }, Modifier.weight(1f), CvButtonKind.Primary, compact = true)
             CvButton("Join", { onOpenConvoy(true) }, Modifier.weight(1f), CvButtonKind.Ghost, compact = true)
-            // TODO(nav): turn-by-turn navigation (route search + OSRM/Valhalla) is not in this version.
-            CvButton("Navigate", { navigateHint = true }, Modifier.weight(1f), CvButtonKind.Ghost, icon = CvIcons.Navigate, compact = true)
+            CvButton(if (navState.isOn) "Navigating" else "Navigate", onOpenNavigation, Modifier.weight(1f), CvButtonKind.Ghost, icon = CvIcons.Navigate, compact = true)
         }
-        if (navigateHint) Banner(BannerTone.Police, "Navigation is coming", sub = "Turn-by-turn lands in a later version.", icon = CvIcons.Navigate)
 
         Column(verticalArrangement = Arrangement.spacedBy(Space.s2)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -167,7 +164,7 @@ fun HomeScreen(onOpenConvoy: (join: Boolean) -> Unit, onOpenGarage: () -> Unit) 
 }
 
 @Composable
-private fun LiveConvoyCard(ui: HomeUi, onClick: () -> Unit) {
+private fun LiveConvoyCard(ui: HomeUi, eta: String, onClick: () -> Unit) {
     val c = Cv.colors
     val live = ui.room != null
     CvCard(
@@ -194,8 +191,7 @@ private fun LiveConvoyCard(ui: HomeUi, onClick: () -> Unit) {
                 Row(Modifier.fillMaxWidth().padding(top = Space.s3), horizontalArrangement = Arrangement.spacedBy(Space.s3)) {
                     Readout("Online", "${ui.onlineCount}/${ui.memberCount}", Modifier.weight(1f), valueStyle = Cv.type.telemetryL.copy(fontSize = 22.sp))
                     Readout("Spread", ui.spread.uppercase(), Modifier.weight(1f), valueStyle = Cv.type.telemetryL.copy(fontSize = 22.sp))
-                    // TODO(eta): ETA needs a destination and routing.
-                    Readout("ETA", "--:--", Modifier.weight(1f), valueStyle = Cv.type.telemetryL.copy(fontSize = 22.sp))
+                    Readout("ETA", eta, Modifier.weight(1f), valueStyle = Cv.type.telemetryL.copy(fontSize = 22.sp))
                 }
             } else {
                 CvText("Start a convoy or join one with its eight-letter code.", Cv.type.body, c.inkMuted)

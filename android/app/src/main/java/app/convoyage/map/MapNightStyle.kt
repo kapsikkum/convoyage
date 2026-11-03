@@ -298,6 +298,13 @@ object MapNightStyle {
         else source.setGeoJson(Feature.fromGeometry(LineString.fromLngLats(pts)))
     }
 
+    /** Replaces the route polyline with a decoded road route (can be thousands of points). */
+    fun setRouteLine(style: Style, points: List<app.convoyage.data.LatLngD>) {
+        val source = style.getSourceAs<GeoJsonSource>(ROUTE_SOURCE) ?: return
+        if (points.size < 2) source.setGeoJson(FeatureCollection.fromFeatures(emptyList<Feature>()))
+        else source.setGeoJson(Feature.fromGeometry(LineString.fromLngLats(points.map { Point.fromLngLat(it.lng, it.lat) })))
+    }
+
     fun setBuildings3d(style: Style, extrusionIds: List<String>, on: Boolean) {
         for (id in extrusionIds) style.getLayerAs<FillExtrusionLayer>(id)?.setProperties(visibility(if (on) Property.VISIBLE else Property.NONE))
     }

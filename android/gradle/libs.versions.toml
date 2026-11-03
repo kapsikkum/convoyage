@@ -12,6 +12,7 @@ coroutines = "1.11.0"
 maplibre = "13.7.1"
 junit = "4.13.2"
 zxing = "3.5.3"
+livekit = "2.30.0"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
@@ -32,6 +33,7 @@ kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serializa
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
 maplibre = { module = "org.maplibre.gl:android-sdk", version.ref = "maplibre" }
+livekit = { module = "io.livekit:livekit-android", version.ref = "livekit" }
 zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
 junit = { module = "junit:junit", version.ref = "junit" }
 

@@ -1,6 +1,13 @@
 package app.convoyage.design
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.draw.scale
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -417,15 +424,17 @@ fun RideTile(
 
 // ---- Push to talk ----------------------------------------------------------------------------
 
-enum class PttState { Idle, Live, Receiving }
+/** Idle: ready. Live: the mic is open (pulse colour). Receiving: somebody else is talking. Connecting / Unavailable: no voice yet. */
+enum class PttState { Idle, Live, Receiving, Connecting, Unavailable }
 
-/** Round push-to-talk button (physically round). UI only: audio comes in a later version. */
+/** Round push-to-talk button (physically round). [caption] sits under it: who is talking, or "Voice unavailable". */
 @Composable
 fun PushToTalk(
     state: PttState,
     modifier: Modifier = Modifier,
     size: Dp = Space.ptt,
     label: String? = null,
+    caption: String? = null,
     onPress: () -> Unit = {},
     onRelease: () -> Unit = {},
 ) {
@@ -434,11 +443,19 @@ fun PushToTalk(
         PttState.Idle -> Triple(c.glass, c.lineStrong, c.signal)
         PttState.Live -> Triple(c.pulse, c.pulse, c.pulseInk)
         PttState.Receiving -> Triple(c.surface200, c.go, c.go)
+        PttState.Connecting -> Triple(c.glass, c.line, c.inkMuted)
+        PttState.Unavailable -> Triple(c.surface300, c.line, c.inkMuted)
     }
+    // While live the button breathes, so it is obvious from the corner of an eye that the mic is open.
+    val pulse by rememberInfiniteTransition(label = "ptt").animateFloat(
+        initialValue = 1f, targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(tween(650), RepeatMode.Reverse), label = "ptt-scale",
+    )
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = modifier) {
         Box(
             modifier = Modifier
                 .size(size)
+                .scale(if (state == PttState.Live) pulse else 1f)
                 .then(if (state == PttState.Live) Modifier.glow(c.pulse, CircleShape, 18.dp) else Modifier)
                 .clip(CircleShape)
                 .background(fill, CircleShape)
@@ -450,17 +467,36 @@ fun PushToTalk(
                         onRelease()
                     })
                 }
-                .semantics { contentDescription = "Hold to talk" },
+                .semantics {
+                    contentDescription = when (state) {
+                        PttState.Unavailable -> "Voice unavailable. Press to retry"
+                        PttState.Connecting -> "Voice connecting"
+                        else -> "Hold to talk"
+                    }
+                },
             contentAlignment = Alignment.Center,
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 CvIcon(CvIcons.Mic, ink, size = size / 3)
                 CvText(
-                    label ?: if (state == PttState.Live) "LIVE" else "HOLD",
+                    label ?: when (state) {
+                        PttState.Live -> "LIVE"
+                        PttState.Receiving -> "RX"
+                        PttState.Unavailable -> "OFF"
+                        PttState.Connecting -> "..."
+                        PttState.Idle -> "HOLD"
+                    },
                     Cv.type.label.copy(fontSize = 10.sp, lineHeight = 12.sp),
                     ink,
                 )
             }
+        }
+        if (caption != null) {
+            CvText(
+                caption.uppercase(), Cv.type.label.copy(fontSize = 9.sp, lineHeight = 11.sp, letterSpacing = 0.06.sp),
+                if (state == PttState.Receiving) c.go else c.inkMuted,
+                Modifier.padding(top = 4.dp).widthIn(max = 88.dp), maxLines = 2, textAlign = TextAlign.Center,
+            )
         }
     }
 }

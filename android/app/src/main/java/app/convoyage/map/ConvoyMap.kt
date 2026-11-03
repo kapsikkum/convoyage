@@ -27,6 +27,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.convoyage.BuildConfig
 import app.convoyage.data.Bbox
+import app.convoyage.data.LatLngD
 import app.convoyage.design.MapPin
 import app.convoyage.design.PinKind
 import org.maplibre.android.camera.CameraPosition
@@ -77,6 +78,14 @@ fun ConvoyMap(
     interactive: Boolean = true,
     /** A long press on the map (the leader sets the destination with it). Null = long press does nothing. */
     onLongPress: ((LatLng) -> Unit)? = null,
+    /** A road-following route; drawn instead of [route] when it has two or more points. */
+    routeLine: List<LatLngD> = emptyList(),
+    /** Navigation: while following, point the camera this way (degrees clockwise from north) and tilt it. Null = keep the bearing. */
+    followBearing: Double? = null,
+    /** Navigation: zoom level while following. Null = keep the current zoom (at least 14). */
+    followZoom: Double? = null,
+    /** Extra padding above the visible map, so the followed position sits in the lower part of the screen. */
+    topPadding: Dp = 0.dp,
 ) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -149,10 +158,10 @@ fun ConvoyMap(
     }
 
     // Keep the map clear of the bottom sheet so "centre" means centre of the visible part.
-    LaunchedEffect(map, bottomPadding) {
+    LaunchedEffect(map, bottomPadding, topPadding) {
         val m = map ?: return@LaunchedEffect
         val bottom = with(density) { bottomPadding.toPx() }.toInt()
-        m.setPadding(0, 0, 0, bottom)
+        m.setPadding(0, with(density) { topPadding.toPx() }.toInt(), 0, bottom)
         m.uiSettings.setAttributionMargins(with(density) { 12.dp.toPx() }.toInt(), 0, 0, bottom + with(density) { 4.dp.toPx() }.toInt())
     }
 
@@ -162,9 +171,9 @@ fun ConvoyMap(
         MapNightStyle.setColliders(s, pins.map { it.lat to it.lng })
     }
 
-    LaunchedEffect(style, route) {
+    LaunchedEffect(style, route, routeLine) {
         val s = style ?: return@LaunchedEffect
-        MapNightStyle.setRoute(s, route)
+        if (routeLine.size >= 2) MapNightStyle.setRouteLine(s, routeLine) else MapNightStyle.setRoute(s, route)
     }
 
     LaunchedEffect(style, extrusions, buildings3d) {
@@ -176,11 +185,13 @@ fun ConvoyMap(
         m.animateCamera(CameraUpdateFactory.newCameraPosition(CameraPosition.Builder(cam).tilt(if (buildings3d) 60.0 else 0.0).build()), 600)
     }
 
-    LaunchedEffect(map, me, follow, recenterTick) {
+    LaunchedEffect(map, me, follow, recenterTick, followBearing, followZoom) {
         val m = map ?: return@LaunchedEffect
         if (follow && me != null) {
-            val zoom = m.cameraPosition.zoom.coerceAtLeast(14.0)
-            m.easeCamera(CameraUpdateFactory.newCameraPosition(CameraPosition.Builder(m.cameraPosition).target(me).zoom(zoom).build()), 700)
+            val zoom = followZoom ?: m.cameraPosition.zoom.coerceAtLeast(14.0)
+            val cam = CameraPosition.Builder(m.cameraPosition).target(me).zoom(zoom)
+            if (followBearing != null) cam.bearing(followBearing).tilt(60.0)
+            m.easeCamera(CameraUpdateFactory.newCameraPosition(cam.build()), 900)
         }
     }
 

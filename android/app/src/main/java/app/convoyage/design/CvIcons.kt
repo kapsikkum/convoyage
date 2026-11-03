@@ -84,6 +84,30 @@ object CvIcons {
     val Fourwd = stroke(
         "fourwd", "M3 17V11l2-4.5h11l3.5 4.5H21v6M3 17h18M5 11h14.5M10.5 6.5V11", circle(7.5f, 17.5f, 2.2f), circle(16.5f, 17.5f, 2.2f),
     )
+    // QR code glyph: three finder squares (each with its dot) and a few data modules, like the real thing.
+    val Qr = stroke(
+        "qr", "M4 4h6v6H4z", "M14 4h6v6h-6z", "M4 14h6v6H4z",
+        "M7 7h.01", "M17 7h.01", "M7 17h.01",
+        "M14 14h2v2h-2z", "M18 14h2M14 18h2v2M18 18h2v2",
+    )
+    val Search = stroke("search", circle(10.5f, 10.5f, 6f), "M15 15l5.5 5.5")
+    val VolumeOn = stroke("volume_on", "M4 9.5v5h4l5 4v-13l-5 4z", "M16.5 9a4 4 0 0 1 0 6", "M19 6.5a7.5 7.5 0 0 1 0 11")
+    val VolumeOff = stroke("volume_off", "M4 9.5v5h4l5 4v-13l-5 4z", "M17 9.5l5 5M22 9.5l-5 5")
+
+    // Maneuver arrows for the navigation card (24 grid, heading up the screen).
+    val ArrowStraight = stroke("arrow_straight", "M12 20V5", "M6.5 10.5 12 5l5.5 5.5")
+    val ArrowRight = stroke("arrow_right", "M7 20v-8a3 3 0 0 1 3-3h8", "M14 5l4 4-4 4")
+    val ArrowLeft = stroke("arrow_left", "M17 20v-8a3 3 0 0 0-3-3H6", "M10 5 6 9l4 4")
+    val ArrowSlightRight = stroke("arrow_slight_right", "M8 20v-5l8-8", "M10.5 6.5H17V13")
+    val ArrowSlightLeft = stroke("arrow_slight_left", "M16 20v-5L8 7", "M13.5 6.5H7V13")
+    val ArrowSharpRight = stroke("arrow_sharp_right", "M6 6l10 10", "M16 9v7H9")
+    val ArrowSharpLeft = stroke("arrow_sharp_left", "M18 6 8 16", "M8 9v7h7")
+    val ArrowUTurn = stroke("arrow_uturn", "M7 20V9a4 4 0 0 1 8 0v8", "M11.5 13.5 15 17l3.5-3.5")
+    val ArrowRoundabout = stroke("arrow_roundabout", circle(12f, 15.5f, 4f), "M12 11.5V4.5", "M9 7.5l3-3 3 3")
+    val ArrowForkLeft = stroke("arrow_fork_left", "M12 20v-7l-5-5", "M12 13l5-5", "M7 13V8h5")
+    val ArrowForkRight = stroke("arrow_fork_right", "M12 20v-7l5-5", "M12 13 7 8", "M17 13V8h-5")
+    val ArrowMerge = stroke("arrow_merge", "M8 20v-4l4-4V5", "M16 20v-4l-4-4", "M8.5 8.5 12 5l3.5 3.5")
+    val Pin = stroke("pin", "M12 21s-6-5.6-6-10.5a6 6 0 0 1 12 0C18 15.4 12 21 12 21z", circle(12f, 10.5f, 2f))
     val Route = stroke("route", circle(6f, 18f, 2.5f), circle(18f, 6f, 2.5f), "M8.5 18H15a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h6.5")
 }
 

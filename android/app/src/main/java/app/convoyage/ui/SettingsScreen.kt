@@ -11,7 +11,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,6 +46,7 @@ import app.convoyage.design.Space
  * Settings, reachable from Profile's gear and from the Welcome screen (so the server can be set before signing in).
  * The server address is editable in every build and stored on the phone.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(onBack: () -> Unit) {
     val c = Cv.colors
@@ -120,6 +123,34 @@ fun SettingsScreen(onBack: () -> Unit) {
             CvText("Night theme", Cv.type.bodyStrong, c.ink)
             CvChipToggle(if (night) "On" else "Off", night, { session.setNight(!night) })
         }
+
+        Eyebrow("NAVIGATION VOICE")
+        val navVoice by session.navVoice.collectAsStateWithLifecycle()
+        val rate by session.navVoiceRate.collectAsStateWithLifecycle()
+        val voiceName by session.navVoiceName.collectAsStateWithLifecycle()
+        val voices by container.navVoice.voices.collectAsStateWithLifecycle()
+        LaunchedEffect(Unit) { container.navVoice.prepare() }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f).padding(end = Space.s3)) {
+                CvText("Spoken directions", Cv.type.bodyStrong, c.ink)
+                CvText("Turn prompts at about 800 m, 200 m and at the turn, fewer at low speed. English (Australia) when your phone has it.", Cv.type.bodyS, c.inkMuted)
+            }
+            CvChipToggle(if (navVoice) "On" else "Off", navVoice, { session.setNavVoice(!navVoice) })
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(Space.s2), verticalAlignment = Alignment.CenterVertically) {
+            Eyebrow("SPEED")
+            listOf("Slow" to 0.8f, "Normal" to 1.0f, "Fast" to 1.25f).forEach { (label, r) ->
+                CvChipToggle(label, kotlin.math.abs(rate - r) < 0.01f, { session.setNavVoiceRate(r) })
+            }
+        }
+        if (voices.size > 1) {
+            Eyebrow("VOICE")
+            androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.s2), verticalArrangement = Arrangement.spacedBy(Space.s2)) {
+                CvChipToggle("Default", voiceName == null, { session.setNavVoiceName(null) })
+                voices.take(8).forEach { v -> CvChipToggle(v.label, voiceName == v.name, { session.setNavVoiceName(v.name) }) }
+            }
+        }
+        CvButton("Test voice", { container.navVoice.test() }, Modifier.fillMaxWidth(), CvButtonKind.Ghost)
 
         Eyebrow("RECORDING")
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {

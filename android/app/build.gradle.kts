@@ -79,6 +79,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.maplibre)
     implementation(libs.zxing.core)
+    implementation(libs.livekit)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

@@ -7,13 +7,15 @@ import app.convoyage.data.Chat
 import app.convoyage.data.ConvoyAlert
 import app.convoyage.data.Fix
 import app.convoyage.data.Geo
+import app.convoyage.data.LatLngD
+import app.convoyage.data.LocalRoute
+import app.convoyage.nav.RouteLine
 import app.convoyage.data.Link
 import app.convoyage.data.Roster
 import app.convoyage.data.StatusEvent
 import app.convoyage.data.RosterEntry
 import app.convoyage.data.Side
 import app.convoyage.design.MemberState
-import app.convoyage.design.PttState
 import app.convoyage.protocol.ConvoyMessage
 import app.convoyage.protocol.Destination
 import kotlinx.coroutines.launch
@@ -43,6 +45,8 @@ data class ConvoyUi(
     val sos: StatusEvent? = null,
     /** Display name of [sos] sender. */
     val sosName: String = "",
+    /** The line the map draws for the convoy: the room's road route, else the leader's own, else the shared stops. */
+    val routeLine: List<LatLngD> = emptyList(),
 ) {
     val me: RosterEntry? get() = roster.firstOrNull { it.isMe }
     val onlineCount: Int get() = roster.count { it.state != MemberState.Offline }
@@ -57,7 +61,6 @@ data class ConvoyLocal(
     val buildings3d: Boolean = true,
     val follow: Boolean = true,
     val recenterTick: Int = 0,
-    val ptt: PttState = PttState.Idle,
     val iAmStopping: Boolean = false,
     /** A spot the leader long-pressed on the map and has not confirmed yet. */
     val pendingDest: PendingDest? = null,
@@ -88,7 +91,7 @@ class ConvoyViewModel(private val container: AppContainer) : ViewModel() {
     private val sosDismissedAt = MutableStateFlow(0L)
     fun dismissSos() { sosDismissedAt.value = System.currentTimeMillis() }
 
-    val ui: StateFlow<ConvoyUi> = combine(repo.state, container.tracker.fix, reads, sosDismissedAt) { s, fix, readMap, dismissed ->
+    val ui: StateFlow<ConvoyUi> = combine(repo.state, container.tracker.fix, reads, sosDismissedAt, repo.localRoute) { s, fix, readMap, dismissed, local ->
         val room = s.active
         val roster = room?.let { Roster.build(it, s.meId, fix, container.session.name.value) }.orEmpty()
         val chat = s.active?.let { s.chat[it.code] }.orEmpty()
@@ -110,8 +113,22 @@ class ConvoyViewModel(private val container: AppContainer) : ViewModel() {
             unread = Chat.unread(chat, s.meId, readTs),
             sos = sosEvent,
             sosName = sosEvent?.let { e -> roster.firstOrNull { it.id == e.memberId }?.name } ?: "",
+            routeLine = cachedLine(room, local),
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ConvoyUi())
+
+    private var lineKey: List<Any?>? = null
+    private var lineValue: List<LatLngD> = emptyList()
+
+    /** [RouteLine.pick], but the (possibly 5000-point) polyline is only decoded again when its inputs change, not at every position update. */
+    private fun cachedLine(room: Room?, local: LocalRoute?): List<LatLngD> {
+        val key = listOf(room?.code, room?.routeGeometry, room?.destination, room?.route, local)
+        if (key != lineKey) {
+            lineKey = key
+            lineValue = RouteLine.pick(room, local)
+        }
+        return lineValue
+    }
 
     /** The chat is on screen: everything in it counts as read. */
     fun markChatRead() {
@@ -144,6 +161,7 @@ class ConvoyViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     fun clearDestination() = repo.setDestination(null, null)
+    fun rename(name: String) = repo.rename(name)
     fun handOver(memberId: String) = repo.handOver(memberId)
     fun remove(memberId: String) = repo.remove(memberId)
     fun continueFromRest() = repo.continueFromRest()
@@ -165,10 +183,6 @@ class ConvoyViewModel(private val container: AppContainer) : ViewModel() {
     fun toggle3d() = _local.update { it.copy(buildings3d = !it.buildings3d) }
     fun userMovedMap() = _local.update { if (it.follow) it.copy(follow = false) else it }
     fun recenter() = _local.update { it.copy(follow = true, recenterTick = it.recenterTick + 1) }
-
-    /** UI only: audio is not built yet. TODO(ptt): capture + stream voice; flip to Receiving from the server. */
-    fun pttDown() = _local.update { it.copy(ptt = PttState.Live) }
-    fun pttUp() = _local.update { it.copy(ptt = PttState.Idle) }
 
     /**
      * "I'm stopping": a local banner, plus a convoy chat message (`convoy.message`) because the v1 protocol has chat

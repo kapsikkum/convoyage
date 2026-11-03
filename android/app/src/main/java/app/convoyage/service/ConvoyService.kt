@@ -10,6 +10,7 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import app.convoyage.AppContainer
 import app.convoyage.ConvoyageApp
+import app.convoyage.data.Geo
 import app.convoyage.ui.Fmt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -39,7 +40,10 @@ class ConvoyService : Service() {
         val first = Notifications.convoy(this, "Convoyage", "Starting...", canLeave = false)
         try {
             if (Build.VERSION.SDK_INT >= 29) {
-                ServiceCompat.startForeground(this, Notifications.ID_CONVOY, first, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+                // The microphone type needs RECORD_AUDIO already granted (else the system throws), so it only joins once it is.
+                var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+                if (Build.VERSION.SDK_INT >= 30 && c.voice.hasMicPermission()) type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                ServiceCompat.startForeground(this, Notifications.ID_CONVOY, first, type)
             } else {
                 startForeground(Notifications.ID_CONVOY, first)
             }
@@ -58,16 +62,22 @@ class ConvoyService : Service() {
         c.convoy.setVisible(true)
         monitor = CrashMonitor(this, c.tracker) { c.crash.trigger() }
         job = scope.launch {
-            combine(c.convoy.state, c.recorder.state, c.session.crashDetection) { convoy, rec, crash -> Triple(convoy, rec, crash) }
-                .collect { (convoy, rec, crash) ->
+            combine(c.convoy.state, c.recorder.state, c.session.crashDetection, c.nav.state) { convoy, rec, crash, nav -> Quad(convoy, rec, crash, nav) }
+                .collect { (convoy, rec, crash, nav) ->
                     val room = convoy.active
-                    if (room == null && !rec.isActive) {
+                    if (room == null && !rec.isActive && !nav.isOn) {
                         stopSelf()
                         return@collect
                     }
                     val online = room?.members?.count { it.online } ?: 0
-                    val title = room?.name?.ifBlank { null } ?: if (room != null) "Convoy" else "Recording a ride"
+                    val title = when {
+                        nav.isOn -> "Navigating" + (nav.destination?.name?.let { " to $it" } ?: "")
+                        room != null -> room.name.ifBlank { null } ?: "Convoy"
+                        else -> "Recording a ride"
+                    }
                     val text = buildString {
+                        if (nav.isOn) append("${Geo.formatDistance(nav.remainingM)} · ${Math.round(nav.remainingS / 60.0)} min left")
+                        if (nav.isOn && (room != null || rec.isActive)) append(" · ")
                         if (room != null) append("$online online · code ${room.code}")
                         if (room != null && rec.isActive) append(" · ")
                         if (rec.isActive) append("Ride ${Fmt.clock(rec.elapsedS)}${if (rec.isPaused) " (paused)" else ""}")
@@ -79,6 +89,8 @@ class ConvoyService : Service() {
                 }
         }
     }
+
+    private data class Quad<A, B, C, D>(val a: A, val b: B, val c: C, val d: D)
 
     override fun onDestroy() {
         if (running) {

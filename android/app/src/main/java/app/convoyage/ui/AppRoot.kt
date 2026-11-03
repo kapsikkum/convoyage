@@ -44,6 +44,7 @@ object Routes {
     const val CONVOY = "convoy?join={join}"
     const val RIDE = "ride"
     const val REPORT = "report"
+    const val NAV = "nav"
 
     fun convoy(join: Boolean) = "convoy?join=$join"
     fun garage(id: String) = "garage/$id"
@@ -113,6 +114,7 @@ fun AppRoot(container: AppContainer) {
                 composable(Routes.HOME) {
                     HomeScreen(
                         onOpenConvoy = { join -> nav.navigate(Routes.convoy(join)) },
+                        onOpenNavigation = { nav.navigate(Routes.NAV) { launchSingleTop = true } },
                         onOpenGarage = { nav.switchTab(Routes.GARAGE) },
                     )
                 }
@@ -156,6 +158,7 @@ fun AppRoot(container: AppContainer) {
                 }
                 composable(Routes.RIDE) { RideScreen(onExit = { nav.popBackStack() }, onReport = { nav.navigate(Routes.REPORT) }) }
                 composable(Routes.REPORT) { ReportScreen(onBack = { nav.popBackStack() }) }
+                composable(Routes.NAV) { NavScreen(onBack = { nav.popBackStack() }, onReport = { nav.navigate(Routes.REPORT) }) }
             }
 
             BackgroundAccessGate(container)

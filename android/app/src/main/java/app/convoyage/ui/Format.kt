@@ -17,6 +17,26 @@ object Fmt {
         return if (h > 0) String.format(Locale.US, "%d:%02d:%02d", h, m, sec) else String.format(Locale.US, "%d:%02d", m, sec)
     }
 
+    /** Distance to the next turn for the card: "300 M" (to 10 m, 5 m under 100), "1.2 KM". */
+    fun navDistance(m: Double): String {
+        val d = m.coerceAtLeast(0.0)
+        return when {
+            d >= 1000 -> String.format(Locale.US, "%.1f KM", d / 1000.0)
+            d >= 100 -> String.format(Locale.US, "%d M", Math.round(d / 10.0) * 10)
+            else -> String.format(Locale.US, "%d M", Math.round(d / 5.0) * 5)
+        }
+    }
+
+    /** "18:42" in the phone's time zone. */
+    fun clockOfDay(epochMs: Long): String =
+        DateTimeFormatter.ofPattern("HH:mm", Locale.US).withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(epochMs))
+
+    /** "12 min", "1 h 05 min": a time left, for the ETA sheet. */
+    fun duration(totalSeconds: Double): String {
+        val min = Math.round(totalSeconds.coerceAtLeast(0.0) / 60.0)
+        return if (min >= 60) String.format(Locale.US, "%d h %02d min", min / 60, min % 60) else "$min min"
+    }
+
     /** Kilometres: one decimal under 100 km, none above. "0.0" for nothing. */
     fun km(metres: Double): String {
         val km = metres.coerceAtLeast(0.0) / 1000.0

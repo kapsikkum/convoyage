@@ -69,6 +69,8 @@ data class Room(
     val destination: Destination? = null,
     val resting: Boolean = false,
     val route: ConvoyRoute? = null,
+    /** Road-following route to the destination, polyline with 6 decimals. Optional: older servers never send it. */
+    val routeGeometry: String? = null,
     val automaticRegroup: AutomaticRegroup = AutomaticRegroup(),
     val members: List<Member> = emptyList(),
 )
@@ -139,6 +141,14 @@ sealed interface ClientMessage {
 
     @Serializable @SerialName("convoy.dest")
     data class ConvoyDest(val room: String, val destination: Destination?) : ClientMessage
+
+    /** Leader: rename the convoy (max 40 characters). */
+    @Serializable @SerialName("convoy.rename")
+    data class ConvoyRename(val room: String, val name: String) : ClientMessage
+
+    /** Leader: automatic regroup on/off and how far apart the convoy may spread, metres. */
+    @Serializable @SerialName("convoy.regroup")
+    data class ConvoyRegroup(val room: String, val enabled: Boolean, val separationM: Double) : ClientMessage
 
     /** action: "find" | "continue" */
     @Serializable @SerialName("convoy.rest")

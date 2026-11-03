@@ -1,5 +1,9 @@
 package app.convoyage.data
 
+import app.convoyage.api.ApiResult
+import app.convoyage.api.RouteApi
+import app.convoyage.nav.NavMath
+import app.convoyage.nav.NavRoute
 import app.convoyage.net.CLOSE_SESSION_ENDED
 import app.convoyage.net.ConvoySocket
 import app.convoyage.net.SocketEvent
@@ -24,6 +28,11 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.UUID
 
+/** A route the leader fetched itself, kept for the destination it was fetched for. */
+data class LocalRoute(val code: String, val destination: Destination, val points: List<LatLngD>)
+
+private class PendingStart(val destination: Destination, val route: NavRoute, val from: Fix?, val knownRooms: Set<String>)
+
 /** Who the socket signs in as. [Account] uses the stored JWT; [Dev] is the debug-only `?dev_user=` auth. */
 sealed interface SocketAuth {
     data object Account : SocketAuth
@@ -45,6 +54,9 @@ class ConvoyRepository(
     private val socket: ConvoySocket,
     private val tracker: LocationTracker,
     private val tokens: AccessTokenSource = AccessTokenSource { null },
+    /** Road routing for the leader's own route line when the server did not send one. Null = straight lines only. */
+    private val routes: RouteApi? = null,
+    private val profile: () -> String = { "car" },
 ) {
     private val _state = MutableStateFlow(ConvoyState())
     val state: StateFlow<ConvoyState> = _state.asStateFlow()
@@ -53,6 +65,14 @@ class ConvoyRepository(
 
     /** Every `hazard` frame from the socket (fed to [HazardRepository]). */
     val hazardMessages: SharedFlow<ServerMessage.HazardReported> = _hazards.asSharedFlow()
+
+    private val _localRoute = MutableStateFlow<LocalRoute?>(null)
+
+    /** The road route the leader fetched itself for the current destination (used when the room carries no `routeGeometry`). */
+    val localRoute: StateFlow<LocalRoute?> = _localRoute.asStateFlow()
+
+    /** A convoy to start the moment the server answers `convoy.create`: it gets this destination and route. */
+    private var pendingStart: PendingStart? = null
 
     private var connection: Job? = null
     private var publisher: Job? = null
@@ -90,6 +110,7 @@ class ConvoyRepository(
                             val m = event.message
                             if (m is ServerMessage.HazardReported) _hazards.tryEmit(m)
                             _state.update { it.apply(m) }
+                            startPendingIfReady()
                         }
                         is SocketEvent.Closed -> if (event.code == CLOSE_SESSION_ENDED) {
                             stop = true
@@ -158,17 +179,63 @@ class ConvoyRepository(
 
     /**
      * Leader: set (or clear, with null) the destination. The server's rest-stop search needs a shared route and the
-     * members draw it as a line, so a destination also sets a direct two-stop route from [from] to it.
+     * members draw it as a line, so a destination also shares a route: [route] (navigation's, if given), else one the
+     * leader fetches from `/v1/route`, else a direct two-stop line from [from].
+     *
+     * The route goes BEFORE the destination on purpose: the server starts fetching its own road-following
+     * `routeGeometry` when the destination arrives, and any later `convoy.route` would make that fetch obsolete.
      */
-    fun setDestination(destination: Destination?, from: Fix?) {
+    fun setDestination(destination: Destination?, from: Fix?, route: NavRoute? = null) {
         val code = _state.value.activeCode ?: return
-        send(ClientMessage.ConvoyDest(code, destination))
         if (destination == null) {
+            _localRoute.value = null
+            send(ClientMessage.ConvoyDest(code, null))
             send(ClientMessage.ConvoyRouteSet(code, null))
-        } else if (from != null) {
-            val name = destination.label.ifBlank { "Convoy route" }.take(40)
-            send(ClientMessage.ConvoyRouteSet(code, ConvoyRoute(name, listOf(listOf(from.lng, from.lat), listOf(destination.lng, destination.lat)))))
+            return
         }
+        if (from == null) {
+            send(ClientMessage.ConvoyDest(code, destination))
+            return
+        }
+        scope.launch {
+            val nav = route ?: fetchRoute(from, destination)
+            _localRoute.value = nav?.let { LocalRoute(code, destination, it.points) }
+            val stops = nav?.let { NavMath.sampleStops(it) } ?: listOf(listOf(from.lng, from.lat), listOf(destination.lng, destination.lat))
+            val name = destination.label.ifBlank { "Convoy route" }.take(40)
+            send(ClientMessage.ConvoyRouteSet(code, ConvoyRoute(name, stops)))
+            send(ClientMessage.ConvoyDest(code, destination))
+        }
+    }
+
+    private suspend fun fetchRoute(from: Fix, to: Destination): NavRoute? {
+        val api = routes ?: return null
+        val r = api.route(LatLngD(from.lat, from.lng), LatLngD(to.lat, to.lng), profile())
+        return (r as? ApiResult.Ok)?.let { NavRoute.from(it.value) }
+    }
+
+    /**
+     * Starts a convoy that already has a destination and route (navigation's "Invite friends"). The convoy is created
+     * first; when the server's `room` answer arrives and we lead it, the destination and route are sent.
+     */
+    fun startConvoyWithRoute(name: String, destination: Destination, route: NavRoute, from: Fix?) {
+        pendingStart = PendingStart(destination, route, from, _state.value.rooms.keys)
+        createConvoy(name)
+    }
+
+    private fun startPendingIfReady() {
+        val p = pendingStart ?: return
+        val s = _state.value
+        val room = s.active ?: return
+        if (room.code in p.knownRooms || s.meId == null || room.leader != s.meId) return
+        pendingStart = null
+        setDestination(p.destination, p.from, p.route)
+    }
+
+    /** Leader: rename the convoy. */
+    fun rename(name: String) {
+        val code = _state.value.activeCode ?: return
+        val clean = name.trim().take(40)
+        if (clean.isNotEmpty()) send(ClientMessage.ConvoyRename(code, clean))
     }
 
     /** Leader: pass the lead to [memberId]. */
