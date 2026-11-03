@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
-import type { Selectable, Updateable } from 'kysely';
+import { sql, type Selectable, type Updateable } from 'kysely';
+import { haversine } from '../../convoy/geo.js';
 import type { SavedRoutesTable } from '../../db/types.js';
 import { badRequest, notFound } from '../../errors.js';
 import { MAX_CONVOY_ROUTE_STOPS } from '../../convoy/rooms.js';
@@ -60,6 +61,33 @@ export function convoyStops(r: Pick<Row, 'type' | 'waypoints' | 'geometry'>): Pt
   return line;
 }
 
+/** How much a line turns, in degrees of heading change per kilometre, ignoring tiny jitters. */
+export function turnDegPerKm(line: Pt[]): number {
+  let turn = 0, metres = 0, prev: number | null = null;
+  for (let i = 1; i < line.length; i++) {
+    const [lng1, lat1] = line[i - 1], [lng2, lat2] = line[i];
+    const d = haversine(lat1, lng1, lat2, lng2);
+    if (d < 5) continue;
+    metres += d;
+    const k = Math.cos(((lat1 + lat2) / 2) * Math.PI / 180);
+    const heading = Math.atan2((lng2 - lng1) * k, lat2 - lat1) * 180 / Math.PI;
+    if (prev !== null) {
+      let delta = Math.abs(heading - prev) % 360;
+      if (delta > 180) delta = 360 - delta;
+      if (delta > 2) turn += delta;
+    }
+    prev = heading;
+  }
+  return metres < 200 ? 0 : turn / (metres / 1000);
+}
+
+export const character = (degPerKm: number): 'relaxed' | 'flowing' | 'twisty' => (degPerKm < 60 ? 'relaxed' : degPerKm < 150 ? 'flowing' : 'twisty');
+
+function lineOf(r: Pick<Row, 'waypoints' | 'geometry'>): Pt[] {
+  try { if (r.geometry) return decodePolyline(r.geometry, 6, 50_000).map(([lat, lng]): Pt => [lng, lat]); } catch { /* fall back */ }
+  return (typeof r.waypoints === 'string' ? JSON.parse(r.waypoints) : r.waypoints) as Pt[];
+}
+
 export function savedRouteDto(r: Row) {
   const waypoints = (typeof r.waypoints === 'string' ? JSON.parse(r.waypoints) : r.waypoints) as Pt[];
   return {
@@ -105,6 +133,43 @@ export async function savedRouteRoutes(app: FastifyInstance, ctx: ApiContext): P
   }, async (req) => {
     const rows = await db.selectFrom('saved_routes').selectAll().where('owner_id', '=', req.userId).orderBy('updated_at', 'desc').orderBy('id').execute();
     return rows.map(savedRouteDto);
+  });
+
+  app.get('/v1/routes/discover', {
+    ...auth,
+    schema: {
+      ...security, summary: 'Routes other drivers share, starting near a point',
+      description: 'Public routes (and followers-only ones from people you follow) whose start is within `radiusKm` of `lat`,`lng`, nearest first. Your own are left out. Each comes with its character (relaxed, flowing, twisty) from how much the road turns.',
+      querystring: bodyObj({
+        lat: { type: 'number', minimum: -90, maximum: 90 }, lng: { type: 'number', minimum: -180, maximum: 180 },
+        radiusKm: { type: 'number', minimum: 1, maximum: 300, default: 50 }, limit: { type: 'integer', minimum: 1, maximum: 50, default: 30 },
+      }, ['lat', 'lng']),
+      response: { 200: arrayOf(ref('DiscoveredRoute')), ...errorResponses },
+    },
+  }, async (req) => {
+    const q = req.query as { lat: number; lng: number; radiusKm?: number; limit?: number };
+    const radiusM = (q.radiusKm ?? 50) * 1000;
+    const dLat = radiusM / 111_320;
+    const dLng = radiusM / (111_320 * Math.max(0.05, Math.cos(q.lat * Math.PI / 180)));
+    const startLat = sql<number>`coalesce(saved_routes.staging_lat, (saved_routes.waypoints->0->>1)::float8)`;
+    const startLng = sql<number>`coalesce(saved_routes.staging_lng, (saved_routes.waypoints->0->>0)::float8)`;
+    const rows = await db.selectFrom('saved_routes')
+      .innerJoin('profiles', 'profiles.user_id', 'saved_routes.owner_id')
+      .selectAll('saved_routes').select(['profiles.handle as owner_handle', 'profiles.display_name as owner_name'])
+      .where('saved_routes.owner_id', '<>', req.userId)
+      .where('saved_routes.visibility', '<>', 'private')
+      .where(visibleTo(req.userId, 'saved_routes.owner_id', 'saved_routes.visibility'))
+      .where(sql<boolean>`${startLat} between ${q.lat - dLat} and ${q.lat + dLat}`)
+      .where(sql<boolean>`${startLng} between ${q.lng - dLng} and ${q.lng + dLng}`)
+      .orderBy('saved_routes.updated_at', 'desc').limit(500).execute();
+    return rows.map((r) => {
+      const start = r.staging_lat != null && r.staging_lng != null ? [r.staging_lng, r.staging_lat] as Pt : lineOf(r)[0];
+      const deg = turnDegPerKm(lineOf(r));
+      return {
+        route: savedRouteDto(r), owner: { handle: r.owner_handle, displayName: r.owner_name ?? '' },
+        distanceM: Math.round(haversine(q.lat, q.lng, start[1], start[0])), character: character(deg), turnDegPerKm: Math.round(deg),
+      };
+    }).filter((d) => d.distanceM <= radiusM).sort((a, b) => a.distanceM - b.distanceM).slice(0, q.limit ?? 30);
   });
 
   app.get('/v1/users/:handle/routes', {

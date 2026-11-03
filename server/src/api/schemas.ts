@@ -73,6 +73,13 @@ const models: Record<string, object> = {
     visibility: { type: 'string', enum: [...VISIBILITIES] }, source: { type: 'string', enum: ['convoyage', 'photoscout'] },
     createdAt: dateTime, updatedAt: dateTime,
   }),
+  DiscoveredRoute: obj({
+    route: ref('SavedRoute'),
+    owner: obj({ handle: string, displayName: string }),
+    distanceM: { type: 'number', description: 'From the point asked about to where the route starts (staging, else the first waypoint).' },
+    character: { type: 'string', enum: ['relaxed', 'flowing', 'twisty'], description: 'From how much the road turns per kilometre.' },
+    turnDegPerKm: { type: 'number' },
+  }),
   Vehicle: obj({
     id: uuid, ownerId: uuid, kind: { type: 'string', enum: [...VEHICLE_KINDS] }, make: string, model: string, year: nInt, nickname: string,
     build: ref('Build'), isPrimary: bool, soldAt: nDate, createdAt: dateTime, updatedAt: dateTime,

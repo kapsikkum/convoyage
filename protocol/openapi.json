@@ -469,6 +469,54 @@
         ],
         "additionalProperties": false
       },
+      "DiscoveredRoute": {
+        "type": "object",
+        "properties": {
+          "route": {
+            "$ref": "#/components/schemas/SavedRoute"
+          },
+          "owner": {
+            "type": "object",
+            "properties": {
+              "handle": {
+                "type": "string"
+              },
+              "displayName": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "handle",
+              "displayName"
+            ],
+            "additionalProperties": false
+          },
+          "distanceM": {
+            "type": "number",
+            "description": "From the point asked about to where the route starts (staging, else the first waypoint)."
+          },
+          "character": {
+            "type": "string",
+            "enum": [
+              "relaxed",
+              "flowing",
+              "twisty"
+            ],
+            "description": "From how much the road turns per kilometre."
+          },
+          "turnDegPerKm": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "route",
+          "owner",
+          "distanceM",
+          "character",
+          "turnDegPerKm"
+        ],
+        "additionalProperties": false
+      },
       "Vehicle": {
         "type": "object",
         "properties": {
@@ -5386,6 +5434,139 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SavedRoute"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (also used when the viewer may not see the thing)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict with the current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/routes/discover": {
+      "get": {
+        "summary": "Routes other drivers share, starting near a point",
+        "tags": [
+          "routes"
+        ],
+        "description": "Public routes (and followers-only ones from people you follow) whose start is within `radiusKm` of `lat`,`lng`, nearest first. Your own are left out. Each comes with its character (relaxed, flowing, twisty) from how much the road turns.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "number",
+              "minimum": -90,
+              "maximum": 90
+            },
+            "in": "query",
+            "name": "lat",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "number",
+              "minimum": -180,
+              "maximum": 180
+            },
+            "in": "query",
+            "name": "lng",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 300,
+              "default": 50
+            },
+            "in": "query",
+            "name": "radiusKm",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 30
+            },
+            "in": "query",
+            "name": "limit",
+            "required": false
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DiscoveredRoute"
+                  }
                 }
               }
             }

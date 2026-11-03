@@ -85,3 +85,26 @@ test('PhotoScout routes normalise and import as saved routes', () => {
   assert.ok(input.geometry && input.geometry.length > 0);
   assert.equal(psRouteDto({ id: 'x', vertices: [[1, 2]] }), null, 'a route needs a line');
 });
+
+test('discover: public routes starting near a point, nearest first, not my own, with their character', async () => {
+  const c = await t.signup('rc');
+  const straight: [number, number][] = [[149.58, -33.42], [149.58, -33.47]];
+  const zig: [number, number][] = Array.from({ length: 30 }, (_, i) => [149.60 + (i % 2) * 0.002, -33.40 - i * 0.002] as [number, number]);
+  const far: [number, number][] = [[151.2, -33.86], [151.25, -33.9]];
+  const make = (token: string, name: string, waypoints: [number, number][], visibility = 'public') =>
+    t.req('POST', '/v1/routes', { token, body: { name, waypoints, visibility } });
+  assert.equal((await make(a.token, 'Straight run', straight)).status, 201);
+  assert.equal((await make(a.token, 'Zig zag', zig)).status, 201);
+  assert.equal((await make(a.token, 'Sydney', far)).status, 201);
+  assert.equal((await make(a.token, 'Secret', straight, 'private')).status, 201);
+  assert.equal((await make(c.token, 'Mine', straight)).status, 201);
+
+  const r = await t.req('GET', '/v1/routes/discover?lat=-33.42&lng=149.58&radiusKm=20', { token: c.token });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(r.body.map((d: any) => d.route.name), ['Straight run', 'Zig zag']);
+  assert.equal(r.body[0].owner.handle, 'route_a');
+  assert.equal(r.body[0].character, 'relaxed');
+  assert.equal(r.body[1].character, 'twisty');
+  assert.ok(r.body[0].distanceM < r.body[1].distanceM);
+  assert.equal((await t.req('GET', '/v1/routes/discover?lat=100&lng=0', { token: c.token })).status, 400);
+});
