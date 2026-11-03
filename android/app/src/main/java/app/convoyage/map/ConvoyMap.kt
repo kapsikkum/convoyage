@@ -26,6 +26,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.convoyage.BuildConfig
+import app.convoyage.data.Bbox
 import app.convoyage.design.MapPin
 import app.convoyage.design.PinKind
 import org.maplibre.android.camera.CameraPosition
@@ -68,6 +69,8 @@ fun ConvoyMap(
     recenterTick: Int,
     onUserMoved: () -> Unit,
     bottomPadding: Dp = 0.dp,
+    /** Called when the camera comes to rest, with the visible lat/lng box (for loading hazards). */
+    onViewport: (Bbox) -> Unit = {},
 ) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -79,6 +82,7 @@ fun ConvoyMap(
     var tick by remember { mutableIntStateOf(0) }
     var size by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
     val onUserMovedNow by rememberUpdatedState(onUserMoved)
+    val onViewportNow by rememberUpdatedState(onViewport)
     val initial3d = remember { buildings3d }
 
     DisposableEffect(lifecycle, mapView) {
@@ -112,7 +116,13 @@ fun ConvoyMap(
             m.uiSettings.attributionGravity = Gravity.BOTTOM or Gravity.START
             m.setCameraPosition(CameraPosition.Builder().target(me ?: DEFAULT_CENTER).zoom(if (me != null) 15.0 else 11.0).tilt(if (initial3d) 60.0 else 0.0).build())
             m.addOnCameraMoveListener { tick++ }
-            m.addOnCameraIdleListener { tick++ }
+            m.addOnCameraIdleListener {
+                tick++
+                runCatching {
+                    val b = m.projection.visibleRegion.latLngBounds
+                    onViewportNow(Bbox(b.latitudeSouth, b.longitudeWest, b.latitudeNorth, b.longitudeEast))
+                }
+            }
             m.addOnMoveListener(object : MapLibreMap.OnMoveListener {
                 override fun onMoveBegin(detector: org.maplibre.android.gestures.MoveGestureDetector) = onUserMovedNow()
                 override fun onMove(detector: org.maplibre.android.gestures.MoveGestureDetector) = Unit

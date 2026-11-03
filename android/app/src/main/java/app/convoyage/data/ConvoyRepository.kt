@@ -3,19 +3,36 @@ package app.convoyage.data
 import app.convoyage.net.CLOSE_SESSION_ENDED
 import app.convoyage.net.ConvoySocket
 import app.convoyage.net.SocketEvent
-import app.convoyage.net.devSocketUrl
+import app.convoyage.net.accountSocketRequest
+import app.convoyage.net.devSocketRequest
 import app.convoyage.protocol.AutomaticRegroup
 import app.convoyage.protocol.ClientMessage
+import app.convoyage.protocol.ServerMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.UUID
+
+/** Who the socket signs in as. [Account] uses the stored JWT; [Dev] is the debug-only `?dev_user=` auth. */
+sealed interface SocketAuth {
+    data object Account : SocketAuth
+    data class Dev(val userId: String, val name: String) : SocketAuth
+}
+
+/** Supplies access tokens for the socket handshake (refreshing them when needed). */
+fun interface AccessTokenSource {
+    /** Null when signed out. [force] = the server just refused the token we had, so get a new one. */
+    suspend fun accessToken(force: Boolean): String?
+}
 
 /**
  * Owns the one WebSocket and the [ConvoyState] folded from it, and publishes our own position at ~1 Hz
@@ -25,44 +42,78 @@ class ConvoyRepository(
     private val scope: CoroutineScope,
     private val socket: ConvoySocket,
     private val tracker: LocationTracker,
+    private val tokens: AccessTokenSource = AccessTokenSource { null },
 ) {
     private val _state = MutableStateFlow(ConvoyState())
     val state: StateFlow<ConvoyState> = _state.asStateFlow()
+
+    private val _hazards = MutableSharedFlow<ServerMessage.HazardReported>(extraBufferCapacity = 32)
+
+    /** Every `hazard` frame from the socket (fed to [HazardRepository]). */
+    val hazardMessages: SharedFlow<ServerMessage.HazardReported> = _hazards.asSharedFlow()
 
     private var connection: Job? = null
     private var publisher: Job? = null
     private var visibleCount = 0
 
-    /** Connects (and keeps reconnecting with backoff) using the server's dev WebSocket auth. */
-    fun connect(baseUrl: String, userId: String, name: String) {
+    /** Connects (and keeps reconnecting with backoff). A fresh access token is fetched for every attempt. */
+    fun connect(baseUrl: String, auth: SocketAuth) {
         connection?.cancel()
-        val url = devSocketUrl(baseUrl, userId, name)
-        if (url == null) {
-            _state.update { it.copy(link = Link.Offline, error = "Server URL is not valid: $baseUrl") }
-            return
-        }
         connection = scope.launch {
             var attempt = 0
+            var refreshedAfter401 = false
             while (isActive) {
                 _state.update { it.copy(link = Link.Connecting) }
+                val request = when (auth) {
+                    is SocketAuth.Dev -> devSocketRequest(baseUrl, auth.userId, auth.name)
+                    SocketAuth.Account -> {
+                        val jwt = tokens.accessToken(force = refreshedAfter401)
+                        if (jwt == null) {
+                            _state.update { it.copy(link = Link.Rejected, error = "Signed out") }
+                            return@launch
+                        }
+                        accountSocketRequest(baseUrl, jwt)
+                    }
+                }
+                if (request == null) {
+                    _state.update { it.copy(link = Link.Offline, error = "Server URL is not valid: $baseUrl") }
+                    return@launch
+                }
                 var stop = false
-                socket.open(url).collect { event ->
+                var retryNow = false
+                socket.open(request).collect { event ->
                     when (event) {
-                        SocketEvent.Opened -> attempt = 0
-                        is SocketEvent.Received -> _state.update { it.apply(event.message) }
+                        SocketEvent.Opened -> { attempt = 0; refreshedAfter401 = false }
+                        is SocketEvent.Received -> {
+                            val m = event.message
+                            if (m is ServerMessage.HazardReported) _hazards.tryEmit(m)
+                            _state.update { it.apply(m) }
+                        }
                         is SocketEvent.Closed -> if (event.code == CLOSE_SESSION_ENDED) {
                             stop = true
                             _state.update { it.copy(link = Link.Rejected, error = "Session ended") }
                         }
                         is SocketEvent.Failed -> if (event.httpStatus == 401) {
-                            stop = true
-                            _state.update { it.copy(link = Link.Rejected, error = "Server refused sign-in (is CONVOYAGE_DEV_AUTH=1 set?)") }
+                            if (auth == SocketAuth.Account && !refreshedAfter401) {
+                                // The access token probably expired: get a new one and try once more, right away.
+                                refreshedAfter401 = true
+                                retryNow = true
+                            } else {
+                                stop = true
+                                _state.update {
+                                    it.copy(
+                                        link = Link.Rejected,
+                                        error = if (auth is SocketAuth.Dev) "Server refused sign-in (is CONVOYAGE_DEV_AUTH=1 set?)" else "Server refused sign-in",
+                                    )
+                                }
+                            }
                         } else {
-                            _state.update { it.copy(error = "Cannot reach ${url.host}:${url.port}") }
+                            _state.update { it.copy(error = "Cannot reach ${request.url.host}:${request.url.port}") }
                         }
                     }
                 }
                 if (stop) return@launch
+                if (retryNow) continue
                 _state.update { it.copy(link = Link.Offline) }
                 attempt++
                 delay((1000L shl attempt.coerceAtMost(4)).coerceAtMost(15_000L))

@@ -28,6 +28,24 @@ sealed interface SocketEvent {
 /** Close code the server uses when the session ended (no point retrying). */
 const val CLOSE_SESSION_ENDED = 4401
 
+/** The subprotocol the server echoes; the `bearer.<jwt>` entry offered next to it only carries the token. */
+const val WS_PROTOCOL = "convoyage.v1"
+
+/** Exact `Sec-WebSocket-Protocol` value the server reads (server/src/auth.ts `socketToken`): `convoyage.v1, bearer.<jwt>`. */
+fun socketProtocolHeader(accessToken: String): String = "$WS_PROTOCOL, bearer.$accessToken"
+
+/** `<base>/ws`. OkHttp upgrades http(s) URLs to ws(s) itself. */
+fun socketUrl(baseUrl: String): HttpUrl? =
+    baseUrl.trim().trimEnd('/').toHttpUrlOrNull()?.newBuilder()?.addPathSegment("ws")?.build()
+
+/** Handshake with a real session: the JWT travels in the subprotocol header, never in the URL. */
+fun accountSocketRequest(baseUrl: String, accessToken: String): Request? =
+    socketUrl(baseUrl)?.let { Request.Builder().url(it).header("Sec-WebSocket-Protocol", socketProtocolHeader(accessToken)).build() }
+
+/** Handshake for the debug-only dev auth (CONVOYAGE_DEV_AUTH=1). */
+fun devSocketRequest(baseUrl: String, userId: String, name: String): Request? =
+    devSocketUrl(baseUrl, userId, name)?.let { Request.Builder().url(it).build() }
+
 /** `<base>/ws?dev_user=<id>&name=<name>`: the server's dev WebSocket auth (CONVOYAGE_DEV_AUTH=1). */
 fun devSocketUrl(baseUrl: String, userId: String, name: String): HttpUrl? =
     baseUrl.trim().trimEnd('/').toHttpUrlOrNull()?.newBuilder()
@@ -47,9 +65,9 @@ class ConvoySocket(
     private var ws: WebSocket? = null
 
     /** Opens a connection when collected and closes it when the collector goes away. */
-    fun open(url: HttpUrl): Flow<SocketEvent> = callbackFlow {
+    fun open(request: Request): Flow<SocketEvent> = callbackFlow {
         val socket = client.newWebSocket(
-            Request.Builder().url(url).build(),
+            request,
             object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
                     trySend(SocketEvent.Opened)

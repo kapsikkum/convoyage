@@ -66,6 +66,8 @@ fun RideScreen(onExit: () -> Unit, onReport: () -> Unit) {
             .padding(top = Space.s2, bottom = Space.s4),
         verticalArrangement = Arrangement.spacedBy(Space.s4),
     ) {
+        HazardAlertBanner()
+
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.s3), verticalAlignment = Alignment.CenterVertically) {
             CvIconButton(CvIcons.Back, "Exit Ride mode", onExit, fill = c.surface200, size = Space.targetRide)
             Row(

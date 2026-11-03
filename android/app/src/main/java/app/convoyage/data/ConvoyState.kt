@@ -62,6 +62,9 @@ data class ConvoyState(
             }
         }
 
+        // Hazards are kept by HazardRepository, which is fed the same frames.
+        is ServerMessage.HazardReported -> this
+
         is ServerMessage.Error -> copy(error = message.error)
 
         is ServerMessage.Chat -> copy(chat = chat + (message.room to mergeChat(chat[message.room].orEmpty(), listOf(message.message))))

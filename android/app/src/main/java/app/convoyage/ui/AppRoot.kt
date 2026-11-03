@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -49,13 +50,20 @@ fun AppRoot(container: AppContainer) {
     val route = entry?.destination?.route
     val tab = Routes.tabRoutes[route]
 
+    // The session decides where we are: signing in (form, deep link) opens Home; signing out, or the server
+    // refusing our refresh token, goes back to Welcome from anywhere.
+    LaunchedEffect(name, route) {
+        val signedIn = !name.isNullOrBlank()
+        if (route == null) return@LaunchedEffect
+        if (signedIn && route == Routes.WELCOME) nav.navigate(Routes.HOME) { popUpTo(Routes.WELCOME) { inclusive = true } }
+        if (!signedIn && route != Routes.WELCOME) nav.navigate(Routes.WELCOME) { popUpTo(0) { inclusive = true } }
+    }
+
     CompositionLocalProvider(LocalContainer provides container) {
         Box(Modifier.fillMaxSize().background(Cv.colors.void)) {
             NavHost(nav, startDestination = start, modifier = Modifier.fillMaxSize()) {
                 composable(Routes.WELCOME) {
-                    WelcomeScreen(onSignedIn = {
-                        nav.navigate(Routes.HOME) { popUpTo(Routes.WELCOME) { inclusive = true } }
-                    })
+                    WelcomeScreen()
                 }
                 composable(Routes.HOME) {
                     HomeScreen(
@@ -71,11 +79,7 @@ fun AppRoot(container: AppContainer) {
                 composable(Routes.PROFILE) {
                     ProfileScreen(
                         onOpenGarage = { nav.switchTab(Routes.GARAGE) },
-                        onSignOut = {
-                            container.convoy.disconnect()
-                            container.session.signOut()
-                            nav.navigate(Routes.WELCOME) { popUpTo(0) { inclusive = true } }
-                        },
+                        onSignOut = container::signOut,
                     )
                 }
                 composable(

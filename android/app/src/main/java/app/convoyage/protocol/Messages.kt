@@ -73,6 +73,42 @@ data class Room(
     val members: List<Member> = emptyList(),
 )
 
+/**
+ * A road hazard. The same object comes from REST (`GET /v1/hazards`, with vote counts and [myAction]) and from
+ * the socket's `hazard` message (no vote counts, no reporter), so everything but the core fields has a default.
+ * [kind] stays a string so a kind added later by the server does not break parsing.
+ */
+@Serializable
+data class Hazard(
+    val id: String,
+    val kind: String,
+    val subkind: String = "",
+    val lat: Double,
+    val lng: Double,
+    /** Direction of travel of the reporter when reporting, degrees. */
+    val heading: Double? = null,
+    /** ISO-8601 instants. */
+    val createdAt: String = "",
+    val expiresAt: String = "",
+    val confirmations: Int = 0,
+    val dismissals: Int = 0,
+    /** "confirm" | "dismiss" | null: my own vote (REST only). */
+    val myAction: String? = null,
+) {
+    /** Expiry as ms since the epoch, or null when absent/unparseable. */
+    fun expiresAtMs(): Long? = parseInstantMs(expiresAt)
+
+    val isPolice: Boolean get() = kind == "police"
+
+    companion object {
+        fun parseInstantMs(iso: String): Long? = try {
+            if (iso.isBlank()) null else java.time.Instant.parse(iso).toEpochMilli()
+        } catch (_: Exception) {
+            null
+        }
+    }
+}
+
 // ---- Client -> server --------------------------------------------------------------------------
 
 @OptIn(ExperimentalSerializationApi::class)
@@ -155,6 +191,10 @@ sealed interface ServerMessage {
 
     @Serializable @SerialName("convoy.message")
     data class Chat(val room: String, val message: ConvoyMessage) : ServerMessage
+
+    /** A member reported a hazard (POST /v1/hazards) while in this convoy. Sent to every member, the reporter included. */
+    @Serializable @SerialName("hazard")
+    data class HazardReported(val room: String, val hazard: Hazard) : ServerMessage
 }
 
 /** Shared codec. Unknown fields are ignored (the server may add fields within v1); nulls are omitted on the wire. */

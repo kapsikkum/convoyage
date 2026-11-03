@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -16,6 +17,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -27,11 +29,15 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import app.convoyage.data.AlertKind
+import app.convoyage.data.Bbox
 import app.convoyage.data.Geo
 import app.convoyage.data.Link
 import app.convoyage.data.RosterEntry
@@ -57,7 +63,10 @@ import app.convoyage.design.Segmented
 import app.convoyage.design.Space
 import app.convoyage.map.ConvoyMap
 import app.convoyage.map.MapPinData
+import kotlinx.coroutines.delay
 import org.maplibre.android.geometry.LatLng
+
+private fun Double.round2() = Math.round(this * 100) / 100.0
 
 @Composable
 fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Unit, onClose: () -> Unit) {
@@ -73,8 +82,22 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
     var sheetHeightPx by remember { mutableStateOf(0) }
     var sheetOpen by rememberSaveable { mutableStateOf(true) }
     val room = ui.room
+    val hazards by container.hazards.active.collectAsStateWithLifecycle()
 
-    val pins = remember(ui.roster, ui.fix) {
+    // Load the hazards for what the map shows now, and again every 30 s while the screen is on.
+    var viewport by remember { mutableStateOf<Bbox?>(null) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(viewport) {
+        val box = viewport ?: return@LaunchedEffect
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                container.hazards.refresh(box)
+                delay(30_000)
+            }
+        }
+    }
+
+    val pins = remember(ui.roster, ui.fix, hazards) {
         ui.roster.mapNotNull { e ->
             if (e.isMe || e.lat == null || e.lng == null) return@mapNotNull null
             MapPinData(
@@ -88,7 +111,7 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
                 label = e.initials, lat = e.lat, lng = e.lng, headingDeg = e.headingDeg,
                 tag = if (e.state == MemberState.Lead) e.distanceM?.let { Geo.formatDistance(it).uppercase() } else null,
             )
-        } + listOfNotNull(
+        } + hazards.map { it.toPin() } + listOfNotNull(
             ui.fix?.let { MapPinData("me", PinKind.Me, "", it.lat, it.lng, it.headingDeg) },
             room?.destination?.let { MapPinData("dest", PinKind.Destination, "", it.lat, it.lng, tag = it.label.take(12).uppercase().ifBlank { null }) },
         )
@@ -105,6 +128,8 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
             recenterTick = local.recenterTick,
             onUserMoved = vm::userMovedMap,
             bottomPadding = with(density) { sheetHeightPx.toDp() },
+            // Rounded to ~1 km so small pans do not reload; the 30 s loop above keeps it fresh.
+            onViewport = { b -> viewport = Bbox(b.south.round2(), b.west.round2(), b.north.round2(), b.east.round2()) },
         )
 
         // Top: banners, then the toggle row.
@@ -132,6 +157,7 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
                 Banner(BannerTone.Pulse, ui.error!!, icon = CvIcons.Alert, actionLabel = "OK", onAction = vm::dismissError)
             }
             if (ui.removed) Banner(BannerTone.Pulse, "The leader removed you from the convoy", icon = CvIcons.Alert, actionLabel = "OK", onAction = vm::dismissError)
+            HazardAlertBanner()
             ui.alert?.let { a ->
                 Banner(
                     tone = if (a.kind == AlertKind.Stopped) BannerTone.Pulse else BannerTone.Hazard,
@@ -164,7 +190,7 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
         }
 
         CvSheet(
-            modifier = Modifier.align(Alignment.BottomCenter).onSizeChanged { sheetHeightPx = it.height },
+            modifier = Modifier.align(Alignment.BottomCenter).imePadding().onSizeChanged { sheetHeightPx = it.height },
             expanded = sheetOpen,
             onToggle = { sheetOpen = !sheetOpen },
         ) {

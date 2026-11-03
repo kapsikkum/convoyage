@@ -5,20 +5,26 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -27,6 +33,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
@@ -37,16 +44,19 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import app.convoyage.AppContainer
-import app.convoyage.data.MagicLinkResult
+import app.convoyage.BuildConfig
+import app.convoyage.data.AuthKind
+import app.convoyage.data.MagicLinkOutcome
 import app.convoyage.data.RideMode
+import app.convoyage.data.SignInOutcome
 import app.convoyage.design.Banner
 import app.convoyage.design.BannerTone
+import app.convoyage.design.Cv
 import app.convoyage.design.CvButton
 import app.convoyage.design.CvButtonKind
 import app.convoyage.design.CvIcons
 import app.convoyage.design.CvText
 import app.convoyage.design.CvTextField
-import app.convoyage.design.Cv
 import app.convoyage.design.Eyebrow
 import app.convoyage.design.MapPin
 import app.convoyage.design.PinKind
@@ -54,16 +64,18 @@ import app.convoyage.design.SegOption
 import app.convoyage.design.Segmented
 import app.convoyage.design.Space
 import app.convoyage.design.gridBackdrop
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
+/** The sign-in form's state. [sentTo] set = the "check your email" step. */
 data class WelcomeUi(
     val busy: Boolean = false,
-    val magicLinkSent: Boolean = false,
-    /** Set when the server has no email sign-in yet; the UI then points at Dev sign-in. */
-    val authNotReady: String? = null,
+    val sentTo: String? = null,
+    /** Shown while busy, e.g. when the dev server handed the link back. */
+    val progress: String? = null,
     val error: String? = null,
 )
 
@@ -75,35 +87,61 @@ class WelcomeViewModel(private val container: AppContainer) : ViewModel() {
 
     fun setMode(mode: RideMode) = container.session.setMode(mode)
 
+    /** Debug builds can point at another server from the dev panel. */
+    fun applyServer(url: String) {
+        if (BuildConfig.DEBUG && url.isNotBlank() && url.trim().trimEnd('/') != container.session.serverUrl.value) container.session.setServerUrl(url)
+    }
+
     fun sendMagicLink(email: String) {
-        if (!email.contains("@")) {
+        if (!email.contains("@") || email.trim().length < 5) {
             _ui.value = WelcomeUi(error = "Enter a valid email address")
             return
         }
         _ui.value = WelcomeUi(busy = true)
         viewModelScope.launch {
-            _ui.value = when (val r = container.auth.requestMagicLink(container.session.serverUrl.value, email)) {
-                MagicLinkResult.Sent -> WelcomeUi(magicLinkSent = true)
-                is MagicLinkResult.NotReady -> WelcomeUi(authNotReady = r.detail)
-                is MagicLinkResult.Failed -> WelcomeUi(error = r.message)
+            when (val r = container.account.requestMagicLink(email)) {
+                is MagicLinkOutcome.Failed -> _ui.value = WelcomeUi(error = r.message)
+                is MagicLinkOutcome.Sent -> {
+                    val token = r.devToken
+                    if (token == null) {
+                        _ui.value = WelcomeUi(sentTo = email.trim())
+                    } else {
+                        // MAIL_DEV=1: the server handed the token back, so there is no inbox to open.
+                        _ui.value = WelcomeUi(busy = true, sentTo = email.trim(), progress = "Dev server returned the link, signing in...")
+                        verify(token, email.trim())
+                    }
+                }
             }
         }
     }
 
-    /** Dev sign-in: the server's `?dev_user=<id>&name=<name>` WebSocket auth. */
-    fun devSignIn(name: String, serverUrl: String) {
-        if (name.isBlank()) {
-            _ui.value = WelcomeUi(error = "Pick a name to dev sign in")
-            return
+    /** Verifies a pasted link or code (also the dev auto-verify path). */
+    fun verify(tokenOrLink: String, sentTo: String? = _ui.value.sentTo) {
+        _ui.value = WelcomeUi(busy = true, sentTo = sentTo, progress = "Signing in...")
+        viewModelScope.launch {
+            when (val r = container.signInWithLink(tokenOrLink)) {
+                // AppRoot sees the new session and moves to Home.
+                is SignInOutcome.SignedIn -> _ui.value = WelcomeUi(sentTo = sentTo)
+                is SignInOutcome.Failed -> _ui.value = WelcomeUi(sentTo = sentTo, error = r.message)
+            }
         }
-        container.session.setServerUrl(serverUrl)
-        container.session.signIn(name)
+    }
+
+    fun back() {
+        _ui.value = WelcomeUi()
+    }
+
+    /** Debug-only dev sign-in: the server's `?dev_user=<id>&name=<name>` WebSocket auth. No JWT, so no REST. */
+    fun devSignIn(name: String, serverUrl: String) {
+        if (!BuildConfig.DEBUG || name.isBlank()) return
+        applyServer(serverUrl)
+        container.session.signIn(name, AuthKind.Dev)
         container.connectIfSignedIn()
     }
 }
 
 @Composable
-fun WelcomeScreen(onSignedIn: () -> Unit) {
+fun WelcomeScreen() {
     val container = LocalContainer.current
     val vm: WelcomeViewModel = viewModel(factory = viewModelFactory { initializer { WelcomeViewModel(container) } })
     val ui by vm.ui.collectAsStateWithLifecycle()
@@ -112,15 +150,36 @@ fun WelcomeScreen(onSignedIn: () -> Unit) {
     val c = Cv.colors
 
     var email by rememberSaveable { mutableStateOf("") }
+    var pasted by rememberSaveable { mutableStateOf("") }
     var devOpen by rememberSaveable { mutableStateOf(false) }
-    var devName by rememberSaveable { mutableStateOf("") }
+    var devName by rememberSaveable { mutableStateOf("Dev Driver") }
     var devServer by rememberSaveable(serverUrl) { mutableStateOf(serverUrl) }
-    val showDev = devOpen || ui.authNotReady != null
+    val showDev = BuildConfig.DEBUG && devOpen
+
+    // Each form scrolls its primary button into view when a field gets focus, so the keyboard
+    // (imePadding below shrinks the scroll viewport) never covers the field or the button under it.
+    val emailButton = remember { BringIntoViewRequester() }
+    val pasteButton = remember { BringIntoViewRequester() }
+    val devButton = remember { BringIntoViewRequester() }
+    // The field that has focus asks for its button to be shown. The keyboard animates in, so wait until the
+    // IME height has stopped changing (the effect restarts on every change) before scrolling.
+    var revealTarget by remember { mutableStateOf<BringIntoViewRequester?>(null) }
+    val imeBottom = WindowInsets.ime.getBottom(LocalDensity.current)
+    LaunchedEffect(revealTarget, imeBottom) {
+        val target = revealTarget ?: return@LaunchedEffect
+        if (imeBottom == 0) return@LaunchedEffect
+        delay(150)
+        target.bringIntoView()
+    }
+    fun reveal(target: BringIntoViewRequester) {
+        revealTarget = target
+    }
 
     Column(
         Modifier
             .fillMaxSize()
             .gridBackdrop(c.line.copy(alpha = 0.35f))
+            .imePadding()
             .verticalScroll(rememberScrollState())
             .screenGutters()
             .navigationBarsPadding()
@@ -132,8 +191,10 @@ fun WelcomeScreen(onSignedIn: () -> Unit) {
                 LogoMark()
                 CvText("CONVOYAGE", Cv.type.title.copy(letterSpacing = 0.14.em), c.ink)
             }
-            Box(Modifier.defaultMinTarget().clickableNoRipple { devOpen = !devOpen }, contentAlignment = Alignment.CenterEnd) {
-                Eyebrow("DEV")
+            if (BuildConfig.DEBUG) {
+                Box(Modifier.defaultMinTarget().clickableNoRipple { devOpen = !devOpen }, contentAlignment = Alignment.CenterEnd) {
+                    Eyebrow("DEV")
+                }
             }
         }
 
@@ -159,38 +220,61 @@ fun WelcomeScreen(onSignedIn: () -> Unit) {
         }
 
         Column(verticalArrangement = Arrangement.spacedBy(Space.s3)) {
-            CvTextField(
-                value = email, onValueChange = { email = it }, label = "Email",
-                placeholder = "you@example.com",
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-            )
-            CvButton(
-                text = if (ui.busy) "Sending..." else "Email me a sign-in link",
-                onClick = { vm.sendMagicLink(email) },
-                icon = CvIcons.Mail, enabled = !ui.busy, modifier = Modifier.fillMaxWidth(),
-            )
-            if (ui.magicLinkSent) Banner(BannerTone.Go, "Check your inbox", sub = "Open the link on this phone to finish signing in.", icon = CvIcons.Mail)
-            ui.authNotReady?.let {
-                Banner(
-                    BannerTone.Hazard, "Email sign-in is not ready on this server",
-                    sub = "Use Dev sign-in below. ($it)", icon = CvIcons.Lock,
+            if (ui.sentTo == null) {
+                CvTextField(
+                    value = email, onValueChange = { email = it }, label = "Email",
+                    placeholder = "you@example.com",
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                    enabled = !ui.busy,
+                    onFocused = { reveal(emailButton) },
                 )
+                CvButton(
+                    text = if (ui.busy) "Sending..." else "Email me a sign-in link",
+                    onClick = { vm.applyServer(devServer); vm.sendMagicLink(email) },
+                    icon = CvIcons.Mail, enabled = !ui.busy,
+                    modifier = Modifier.fillMaxWidth().bringIntoViewRequester(emailButton).padding(bottom = 12.dp),
+                )
+            } else {
+                Banner(
+                    BannerTone.Go, "Check your email",
+                    sub = "We sent a sign-in link to ${ui.sentTo}. Open it on this phone to finish. It works once and expires in 15 minutes.",
+                    icon = CvIcons.Mail,
+                )
+                ui.progress?.let { Banner(BannerTone.Hazard, it, icon = CvIcons.Lock) }
+                CvTextField(
+                    value = pasted, onValueChange = { pasted = it }, label = "Or paste the link or code",
+                    placeholder = "convoyage://auth/magic?token=...", mono = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                    enabled = !ui.busy,
+                    onFocused = { reveal(pasteButton) },
+                )
+                CvButton(
+                    "Sign in", { vm.verify(pasted) }, Modifier.fillMaxWidth().bringIntoViewRequester(pasteButton).padding(bottom = 12.dp),
+                    enabled = !ui.busy && pasted.isNotBlank(),
+                )
+                CvButton("Use a different email", vm::back, Modifier.fillMaxWidth(), CvButtonKind.Ghost, enabled = !ui.busy)
             }
             ui.error?.let { Banner(BannerTone.Pulse, it) }
 
-            if (!showDev) {
-                CvButton("Dev sign-in", { devOpen = true }, Modifier.fillMaxWidth(), CvButtonKind.Ghost)
-            } else {
+            if (showDev) {
                 Column(verticalArrangement = Arrangement.spacedBy(Space.s3)) {
-                    Eyebrow("DEV SIGN-IN · SERVER WEBSOCKET AUTH", color = c.hazard)
-                    CvTextField(devName, { devName = it }, "Display name", placeholder = "Alex")
-                    CvTextField(devServer, { devServer = it }, "Server URL", mono = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri))
+                    Eyebrow("DEV SIGN-IN · SERVER WEBSOCKET AUTH · DEBUG BUILD ONLY", color = c.hazard)
+                    CvTextField(devName, { devName = it.take(40) }, "Display name", placeholder = "Alex", onFocused = { reveal(devButton) })
+                    CvTextField(
+                        devServer, { devServer = it }, "Server URL", mono = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                        onFocused = { reveal(devButton) },
+                    )
+                    if (devName.isBlank()) Eyebrow("ENTER A DISPLAY NAME TO CONTINUE", color = c.hazard)
                     CvButton(
-                        "Enter as ${devName.ifBlank { "..." }}",
-                        onClick = { vm.devSignIn(devName, devServer); if (devName.isNotBlank()) onSignedIn() },
-                        modifier = Modifier.fillMaxWidth(), kind = CvButtonKind.Ghost,
+                        if (devName.isBlank()) "Enter a name first" else "Enter as ${devName.trim()}",
+                        onClick = { vm.devSignIn(devName, devServer) },
+                        modifier = Modifier.fillMaxWidth().bringIntoViewRequester(devButton).padding(bottom = 12.dp),
+                        kind = CvButtonKind.Ghost, enabled = devName.isNotBlank(),
                     )
                 }
+            } else if (BuildConfig.DEBUG) {
+                CvButton("Dev sign-in", { devOpen = true }, Modifier.fillMaxWidth(), CvButtonKind.Ghost)
             }
         }
     }

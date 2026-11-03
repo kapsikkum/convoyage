@@ -10,7 +10,13 @@ import java.util.UUID
 /** How the person usually moves: drives, rides, or both. Chooses the default Convoy/Ride layout. */
 enum class RideMode { Drive, Ride, Both }
 
-/** Who is signed in on this device. SharedPreferences-backed; not secret (dev auth only). */
+/** How this device is signed in: a real [Account] (JWT in the token store) or the debug-only [Dev] socket auth. */
+enum class AuthKind { Account, Dev }
+
+/**
+ * Who is signed in on this device. SharedPreferences-backed and NOT secret: the tokens live in
+ * [KeystoreTokenStore]; this only holds the display name and preferences.
+ */
 class SessionStore(context: Context) {
     private val prefs = context.getSharedPreferences("convoyage.session", Context.MODE_PRIVATE)
 
@@ -21,6 +27,13 @@ class SessionStore(context: Context) {
 
     private val _name = MutableStateFlow(prefs.getString("name", null))
     val name: StateFlow<String?> = _name.asStateFlow()
+
+    private val _kind = MutableStateFlow(
+        runCatching { AuthKind.valueOf(prefs.getString("authKind", null)!!) }.getOrNull()
+            // Sessions from before accounts existed were dev sessions.
+            ?: if (prefs.getString("name", null) != null) AuthKind.Dev else null,
+    )
+    val kind: StateFlow<AuthKind?> = _kind.asStateFlow()
 
     private val _mode = MutableStateFlow(runCatching { RideMode.valueOf(prefs.getString("mode", "Drive")!!) }.getOrDefault(RideMode.Drive))
     val mode: StateFlow<RideMode> = _mode.asStateFlow()
@@ -33,15 +46,30 @@ class SessionStore(context: Context) {
 
     val signedIn: Boolean get() = !_name.value.isNullOrBlank()
 
-    fun signIn(name: String) {
+    init {
+        // Dev sign-in only exists in debug builds; a release build must never come up "signed in" with it.
+        if (_kind.value == AuthKind.Dev && !BuildConfig.DEBUG) signOut()
+    }
+
+    fun signIn(name: String, kind: AuthKind) {
         val clean = name.trim().take(40)
+        prefs.edit().putString("name", clean).putString("authKind", kind.name).apply()
+        _name.value = clean
+        _kind.value = kind
+    }
+
+    /** Display name changed (profile edit, or fetched after sign-in) without changing how we are signed in. */
+    fun setName(name: String) {
+        val clean = name.trim().take(60)
+        if (clean.isEmpty()) return
         prefs.edit().putString("name", clean).apply()
         _name.value = clean
     }
 
     fun signOut() {
-        prefs.edit().remove("name").apply()
+        prefs.edit().remove("name").remove("authKind").apply()
         _name.value = null
+        _kind.value = null
     }
 
     fun setMode(mode: RideMode) {
