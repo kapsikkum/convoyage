@@ -11569,6 +11569,31 @@
           }
         }
       }
+    },
+    "/v1/convoys/{code}/live": {
+      "post": {
+        "summary": "Make a live link to this convoy",
+        "tags": [
+          "convoy"
+        ],
+        "description": "Anyone with the link can watch the convoy on a map in a browser (names, destination, online positions) for 12 hours or until the convoy ends. Members only.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 16
+            },
+            "in": "path",
+            "name": "code",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
     }
   },
   "servers": [
