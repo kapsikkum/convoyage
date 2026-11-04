@@ -258,6 +258,54 @@ for p in body.data.polygons:
     nm = names[p.material_index].split('.')[0]
     p.material_index = MAT_INDEX.get(nm, MAT_INDEX['dark'])
 
+
+
+# ---- recesses: outlines seen from the front or rear, punched into the body ----
+def recess(pts, view, depth, wall, back, reach=0.3):
+    """Grilles, intakes, lamp housings: the outline is cut in to [depth] below the surface it lands on,
+    so the back follows the bumper's curve. Walls and back take their own materials."""
+    tmp = BVHTree.FromObject(body, bpy.context.evaluated_depsgraph_get())
+    sgn = 1 if view == 'front' else -1
+    face_x = []
+    for u, v in pts:
+        h = tmp.ray_cast(Vector((sgn * (L / 2 + 1), u, v)), Vector((-sgn, 0, 0)))
+        face_x.append(h[0].x if h[0] is not None else None)
+    hits = [x for x in face_x if x is not None]
+    if not hits: return
+    # Rays that graze past the corner land far down the flank; keep the recess near the face.
+    lim = max(hits, key=lambda x: sgn * x) - sgn * reach
+    face_x = [None if x is None or sgn * x < sgn * lim else x for x in face_x]
+    inner = lim
+    bm = bmesh.new()
+    a = [bm.verts.new((sgn * (L / 2 + 0.5), u, v)) for u, v in pts]
+    b = [bm.verts.new(((x if x is not None else inner) - sgn * depth, u, v)) for (u, v), x in zip(pts, face_x)]
+    n = len(pts)
+    for i in range(n):
+        f = bm.faces.new((a[i], a[(i + 1) % n], b[(i + 1) % n], b[i])); f.material_index = MAT_INDEX[wall]
+    fa = bm.faces.new(a); fa.material_index = MAT_INDEX[wall]
+    fb = bm.faces.new(list(reversed(b))); fb.material_index = MAT_INDEX[back]
+    bmesh.ops.triangulate(bm, faces=[fa, fb])
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    cut = new_obj('cut', bm)
+    mod = body.modifiers.new('recess', 'BOOLEAN')
+    mod.operation = 'DIFFERENCE'; mod.object = cut; mod.solver = 'EXACT'
+    mod.material_mode = 'TRANSFER'
+    bpy.context.view_layer.objects.active = body
+    bpy.ops.object.modifier_apply(modifier=mod.name)
+    bpy.data.objects.remove(cut)
+
+
+for c in spec.get('cuts', []):
+    view = c.get('view', 'front')
+    pts = [tuple(p) for p in (c['pts'] if 'pts' in c else outline(c))]
+    shapes = [pts] + ([[(-u, v) for u, v in reversed(pts)]] if c.get('mirror', True) else [])
+    for sh in shapes:
+        recess(sh, view, c.get('depth', 0.04), c.get('wall', 'black'), c.get('back', 'trim'), c.get('reach', 0.3))
+names = [m.name for m in body.data.materials]
+for p in body.data.polygons:
+    nm = names[p.material_index].split('.')[0]
+    p.material_index = MAT_INDEX.get(nm, MAT_INDEX['dark'])
+
 bvh = BVHTree.FromObject(body, bpy.context.evaluated_depsgraph_get())
 
 
@@ -437,7 +485,7 @@ if preview:
     sc.render.film_transparent = False
     cam_data = bpy.data.cameras.new('cam'); cam_data.lens = 50
     cam = bpy.data.objects.new('cam', cam_data); bpy.context.collection.objects.link(cam); sc.camera = cam
-    for i, (pos, look) in enumerate((((5.2, -5.2, 2.0), (0, 0, 0.6)), ((0, -8.5, 1.0), (0, 0, 0.6)), ((-5.2, -4.6, 2.0), (0, 0, 0.6)), ((6.5, -2.6, 1.3), (0, 0, 0.55)))):
+    for i, (pos, look) in enumerate((((5.2, -5.2, 2.0), (0, 0, 0.6)), ((0, -8.5, 1.0), (0, 0, 0.6)), ((-5.2, -4.6, 2.0), (0, 0, 0.6)), ((6.5, -2.6, 1.3), (0, 0, 0.55)), ((5.6, -3.4, 0.95), (0, 0, 0.5)), ((9.0, 0, 0.6), (0, 0, 0.55)))):
         cam.location = pos
         cam.rotation_euler = (Vector(look) - Vector(pos)).to_track_quat('-Z', 'Y').to_euler()
         sc.render.filepath = preview.replace('.png', f'_{i}.png')
