@@ -93,13 +93,19 @@ fun maneuverGlyph(icon: ManeuverIcon): ImageVector = when (icon) {
 }
 
 /** Zoom while following: closer when slow (junctions matter), further out when fast. */
-fun followZoomFor(speedMps: Double): Double = when {
-    speedMps < 6 -> 18.0
-    speedMps < 14 -> 17.6
-    speedMps < 22 -> 17.1
-    speedMps < 30 -> 16.7
-    else -> 16.4
+fun followZoomFor(speedMps: Double): Double {
+    // Smooth, not stepped: 18 when crawling, easing out to 16.4 by 30 m/s (108 km/h). Steps made the camera hop
+    // in and out as speed dipped through a corner.
+    val t = ((speedMps - 4.0) / 26.0).coerceIn(0.0, 1.0)
+    return 18.0 - 1.6 * (t * t * (3 - 2 * t))
 }
+
+/**
+ * Top map padding that puts the followed car about 72% of the way down the map above the sheet, so more of the road
+ * ahead shows than behind. The camera centres in the padded area: centre = (top + visible) / 2.
+ */
+fun aheadPadding(mapHeight: androidx.compose.ui.unit.Dp, bottomPadding: androidx.compose.ui.unit.Dp): androidx.compose.ui.unit.Dp =
+    ((mapHeight - bottomPadding) * 0.44f).coerceAtLeast(0.dp)
 
 /** What the Drive tab adds around navigation: the dock's convoy, recording and route actions. */
 class DriveHooks(
@@ -207,10 +213,10 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
             recenterTick = local.recenterTick,
             onUserMoved = vm::userMovedMap,
             bottomPadding = sheetHeight + 24.dp,
-            topPadding = if (following || (nav.phase == NavPhase.Idle && headingUp != null && local.follow)) 120.dp else 0.dp,
+            topPadding = if (following || (nav.phase == NavPhase.Idle && headingUp != null && local.follow)) aheadPadding(with(density) { boxH.toDp() }, sheetHeight + 24.dp) else 0.dp,
             followBearing = if (following) (fix?.headingDeg ?: nav.bearing) else if (nav.phase == NavPhase.Idle && local.follow) headingUp else null,
             headingUpFallbackNorth = nav.phase == NavPhase.Idle,
-            followZoom = if (nav.phase == NavPhase.Active) followZoomFor(maxOf(nav.speedMps, fix?.speedMps ?: 0.0)) else if (nav.phase == NavPhase.Idle && local.follow && fix != null) followZoomFor(fix.speedMps ?: 0.0) else null,
+            followZoom = if (nav.phase == NavPhase.Active) followZoomFor(nav.speedMps) else if (nav.phase == NavPhase.Idle && local.follow && fix != null) followZoomFor(fix.speedMps ?: 0.0) else null,
             fitTo = fit,
             onViewport = { b -> viewport = Bbox(b.south, b.west, b.north, b.east) },
             onLongPress = if (nav.phase != NavPhase.Active) { ll -> vm.pick(ll.latitude, ll.longitude) } else null,

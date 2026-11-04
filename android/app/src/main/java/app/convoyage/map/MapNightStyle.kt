@@ -70,6 +70,14 @@ object MapNightStyle {
 
     /** Route line: signal, 4 wide, with a 14 wide 16% halo. */
     const val ROUTE_COLOR = "#2de2e6"
+
+    // Terrain in 3D: shaded relief from public Terrarium elevation tiles (AWS open data, no key).
+    const val DEM_SOURCE = "terrain-dem"
+    const val HILLSHADE_LAYER = "terrain-hillshade"
+    const val DEM_TILES = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
+    const val HILL_SHADOW = "#000000"
+    const val HILL_HIGHLIGHT = "#5a86ad"
+    const val HILL_ACCENT = "#0d1830"
     const val REJOIN_SOURCE = "rejoin"
     const val REJOIN_LAYER = "rejoin"
     /** The way back to the route when off track: a purple outside the HUD's cyan/magenta/amber, so it never reads as the route or an alert. */
@@ -213,6 +221,7 @@ object MapNightStyle {
         val above = moodBelowRoads(layers.map { it.id })
             ?: moodInsertBefore(layers.map { LayerKind(it.id, it is FillExtrusionLayer, it is SymbolLayer) })
         if (above != null) style.addLayerBelow(mood, above) else style.addLayer(mood)
+        addTerrain(style, above, buildings3d)
         val aboveIdx = if (above == null) layers.size else layers.indexOfFirst { it.id == above }
         for (layer in layers.drop(aboveIdx)) {
             val id = layer.id
@@ -373,5 +382,29 @@ object MapNightStyle {
 
     fun setBuildings3d(style: Style, extrusionIds: List<String>, on: Boolean) {
         for (id in extrusionIds) style.getLayerAs<FillExtrusionLayer>(id)?.setProperties(visibility(if (on) Property.VISIBLE else Property.NONE))
+        style.getLayer(HILLSHADE_LAYER)?.setProperties(visibility(if (on) Property.VISIBLE else Property.NONE))
+    }
+
+    /**
+     * Hills and valleys: hillshade over the darkened land and under the roads, lit from the north-west in the HUD's
+     * blues. MapLibre Native has no 3D terrain mesh, so relief is shading, not raised ground. Shown with 3D.
+     */
+    private fun addTerrain(style: Style, below: String?, on: Boolean) {
+        runCatching {
+            val tiles = org.maplibre.android.style.sources.TileSet("2.2.0", DEM_TILES).apply {
+                encoding = "terrarium"
+                maxZoom = 15f
+                attribution = "Elevation: Mapzen Terrain Tiles (AWS Open Data)"
+            }
+            style.addSource(org.maplibre.android.style.sources.RasterDemSource(DEM_SOURCE, tiles, 256))
+            val hill = org.maplibre.android.style.layers.HillshadeLayer(HILLSHADE_LAYER, DEM_SOURCE).withProperties(
+                org.maplibre.android.style.layers.PropertyFactory.hillshadeShadowColor(arrayOf(HILL_SHADOW)),
+                org.maplibre.android.style.layers.PropertyFactory.hillshadeHighlightColor(arrayOf(HILL_HIGHLIGHT)),
+                org.maplibre.android.style.layers.PropertyFactory.hillshadeAccentColor(HILL_ACCENT),
+                org.maplibre.android.style.layers.PropertyFactory.hillshadeExaggeration(1.0f),
+                visibility(if (on) Property.VISIBLE else Property.NONE),
+            )
+            if (below != null) style.addLayerBelow(hill, below) else style.addLayer(hill)
+        }.onFailure { android.util.Log.w("MapNightStyle", "terrain unavailable", it) }
     }
 }

@@ -243,6 +243,8 @@ fun ConvoyMap(
         m.animateCamera(CameraUpdateFactory.newCameraPosition(CameraPosition.Builder(cam).tilt(if (buildings3d) 60.0 else 0.0).build()), 600)
     }
 
+    // Speed zoom, lagged over seconds so braking into a corner and accelerating out does not pump the camera.
+    val ease = remember { FollowEase() }
     LaunchedEffect(map, me, follow, recenterTick, followBearing, followZoom, scaling, userZoom) {
         val m = map ?: return@LaunchedEffect
         // Zoom gestures pivot on the followed marker; free-roaming pinches pivot on the fingers.
@@ -252,15 +254,22 @@ fun ConvoyMap(
             val now = m.cameraPosition
             val target = userZoom ?: followZoom ?: now.zoom.coerceAtLeast(14.0)
             val near = now.target?.let { it.distanceTo(me) < 250 } == true && kotlin.math.abs(now.zoom - target) < 2.5
-            // Speed-based zoom changes in steps: drift towards it each update instead of snapping.
-            val zoom = if (near && userZoom == null) now.zoom + (target - now.zoom) * 0.04 else target
+            // Time-based easing (updates come every frame while the pin glides, so a per-update factor would
+            // change speed with the frame rate). Zoom settles over ~4 s, the heading over ~0.5 s.
+            val tNs = System.nanoTime()
+            val dt = if (ease.lastNs == 0L) 0.0 else ((tNs - ease.lastNs) / 1e9).coerceIn(0.0, 0.5)
+            ease.lastNs = tNs
+            val zoom = if (near && userZoom == null) {
+                val from = ease.zoom ?: now.zoom
+                (from + (target - from) * (1 - kotlin.math.exp(-dt / 4.0))).also { ease.zoom = it }
+            } else target.also { ease.zoom = it }
             val cam = CameraPosition.Builder(now).target(me).zoom(zoom)
             if (followBearing != null) {
                 // Turn part of the way each update: [me] changes every frame while it glides, so this eases in.
                 var d = (followBearing - now.bearing) % 360
                 if (d > 180) d -= 360
                 if (d < -180) d += 360
-                cam.bearing((now.bearing + d * 0.12 + 360) % 360).tilt(60.0)
+                cam.bearing((now.bearing + d * (1 - kotlin.math.exp(-dt / 0.5)) + 360) % 360).tilt(60.0)
             } else if (headingUpFallbackNorth) {
                 cam.bearing(0.0)
             }
@@ -302,4 +311,10 @@ fun ConvoyMap(
             }
         }
     }
+}
+
+/** Camera easing state kept across follow updates (plain fields: writing it must not recompose the map). */
+private class FollowEase {
+    var zoom: Double? = null
+    var lastNs = 0L
 }
