@@ -168,7 +168,9 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
             if (drive != null && nav.phase == NavPhase.Idle) addAll(nearbyPins(convoy.nearbyDrivers, convoy.nearbyConvoys))
             nav.routeHazards.forEach { add(it.hazard.toPin()) }
             nav.destination?.let { add(MapPinData("dest", PinKind.Destination, "", it.lat, it.lng, tag = it.name.take(12).uppercase().ifBlank { "DEST" })) }
-            fix?.let { add(MapPinData("me", PinKind.Me, "", it.lat, it.lng, nav.bearing ?: it.headingDeg)) }
+            // Our own smoothed heading (from how we actually move), not the route's: the route bearing jumps between
+            // segments and the raw GPS heading is often missing or 0.
+            fix?.let { add(MapPinData("me", PinKind.Me, "", it.lat, it.lng, it.headingDeg ?: nav.bearing)) }
         }
     }
     val following = nav.phase == NavPhase.Active && local.follow
@@ -187,7 +189,7 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
             onUserMoved = vm::userMovedMap,
             bottomPadding = sheetHeight + 24.dp,
             topPadding = if (following || (nav.phase == NavPhase.Idle && headingUp != null && local.follow)) 120.dp else 0.dp,
-            followBearing = if (following) nav.bearing else if (nav.phase == NavPhase.Idle && local.follow) headingUp else null,
+            followBearing = if (following) (fix?.headingDeg ?: nav.bearing) else if (nav.phase == NavPhase.Idle && local.follow) headingUp else null,
             headingUpFallbackNorth = nav.phase == NavPhase.Idle,
             followZoom = if (nav.phase == NavPhase.Active) followZoomFor(maxOf(nav.speedMps, fix?.speedMps ?: 0.0)) else if (nav.phase == NavPhase.Idle && local.follow && fix != null) followZoomFor(fix.speedMps ?: 0.0) else null,
             fitTo = fit,
