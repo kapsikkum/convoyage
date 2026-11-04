@@ -23,12 +23,15 @@ import java.io.File
 import java.util.concurrent.Executors
 
 /** The two thumbnail shapes. Sizes are the low-res render, which is later drawn scaled up with NEAREST filtering. */
-enum class ThumbSize(val w: Int, val h: Int, val ground: Boolean, val zoom: Float, val yawDeg: Float) {
+enum class ThumbSize(val w: Int, val h: Int, val ground: Boolean, val zoom: Float, val yawDeg: Float, val topDown: Boolean = false) {
     /** Avatar badge: square, no ground, tight on the vehicle. */
     Badge(72, 72, false, 1.5f, -32f),
 
     /** Cards and lists: the same framing as the garage view, with the grid floor. */
     Card(192, 128, true, 1f, -32f),
+
+    /** Map marker: straight down, nose up, square-on (orthographic), turned on the map by heading. */
+    Top(40, 96, false, 1f, 0f, topDown = true),
 }
 
 /**
@@ -150,7 +153,7 @@ class VehicleThumbs(context: Context) {
 
         fun render(spec: Ps1Spec, size: ThumbSize): Bitmap {
             gl.setSpec(spec)
-            gl.renderLowRes(size.w, size.h, size.yawDeg, size.ground, size.zoom)
+            gl.renderLowRes(size.w, size.h, size.yawDeg, size.ground, size.zoom, size.topDown)
             val px = gl.readPixels(size.w, size.h)
             return Bitmap.createBitmap(px, size.w, size.h, Bitmap.Config.ARGB_8888)
         }

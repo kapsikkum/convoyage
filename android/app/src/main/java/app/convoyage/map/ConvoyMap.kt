@@ -117,6 +117,25 @@ fun ConvoyMap(
     val onTapNow by rememberUpdatedState(onTap)
     val initial3d = remember { buildings3d }
 
+    // Your marker (and the camera on it) sits exactly on the road: snapped to the route while navigating, else to the
+    // nearest drawn road running your way. The road pieces near you are re-read from the map every couple of seconds.
+    val snapper = remember { RoadSnapper() }
+    val rawMe = me
+    val meHeading = pins.firstOrNull { it.kind == PinKind.Me }?.headingDeg
+    val snapped = remember(rawMe, meHeading, routeLine, snapper.version) { rawMe?.let { snapper.snap(it, meHeading, routeLine) } }
+    @Suppress("NAME_SHADOWING") val me = snapped?.first ?: rawMe
+    val pins = if (snapped == null) pins else pins.map { if (it.kind == PinKind.Me) it.copy(lat = snapped.first.latitude, lng = snapped.first.longitude, headingDeg = snapped.second ?: it.headingDeg) else it }
+    val rawMeNow by rememberUpdatedState(rawMe)
+    LaunchedEffect(map, style) {
+        val m = map ?: return@LaunchedEffect
+        val s = style ?: return@LaunchedEffect
+        val roadLayers = s.layers.filter { it is org.maplibre.android.style.layers.LineLayer && MapNightStyle.roadClass(it.id).let { c -> c == MapNightStyle.RoadClass.Minor || c == MapNightStyle.RoadClass.Major } }.map { it.id }.toTypedArray()
+        while (true) {
+            rawMeNow?.let { snapper.refresh(m, it, roadLayers, with(density) { 90.dp.toPx() }) }
+            kotlinx.coroutines.delay(1500)
+        }
+    }
+
     DisposableEffect(lifecycle, mapView) {
         mapView.onCreate(null)
         val observer = LifecycleEventObserver { _, event ->
@@ -411,5 +430,71 @@ internal object TerrainCamera {
             y += (20.0 * (-c * el + a * et) / det).toFloat()
         }
         return PointF(x, y)
+    }
+}
+
+/**
+ * Puts the marker on the road. Keeps the road lines near you (from the rendered map) in local metres and picks the
+ * nearest piece that runs your way; the route, while navigating, wins ties. Off any road by more than 25 m it lets go.
+ */
+internal class RoadSnapper {
+    private var segs: List<DoubleArray> = emptyList() // lng1, lat1, lng2, lat2
+    private var at: LatLng? = null
+    private var atMs = 0L
+    /** Bumped when the road pieces change, so the snapped position is worked out again. */
+    var version by mutableIntStateOf(0)
+        private set
+
+    fun refresh(m: MapLibreMap, me: LatLng, layers: Array<String>, radiusPx: Float) {
+        val now = System.currentTimeMillis()
+        val last = at
+        if (last != null && last.distanceTo(me) < 30 && now - atMs < 6000) return
+        val p = TerrainCamera.screen(m, me, m.centerAltitude > 1.0)
+        val feats = runCatching { m.queryRenderedFeatures(android.graphics.RectF(p.x - radiusPx, p.y - radiusPx, p.x + radiusPx, p.y + radiusPx), *layers) }.getOrNull() ?: return
+        val out = ArrayList<DoubleArray>()
+        fun line(pts: List<org.maplibre.geojson.Point>) { for (i in 1 until pts.size) out += doubleArrayOf(pts[i - 1].longitude(), pts[i - 1].latitude(), pts[i].longitude(), pts[i].latitude()) }
+        for (f in feats) when (val g = f.geometry()) {
+            is org.maplibre.geojson.LineString -> line(g.coordinates())
+            is org.maplibre.geojson.MultiLineString -> g.coordinates().forEach { line(it) }
+            else -> Unit
+        }
+        segs = out
+        at = me
+        atMs = now
+        version++
+    }
+
+    /** The snapped position and the road's direction (turned to match [heading]), or null to leave the marker alone. */
+    fun snap(me: LatLng, heading: Double?, route: List<LatLngD>): Pair<LatLng, Double?>? {
+        val lat0 = me.latitude; val lng0 = me.longitude
+        val kx = 111_320.0 * kotlin.math.cos(Math.toRadians(lat0)); val ky = 111_320.0
+        var best: DoubleArray? = null
+        var bestScore = 25.0
+        fun consider(aLng: Double, aLat: Double, bLng: Double, bLat: Double, bonus: Double) {
+            val ax = (aLng - lng0) * kx; val ay = (aLat - lat0) * ky
+            val bx = (bLng - lng0) * kx; val by = (bLat - lat0) * ky
+            val dx = bx - ax; val dy = by - ay
+            val len2 = dx * dx + dy * dy
+            if (len2 < 1e-6) return
+            val t = (-(ax * dx + ay * dy) / len2).coerceIn(0.0, 1.0)
+            val px = ax + t * dx; val py = ay + t * dy
+            val d = kotlin.math.sqrt(px * px + py * py)
+            var bearing = (Math.toDegrees(kotlin.math.atan2(dx, dy)) + 360) % 360
+            var score = d - bonus
+            if (heading != null) {
+                var diff = kotlin.math.abs(((bearing - heading) % 360 + 540) % 360 - 180)
+                if (diff > 90) { bearing = (bearing + 180) % 360; diff = 180 - diff }
+                if (diff > 45) score += 15.0
+            }
+            if (score < bestScore) { bestScore = score; best = doubleArrayOf(px, py, bearing) }
+        }
+        for (s in segs) consider(s[0], s[1], s[2], s[3], 0.0)
+        for (i in 1 until route.size) {
+            val a = route[i - 1]; val b = route[i]
+            if (kotlin.math.abs(a.lat - lat0) > 0.01 || kotlin.math.abs(a.lng - lng0) > 0.01) continue
+            consider(a.lng, a.lat, b.lng, b.lat, 6.0)
+        }
+        val b = best ?: return null
+        return Pair(LatLng(lat0 + b[1] / ky, lng0 + b[0] / kx), if (heading != null) b[2] else null)
     }
 }

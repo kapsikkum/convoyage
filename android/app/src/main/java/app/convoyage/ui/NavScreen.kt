@@ -129,6 +129,8 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
     val headingUp = rememberHeadingUp(fix)
     val hazards by container.hazards.active.collectAsStateWithLifecycle()
     val convoy by container.convoy.state.collectAsStateWithLifecycle()
+    val garage by container.garage.state.collectAsStateWithLifecycle()
+    val myVehicle = remember(garage) { garage.primary?.let { app.convoyage.api.VehicleBadge(it.kind, it.build) } }
     val voiceOn by container.session.navVoice.collectAsStateWithLifecycle()
     val permission = rememberLocationPermission()
     TrackWhileVisible(permission)
@@ -184,7 +186,7 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
     val fit = remember(nav.route, nav.phase) {
         if (nav.phase == NavPhase.Preview) nav.route?.points.orEmpty().let { p -> p.filterIndexed { i, _ -> i % maxOf(1, p.size / 150) == 0 }.map { LatLng(it.lat, it.lng) } } else emptyList()
     }
-    val pins = remember(nav.destination, nav.routeHazards, fix, nav.bearing, convoy.nearbyDrivers, convoy.nearbyConvoys, drive != null, routeStops, nav.phase) {
+    val pins = remember(myVehicle, nav.destination, nav.routeHazards, fix, nav.bearing, convoy.nearbyDrivers, convoy.nearbyConvoys, drive != null, routeStops, nav.phase) {
         buildList {
             // While driving only servos ahead stay on the map; the preview shows every stop.
             if (nav.phase == NavPhase.Preview) addAll(stopPins(routeStops))
@@ -194,7 +196,7 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
             nav.destination?.let { add(MapPinData("dest", PinKind.Destination, "", it.lat, it.lng, tag = it.name.take(12).uppercase().ifBlank { "DEST" })) }
             // Our own smoothed heading (from how we actually move), not the route's: the route bearing jumps between
             // segments and the raw GPS heading is often missing or 0.
-            fix?.let { add(MapPinData("me", PinKind.Me, "", it.lat, it.lng, it.headingDeg ?: nav.bearing)) }
+            fix?.let { add(MapPinData("me", PinKind.Me, "", it.lat, it.lng, it.headingDeg ?: nav.bearing, vehicle = myVehicle)) }
         }
     }
     val following = nav.phase == NavPhase.Active && local.follow

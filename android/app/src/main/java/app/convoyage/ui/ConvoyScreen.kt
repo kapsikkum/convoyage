@@ -105,6 +105,8 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
     LaunchedEffect(local.follow) { if (local.follow) fitAll = emptyList() }
     val sharedRoute by container.convoy.sharedRoute.collectAsStateWithLifecycle()
     val navState by container.nav.state.collectAsStateWithLifecycle()
+    val garage by container.garage.state.collectAsStateWithLifecycle()
+    val myVehicle = remember(garage) { garage.primary?.let { app.convoyage.api.VehicleBadge(it.kind, it.build) } }
     // Search is always on in the convoy view: a stop for you on the way, or (leader, nowhere set) where everyone goes.
     val navVm: NavViewModel = viewModel(factory = viewModelFactory { initializer { NavViewModel(container) } })
     val navSearch by navVm.search.collectAsStateWithLifecycle()
@@ -178,7 +180,7 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
                 tag = if (e.state == MemberState.Lead) e.distanceM?.let { Geo.formatDistance(it).uppercase() } else null,
             )
         } + hazards.map { it.toPin() } + listOfNotNull(
-            myFix?.let { MapPinData("me", PinKind.Me, "", it.lat, it.lng, it.headingDeg) },
+            myFix?.let { MapPinData("me", PinKind.Me, "", it.lat, it.lng, it.headingDeg, vehicle = myVehicle) },
             room?.destination?.let { MapPinData("dest", PinKind.Destination, "", it.lat, it.lng, tag = it.label.take(12).uppercase().ifBlank { "DEST" }) },
             local.pendingDest?.let { MapPinData("pending", PinKind.Destination, "", it.lat, it.lng, tag = "CONFIRM") },
         )

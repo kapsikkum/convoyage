@@ -207,7 +207,7 @@ class Ps1Gl {
     }
 
     /** Draws the current model into the low-res target of [w] x [h] pixels, turned [yawDeg] degrees. The target is left bound. */
-    fun renderLowRes(w: Int, h: Int, yawDeg: Float, ground: Boolean, zoom: Float = 1f) {
+    fun renderLowRes(w: Int, h: Int, yawDeg: Float, ground: Boolean, zoom: Float = 1f, topDown: Boolean = false) {
         val m = mesh ?: return
         ensureTarget(w, h)
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo)
@@ -221,8 +221,16 @@ class Ps1Gl {
         val frame = Ps1Models.frame(kind)
         val aspect = w / h.toFloat()
         val dist = Ps1Camera.distance(kind, aspect, zoom)
-        Matrix.perspectiveM(proj, 0, Ps1Camera.FOV_DEG, aspect, 1f, 60f)
-        Matrix.setLookAtM(view, 0, 0f, Ps1Camera.eyeY(dist, frame.lookY), Ps1Camera.eyeZ(dist), 0f, frame.lookY, 0f, 0f, 1f, 0f)
+        if (topDown) {
+            // Straight down with the nose (+x) at the top of the image, orthographic so it reads as a plan view.
+            val halfH = frame.fitRadius * 1.02f
+            val halfW = halfH * aspect
+            Matrix.orthoM(proj, 0, -halfW, halfW, -halfH, halfH, 1f, 60f)
+            Matrix.setLookAtM(view, 0, 0f, 30f, 0f, 0f, 0f, 0f, 1f, 0f, 0f)
+        } else {
+            Matrix.perspectiveM(proj, 0, Ps1Camera.FOV_DEG, aspect, 1f, 60f)
+            Matrix.setLookAtM(view, 0, 0f, Ps1Camera.eyeY(dist, frame.lookY), Ps1Camera.eyeZ(dist), 0f, frame.lookY, 0f, 0f, 1f, 0f)
+        }
 
         GLES30.glUseProgram(prog)
         GLES30.glUniformMatrix4fv(loc("uP"), 1, false, proj, 0)

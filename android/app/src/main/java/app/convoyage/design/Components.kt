@@ -744,6 +744,11 @@ fun MapPin(
         PinKind.Photo -> c.hazard
         PinKind.Stop -> c.inkMuted
     }
+    // A person with a vehicle shows as it, from above, turned the way they are going.
+    if (vehicle != null && kind in CAR_KINDS) {
+        CarMarker(kind, ring, vehicle, heading, tag, modifier, fallback = { MapPin(kind, label, Modifier, heading, tag, null) })
+        return
+    }
     Box(modifier.size(56.dp), contentAlignment = Alignment.Center) {
         if (heading != null) {
             Canvas(Modifier.size(56.dp).rotate(heading)) {
@@ -776,6 +781,56 @@ fun MapPin(
         if (tag != null) {
             Box(
                 Modifier.align(Alignment.BottomCenter).cutPanel(c.surface100, ring, CutSShape).padding(horizontal = 4.dp, vertical = 1.dp),
+            ) { CvText(tag, Cv.type.label.copy(fontSize = 9.sp, lineHeight = 11.sp, letterSpacing = 0.06.sp), c.ink) }
+        }
+    }
+}
+
+private val CAR_KINDS = setOf(PinKind.Me, PinKind.Member, PinKind.Lead, PinKind.Stopped, PinKind.Offline)
+
+/**
+ * The top-down PS1 render of a vehicle as a map marker: a glow in the state colour under it (cyan for you), the sprite
+ * turned to [heading], and the tag under. Same 56 dp footprint as the round pin, so the map lays them out alike.
+ */
+@Composable
+private fun CarMarker(
+    kind: PinKind,
+    ring: androidx.compose.ui.graphics.Color,
+    vehicle: VehicleBadge,
+    heading: Float?,
+    tag: String?,
+    modifier: Modifier,
+    fallback: @Composable () -> Unit,
+) {
+    val c = Cv.colors
+    val thumbs = app.convoyage.ui.LocalContainer.current.thumbs
+    val spec = vehicle.ps1()
+    var image by remember(spec) { mutableStateOf(thumbs.cached(spec, ThumbSize.Top)) }
+    var failed by remember(spec) { mutableStateOf(false) }
+    LaunchedEffect(spec) {
+        if (image == null) {
+            image = thumbs.get(spec, ThumbSize.Top)
+            failed = image == null
+        }
+    }
+    if (failed) { fallback(); return }
+    Box(modifier.size(56.dp), contentAlignment = Alignment.Center) {
+        // Glow, then a soft dark footprint so a dark car still reads on the night map.
+        Box(
+            Modifier.size(if (kind == PinKind.Me) 46.dp else 38.dp)
+                .background(androidx.compose.ui.graphics.Brush.radialGradient(listOf(ring.copy(alpha = if (kind == PinKind.Me) 0.55f else 0.4f), ring.copy(alpha = 0f))), CircleShape),
+        )
+        val img = image
+        if (img != null) {
+            androidx.compose.foundation.Image(
+                img, contentDescription = null,
+                modifier = Modifier.size(22.dp, 52.dp).rotate(heading ?: 0f),
+                contentScale = ContentScale.Fit, filterQuality = androidx.compose.ui.graphics.FilterQuality.None,
+            )
+        }
+        if (tag != null) {
+            Box(
+                Modifier.align(Alignment.BottomCenter).offset(y = 10.dp).cutPanel(c.surface100, ring, CutSShape).padding(horizontal = 4.dp, vertical = 1.dp),
             ) { CvText(tag, Cv.type.label.copy(fontSize = 9.sp, lineHeight = 11.sp, letterSpacing = 0.06.sp), c.ink) }
         }
     }
