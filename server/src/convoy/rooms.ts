@@ -418,6 +418,19 @@ export class Rooms {
 
   navigationVersion(code: string): number | undefined { return this.room(code)?.navigationVersion; }
 
+  /**
+   * Where to look for a stop that suits everyone, [lng, lat]: the middle of the online members' fresh positions, so a
+   * regroup point is close to all of them rather than to the leader. The route start when nobody is sharing.
+   */
+  meetingPoint(code: string): [number, number] | null {
+    const room = this.room(code);
+    if (!room) return null;
+    const now = this.now();
+    const pts = [...room.members.values()].filter((m) => m.online && m.position && now - m.position.ts <= AUTO_REGROUP_FRESH_MS).map((m) => m.position!);
+    if (!pts.length) return room.route?.stops[0] ?? null;
+    return [pts.reduce((s, p) => s + p.lng, 0) / pts.length, pts.reduce((s, p) => s + p.lat, 0) / pts.length];
+  }
+
   /** Complete an automatic rest-stop lookup atomically, so repeated position updates cannot queue duplicates. */
   completeAutomaticRegroup(code: string, destination: Destination | null): Outcome {
     const room = this.room(code);

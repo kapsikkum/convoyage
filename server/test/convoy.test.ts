@@ -257,3 +257,21 @@ test('every client message is checked, and unlisted fields are dropped', () => {
   }
   assert.equal(parseClientMessage('{"t":"pos","lat":NaN}').ok, false);
 });
+
+test('meeting point: the middle of where everyone is, not the leader; the route start when nobody shares', () => {
+  const c = clock();
+  const rooms = new Rooms(c.now);
+  const route = { name: 'Loop', stops: [[149.5, -33.4], [149.6, -33.5]] as [number, number][] };
+  const made = rooms.create(who(1), { route });
+  assert.ok(made.ok);
+  if (!made.ok) return;
+  const code = made.value.code;
+  assert.ok(rooms.join(code, who(2)).ok);
+  assert.ok(rooms.join(code, who(3)).ok);
+  assert.deepEqual(rooms.meetingPoint(code), [149.5, -33.4], 'nobody sharing: the route start');
+  rooms.position('u1', { lat: -33.40, lng: 149.50, heading: null, speed: null });
+  rooms.position('u2', { lat: -33.50, lng: 149.60, heading: null, speed: null });
+  rooms.position('u3', { lat: -33.30, lng: 149.70, heading: null, speed: null });
+  const [lng, lat] = rooms.meetingPoint(code)!;
+  assert.ok(Math.abs(lng - 149.6) < 1e-9 && Math.abs(lat + 33.4) < 1e-9, `${lng},${lat}`);
+});

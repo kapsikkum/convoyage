@@ -143,8 +143,8 @@ export function attachRealtime(server: http.Server, opts: RealtimeOptions): Real
     if (!room?.route || room.resting) return;
     const reserved = rooms.reserveRestLookup(code, room.leader);
     if (!reserved.ok) { rooms.completeAutomaticRegroup(code, null); return; }
-    const leader = room.members.find((member) => member.id === room.leader)?.position;
-    const from: [number, number] = leader ? [leader.lng, leader.lat] : room.route.stops[0];
+    // Somewhere close to all of them, not just the leader.
+    const from = rooms.meetingPoint(code) ?? room.route.stops[0];
     void opts.restStops.find(room.route.stops, from).then((stop) => {
       if (rooms.navigationVersion(code) !== reserved.value) return;
       const done = rooms.completeAutomaticRegroup(code, stop ? { lat: stop.lat, lng: stop.lng, label: `Regroup: ${stop.label}` } : null);
@@ -337,8 +337,7 @@ export function attachRealtime(server: http.Server, opts: RealtimeOptions): Real
         if (!room.route) return error('Set a convoy route before finding a rest stop');
         const reserved = rooms.reserveRestLookup(m.room, conn.userId);
         if (!reserved.ok) return error(reserved.error);
-        const leader = room.members.find((member) => member.id === room.leader)?.position;
-        const from: [number, number] = leader ? [leader.lng, leader.lat] : room.route.stops[0];
+        const from = rooms.meetingPoint(m.room) ?? room.route.stops[0];
         void opts.restStops.find(room.route.stops, from).then((stop) => {
           if (!conns.has(conn)) return;
           if (rooms.navigationVersion(m.room) !== reserved.value) return error('The convoy route or destination changed. Search again.');
