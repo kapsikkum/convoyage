@@ -95,7 +95,10 @@ export interface HazardReportsTable {
 
 export interface HazardAcksTable { hazard_id: string; user_id: string; action: 'confirm' | 'dismiss' | 'ack'; created_at: Ts }
 
-export interface DeviceTokensTable { token: string; user_id: string; platform: 'ios' | 'android'; created_at: Ts; updated_at: Ts }
+export interface DeviceTokensTable {
+  token: string; user_id: string; platform: 'ios' | 'android' | 'unifiedpush'; p256dh: OptNull<string>; auth: OptNull<string>;
+  created_at: Ts; updated_at: Ts;
+}
 
 export interface PhotoscoutLinksTable {
   user_id: string; access_token_enc: string; refresh_token_enc: string; access_expires_at: Date | string; scope: Opt<string>;

@@ -28,6 +28,7 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
     ...opts, rooms,
     onSos: (e) => opts.api?.notifier.sos(e.code, e.memberIds, e.from, e.note),
   });
+  opts.api?.notifier.setLive((userId, payload) => realtime.notifyUser(userId, payload));
   app.addHook('onClose', async () => realtime.close());
   app.get('/health', async () => ({ ok: true, version: VERSION }));
   if (opts.api) {

@@ -3,9 +3,11 @@ import http2 from 'node:http2';
 import { SignJWT, importPKCS8 } from 'jose';
 import type { Config } from '../config.js';
 import type { Fetch } from '../http.js';
+import { WebPushSender } from './webpush.js';
 
-export type Platform = 'ios' | 'android';
-export interface PushTarget { platform: Platform; token: string }
+export type Platform = 'ios' | 'android' | 'unifiedpush';
+/** For unifiedpush the token is the endpoint URL and p256dh/auth are the app's Web Push keys. */
+export interface PushTarget { platform: Platform; token: string; p256dh?: string | null; auth?: string | null }
 export interface PushPayload { title: string; body: string; data?: Record<string, string> }
 
 /** Sends one notification to a set of devices. Returns the tokens the provider says are dead, so they can be forgotten. */
@@ -116,10 +118,10 @@ export function compositeSender(...senders: PushSender[]): PushSender {
   };
 }
 
-/** FCM and/or APNs when configured, else a no-op. A bad credentials file is logged, not fatal. */
+/** UnifiedPush always (it needs no credentials), plus FCM and/or APNs when configured. A bad credentials file is logged, not fatal. */
 export function pushFromConfig(config: Config): PushSender {
-  const senders: PushSender[] = [];
+  const senders: PushSender[] = [new WebPushSender()];
   try { if (config.fcmServiceAccountPath) senders.push(new FcmSender(config.fcmServiceAccountPath)); } catch (err) { console.error('[push] FCM disabled:', (err as Error).message); }
   try { if (config.apns) senders.push(new ApnsSender(config.apns)); } catch (err) { console.error('[push] APNs disabled:', (err as Error).message); }
-  return senders.length ? compositeSender(...senders) : noopSender;
+  return compositeSender(...senders);
 }

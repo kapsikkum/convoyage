@@ -66,6 +66,8 @@ export interface Realtime {
   renameUser(userId: string, name: string): void;
   /** A user's primary vehicle changed: update the badge in their rooms and tell the members. */
   setVehicle(userId: string, vehicle: MemberVehicle | null): void;
+  /** Sends a `notify` to the user's open sockets (the app's keep-alive connection). False if none is open. */
+  notifyUser(userId: string, payload: { title: string; body: string; data?: Record<string, string> }): boolean;
 }
 
 /** Subprotocol a client offers (alongside `bearer.<access token>`) so the token never lands in a URL. */
@@ -430,6 +432,12 @@ export function attachRealtime(server: http.Server, opts: RealtimeOptions): Real
     renameUser(userId, name) {
       for (const conn of byUser.get(userId) ?? []) conn.who = { ...conn.who, username: name.trim().slice(0, MAX_NAME) || conn.who.username };
       for (const code of rooms.renameMember(userId, name)) announce(code);
+    },
+    notifyUser(userId, payload) {
+      const conns = byUser.get(userId);
+      if (!conns || !conns.size) return false;
+      sendUser(userId, { t: 'notify', title: payload.title, body: payload.body, data: payload.data ?? {} });
+      return true;
     },
     setVehicle(userId, vehicle) {
       for (const conn of byUser.get(userId) ?? []) conn.who = { ...conn.who, vehicle };

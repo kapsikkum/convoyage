@@ -11158,7 +11158,7 @@
         "tags": [
           "devices"
         ],
-        "description": "Idempotent. A token already registered to another account moves to this one. At most 10 devices per account (oldest dropped).",
+        "description": "Idempotent. A token already registered to another account moves to this one. At most 10 devices per account (oldest dropped). For `unifiedpush` (builds without Google services) the token is the distributor endpoint (a public https URL) and `p256dh`/`auth` are the app Web Push keys (base64url); notifications are then sent encrypted (RFC 8291) as JSON `{ title, body, data }`.",
         "requestBody": {
           "required": true,
           "content": {
@@ -11170,13 +11170,22 @@
                     "type": "string",
                     "enum": [
                       "ios",
-                      "android"
+                      "android",
+                      "unifiedpush"
                     ]
                   },
                   "token": {
                     "type": "string",
                     "minLength": 8,
                     "maxLength": 4096
+                  },
+                  "p256dh": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{80,100}={0,2}$"
+                  },
+                  "auth": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{16,32}={0,2}$"
                   }
                 },
                 "required": [

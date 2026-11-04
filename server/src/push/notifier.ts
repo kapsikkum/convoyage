@@ -2,6 +2,9 @@ import type { Kysely } from 'kysely';
 import type { DB } from '../db/index.js';
 import type { PushPayload, PushSender } from './sender.js';
 
+/** Hands a notification to a user's open sockets; true if at least one took it. */
+export type LiveDelivery = (userId: string, payload: PushPayload) => boolean;
+
 const LIKE_GAP_MS = 60_000;
 
 const HAZARD_TEXT: Record<string, string> = {
@@ -13,7 +16,11 @@ const HAZARD_TEXT: Record<string, string> = {
 export class Notifier {
   private lastLike = new Map<string, number>();
   private pending = new Set<Promise<void>>();
+  private live: LiveDelivery = () => false;
   constructor(private db: Kysely<DB>, private sender: PushSender, private now: () => number = Date.now) {}
+
+  /** Notifications go down open sockets first (the app's keep-alive connection); push only reaches the rest. */
+  setLive(live: LiveDelivery): void { this.live = live; }
 
   /** Resolves when every notification started so far has been handed to the sender (for tests and shutdown). */
   async idle(): Promise<void> {
@@ -31,9 +38,11 @@ export class Notifier {
     return !!r;
   }
 
-  private async deliver(userIds: string[], payload: PushPayload): Promise<void> {
-    if (!userIds.length) return;
-    const rows = await this.db.selectFrom('device_tokens').select(['platform', 'token']).where('user_id', 'in', userIds).execute();
+  /** Live sockets first; push for everyone they did not reach, or for everyone when [everyChannel] (SOS must not be missed). */
+  private async deliver(userIds: string[], payload: PushPayload, everyChannel = false): Promise<void> {
+    const offline = userIds.filter((id) => !this.live(id, payload) || everyChannel);
+    if (!offline.length) return;
+    const rows = await this.db.selectFrom('device_tokens').select(['platform', 'token', 'p256dh', 'auth']).where('user_id', 'in', offline).execute();
     if (!rows.length) return;
     const { invalid } = await this.sender.send(rows, payload);
     if (invalid.length) await this.db.deleteFrom('device_tokens').where('token', 'in', invalid).execute();
@@ -81,7 +90,7 @@ export class Notifier {
   /** SOS in a convoy: every other member, connected or not. */
   sos(code: string, memberIds: string[], from: string, note: string | undefined): void {
     this.run(async () => {
-      await this.deliver(memberIds.filter((id) => id !== from), { title: `SOS from ${await this.name(from)}`, body: note || 'Needs help', data: { type: 'sos', room: code, userId: from } });
+      await this.deliver(memberIds.filter((id) => id !== from), { title: `SOS from ${await this.name(from)}`, body: note || 'Needs help', data: { type: 'sos', room: code, userId: from } }, true);
     });
   }
 

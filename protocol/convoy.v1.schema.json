@@ -289,6 +289,12 @@
           "properties": { "t": { "const": "hazard" }, "room": { "type": "string" }, "hazard": { "$ref": "#/$defs/Hazard" } },
           "additionalProperties": false
         },
+        {
+          "description": "Additive in v1. A notification for you (follow, comment, like, SOS, hazard), sent instead of a push while a socket is open. Apps keep a socket open in the background to get these without Google services. data.type names the kind.",
+          "type": "object", "required": ["t", "title", "body", "data"],
+          "properties": { "t": { "const": "notify" }, "title": { "type": "string" }, "body": { "type": "string" }, "data": { "type": "object", "additionalProperties": { "type": "string" } } },
+          "additionalProperties": false
+        },
         { "description": "Additive in v1. Your Open Cruise setting, after cruise.open.", "type": "object", "required": ["t", "on"], "properties": { "t": { "const": "cruise.state" }, "on": { "type": "boolean" } }, "additionalProperties": false },
         {
           "description": "Additive in v1. Open Cruise: drivers (not in your convoy) and open convoys (not yours) within 5 km. Sent at most every 5 s while you move with Open Cruise on.",
