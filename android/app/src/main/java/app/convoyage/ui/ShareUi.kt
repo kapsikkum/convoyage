@@ -46,6 +46,16 @@ fun shareInvite(context: Context, code: String, name: String) {
     context.startActivity(Intent.createChooser(send, "Invite to convoy").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
 }
 
+/** Shares a live link: people without the app watch the convoy on a map in their browser. */
+fun shareLiveLink(context: Context, url: String, name: String) {
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_SUBJECT, "Follow ${name.ifBlank { "our convoy" }} live")
+        putExtra(Intent.EXTRA_TEXT, "Follow ${name.ifBlank { "our convoy" }} live on the map (no app needed): $url")
+    }
+    context.startActivity(Intent.createChooser(send, "Share live link").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+}
+
 /** Copies the invite link and code to the clipboard. */
 fun copyInvite(context: Context, code: String) {
     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager

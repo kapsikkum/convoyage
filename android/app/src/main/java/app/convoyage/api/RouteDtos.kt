@@ -34,6 +34,10 @@ data class SavedRoute(
     val isCircuit: Boolean get() = type == "circuit"
 }
 
+/** POST /v1/convoys/{code}/live: a link anyone can open in a browser to watch the convoy. */
+@Serializable
+data class LiveLink(val token: String, val url: String, val expiresAt: String = "")
+
 @Serializable
 data class RouteOwner(val handle: String = "", val displayName: String = "")
 

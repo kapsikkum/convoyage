@@ -89,7 +89,7 @@ const LIVE_PAGE = `<!doctype html>
 :root{--bg:#05080d;--panel:#0a1018;--ink:#e8f1fa;--muted:#8ea4ba;--signal:#2de2e6;--line:#2f4862}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:15px/1.4 system-ui,sans-serif}
 #map{position:absolute;inset:0}
-.panel{position:absolute;left:12px;right:12px;bottom:12px;max-width:420px;padding:14px 16px;background:var(--panel);border:1px solid var(--line);clip-path:polygon(14px 0,100% 0,100% 100%,0 100%,0 14px)}
+.panel{position:absolute;left:12px;right:12px;bottom:44px;max-width:420px;padding:14px 16px;background:var(--panel);border:1px solid var(--line);clip-path:polygon(14px 0,100% 0,100% 100%,0 100%,0 14px)}
 h1{margin:0 0 2px;font-size:18px}.muted{color:var(--muted);font-size:13px}.eyebrow{font-size:11px;letter-spacing:.12em;color:var(--signal);font-weight:700}
 ul{list-style:none;margin:8px 0 0;padding:0}li{display:flex;gap:8px;align-items:center;padding:2px 0}
 .dot{width:10px;height:10px;border-radius:50%;background:var(--muted)}.lead .dot{background:var(--signal)}

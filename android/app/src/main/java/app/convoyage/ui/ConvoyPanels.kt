@@ -23,6 +23,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
@@ -62,9 +63,25 @@ private fun clockOf(ts: Long) = if (ts <= 0) "" else clockFormat.format(Instant.
 
 @Composable
 fun RosterPanel(ui: ConvoyUi, onShare: () -> Unit, onCopy: () -> Unit, onQr: () -> Unit, onLeave: () -> Unit, modifier: Modifier = Modifier) {
+    val container = LocalContainer.current
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var liveError by remember { mutableStateOf<String?>(null) }
     LazyColumn(modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(Space.s2)) {
         item(key = "invite") {
             InviteRow(onShare, onCopy, onQr)
+        }
+        item(key = "live") {
+            val room = ui.room
+            CvButton("Live link for people without the app", {
+                if (room != null) scope.launch {
+                    when (val r = container.api.liveLink(room.code)) {
+                        is app.convoyage.api.ApiResult.Ok -> { liveError = null; shareLiveLink(context, r.value.url, room.name) }
+                        is app.convoyage.api.ApiResult.Err -> liveError = r.message
+                    }
+                }
+            }, Modifier.fillMaxWidth(), CvButtonKind.Ghost, icon = CvIcons.Share, compact = true)
+            liveError?.let { CvText(it, Cv.type.bodyS, Cv.colors.pulse) }
         }
         items(ui.roster, key = { it.id }) { e -> RosterRow(e) }
         item(key = "leave") {

@@ -163,6 +163,9 @@ class ConvoyApi(
 
     suspend fun deleteRoute(id: String): ApiResult<Unit> = send("DELETE", "v1/routes/$id", null, null)
 
+    suspend fun liveLink(code: String): ApiResult<LiveLink> =
+        send("POST", "v1/convoys/$code/live", null, LiveLink.serializer())
+
     suspend fun discoverRoutes(lat: Double, lng: Double, radiusKm: Int = 50): ApiResult<List<DiscoveredRoute>> =
         send("GET", "v1/routes/discover", null, ListSerializer(DiscoveredRoute.serializer()), query = mapOf("lat" to lat.toString(), "lng" to lng.toString(), "radiusKm" to radiusKm.toString()))
 
