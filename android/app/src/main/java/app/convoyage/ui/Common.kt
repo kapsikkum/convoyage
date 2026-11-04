@@ -49,6 +49,27 @@ val LocalContainer = staticCompositionLocalOf<AppContainer> { error("AppContaine
 /** Extra room at the bottom (above the navigation bar) that floating chrome covers, e.g. the tab bar on Drive. */
 val LocalBottomChrome = androidx.compose.runtime.compositionLocalOf { 0.dp }
 
+/**
+ * Our own fix as the map should draw it: gliding between GPS fixes frame by frame (see [app.convoyage.data.SelfMotion]),
+ * with heading filled in from movement when the device gives none. Display only.
+ */
+@androidx.compose.runtime.Composable
+fun rememberSmoothedFix(raw: app.convoyage.data.Fix?): app.convoyage.data.Fix? {
+    val motion = androidx.compose.runtime.remember { app.convoyage.data.SelfMotion() }
+    var shown by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(raw) }
+    androidx.compose.runtime.LaunchedEffect(raw) {
+        if (raw == null) { shown = null; return@LaunchedEffect }
+        motion.update(raw, System.currentTimeMillis())
+        while (true) {
+            val now = System.currentTimeMillis()
+            shown = motion.poseAt(now)
+            if (!motion.isAnimating(now)) break
+            androidx.compose.runtime.withFrameMillis { }
+        }
+    }
+    return shown
+}
+
 /** Bottom room the floating tab bar needs (bar height + its margin). */
 val TabBarClearance = 112.dp
 

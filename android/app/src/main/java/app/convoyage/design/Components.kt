@@ -765,7 +765,7 @@ fun MapPin(
                 .border(2.dp, ring, CircleShape),
             contentAlignment = Alignment.Center,
         ) {
-            if (kind == PinKind.Me) CvIcon(CvIcons.Navigate, c.signalInk, size = 16.dp)
+            if (kind == PinKind.Me) CvIcon(CvIcons.Navigate, c.signalInk, size = 16.dp, modifier = Modifier.rotate(heading ?: 0f))
             else if (kind == PinKind.Destination) CvIcon(CvIcons.Route, c.ink, size = 18.dp)
             else if (kind == PinKind.Hazard || kind == PinKind.Police) CvIcon(CvIcons.Alert, ring, size = 18.dp)
             else if (kind == PinKind.Photo) CvIcon(CvIcons.Camera, ring, size = 18.dp)

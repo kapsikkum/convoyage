@@ -152,7 +152,8 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
         motionNow = System.currentTimeMillis()
     }
 
-    val pins = remember(ui.roster, ui.fix, hazards, room?.destination, local.pendingDest, motionNow) {
+    val myFix = rememberSmoothedFix(ui.fix)
+    val pins = remember(ui.roster, myFix, hazards, room?.destination, local.pendingDest, motionNow) {
         ui.roster.mapNotNull { e ->
             if (e.isMe || e.lat == null || e.lng == null) return@mapNotNull null
             val pose = motion.pose(e.id, motionNow)
@@ -168,7 +169,7 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
                 tag = if (e.state == MemberState.Lead) e.distanceM?.let { Geo.formatDistance(it).uppercase() } else null,
             )
         } + hazards.map { it.toPin() } + listOfNotNull(
-            ui.fix?.let { MapPinData("me", PinKind.Me, "", it.lat, it.lng, it.headingDeg) },
+            myFix?.let { MapPinData("me", PinKind.Me, "", it.lat, it.lng, it.headingDeg) },
             room?.destination?.let { MapPinData("dest", PinKind.Destination, "", it.lat, it.lng, tag = it.label.take(12).uppercase().ifBlank { "DEST" }) },
             local.pendingDest?.let { MapPinData("pending", PinKind.Destination, "", it.lat, it.lng, tag = "CONFIRM") },
         )
@@ -182,7 +183,7 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
         ConvoyMap(
             modifier = Modifier.fillMaxSize(),
             pins = pins,
-            me = ui.fix?.let { LatLng(it.lat, it.lng) },
+            me = myFix?.let { LatLng(it.lat, it.lng) },
             route = room?.route?.stops.orEmpty(),
             routeLine = ui.routeLine,
             buildings3d = local.buildings3d,

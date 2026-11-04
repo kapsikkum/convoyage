@@ -197,10 +197,20 @@ fun ConvoyMap(
     LaunchedEffect(map, me, follow, recenterTick, followBearing, followZoom) {
         val m = map ?: return@LaunchedEffect
         if (follow && me != null) {
-            val zoom = followZoom ?: m.cameraPosition.zoom.coerceAtLeast(14.0)
-            val cam = CameraPosition.Builder(m.cameraPosition).target(me).zoom(zoom)
-            if (followBearing != null) cam.bearing(followBearing).tilt(60.0)
-            m.easeCamera(CameraUpdateFactory.newCameraPosition(cam.build()), 900)
+            val now = m.cameraPosition
+            val zoom = followZoom ?: now.zoom.coerceAtLeast(14.0)
+            val cam = CameraPosition.Builder(now).target(me).zoom(zoom)
+            if (followBearing != null) {
+                // Turn part of the way each update: [me] changes every frame while it glides, so this eases in.
+                var d = (followBearing - now.bearing) % 360
+                if (d > 180) d -= 360
+                if (d < -180) d += 360
+                cam.bearing((now.bearing + d * 0.12 + 360) % 360).tilt(60.0)
+            }
+            val near = now.target?.let { it.distanceTo(me) < 250 } == true && kotlin.math.abs(now.zoom - zoom) < 0.5
+            // Close by: follow the gliding position exactly. Far (first fix, recentre): fly there.
+            if (near) m.moveCamera(CameraUpdateFactory.newCameraPosition(cam.build()))
+            else m.easeCamera(CameraUpdateFactory.newCameraPosition(cam.build()), 900)
         }
     }
 
