@@ -5,7 +5,7 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-/** One surface's look: a linear tint, a texture id (0 = none, see [Ps1Textures]) and a flag (0 plain, 1 paint: gets the finish, 2 unlit). */
+/** One surface's look: a linear tint, a texture id (0 = none, see [Ps1Textures]) and a flag (0 plain, 1 paint: gets the finish, 2 unlit, 3 glass: reflects the sky). */
 class Surf(val r: Float, val g: Float, val b: Float, val tex: Int = 0, val flag: Int = 0) {
     companion object {
         fun srgb(rgb: Int, tex: Int = 0, flag: Int = 0): Surf {

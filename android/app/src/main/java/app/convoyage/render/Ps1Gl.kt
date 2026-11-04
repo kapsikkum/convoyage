@@ -32,8 +32,9 @@ void main() {
   vec3 L = normalize(uLight);
   float d = max(dot(n, L), 0.0);
   float rim = pow(1.0 - max(n.z, 0.0), 2.0) * 0.25;
-  float unlit = step(1.5, aMat.y);
-  float paint = step(0.5, aMat.y) * (1.0 - unlit);
+  float glass = step(2.5, aMat.y);
+  float unlit = step(1.5, aMat.y) * (1.0 - glass);
+  float paint = step(0.5, aMat.y) * (1.0 - unlit) * (1.0 - glass);
   float l = mix(0.38 + 0.85 * d + rim, 1.0, unlit);
   vec3 tint = aTint;
   tint *= 1.0 - 0.28 * uMetal * paint;
@@ -42,6 +43,14 @@ void main() {
   float s = pow(max(dot(n, normalize(L + V)), 0.0), uShine);
   vCol = tint * l;
   vSpec = uSpecCol * (uSpec * s) * paint;
+  // The environment, Gran Turismo style: a sky-to-horizon-to-ground gradient reflected in paint and glass.
+  vec3 up = normalize(mat3(uMV) * vec3(0.0, 1.0, 0.0));
+  float hgt = dot(reflect(-V, n), up);
+  vec3 env = hgt > 0.0 ? mix(vec3(0.62, 0.68, 0.74), vec3(0.24, 0.34, 0.5), sqrt(hgt)) : mix(vec3(0.5, 0.52, 0.55), vec3(0.06, 0.06, 0.07), min(1.0, -hgt * 4.0));
+  float fres = 0.25 + 0.75 * pow(1.0 - max(dot(n, V), 0.0), 3.0);
+  vSpec += env * fres * paint * (0.08 + 0.22 * uMetal + 0.18 * min(uSpec, 1.0));
+  vCol = mix(vCol, tint * (0.35 + 0.3 * d), glass);
+  vSpec += env * (0.18 + 0.62 * fres) * glass;
   vUvW = vec3(aUv * p.w, p.w);
   vTex = aMat.x;
 }

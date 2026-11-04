@@ -118,6 +118,8 @@ object Ps1Catalog {
         c("nissan-patrol-gu", "Nissan", "Patrol", "GU wagon", 1997..2016, FourwdWagon, mm(5050, 1940, 1855, 2970), "265/70R16", listOf("patrol", "gu patrol", "patrol gu", "gu"), Generic, setOf(Flares, RoofRails)) { copy(ws = 0.29f, roofF = 0.40f, roofR = 0.975f) },
         c("nissan-navara-d23", "Nissan", "Navara", "D23", 2015..NOW, FourwdUte, mm(5255, 1850, 1840, 3150), "255/60R18", listOf("navara", "np300", "navara pro 4x", "warrior"), Wide, setOf(SportsBar, Steps)),
         c("nissan-gtr-r35", "Nissan", "GT-R", "R35", 2007..NOW, Coupe, mm(4710, 1895, 1370, 2780), "255/40R20", listOf("gt r", "gtr", "r35", "r35 gtr", "gt r nismo"), Wide, setOf(Wing)) { copy(roofR = 0.66f, rw = 0.86f) },
+        c("nissan-skyline-r33", "Nissan", "Skyline GT-R", "R33", 1995..1998, Coupe, mm(4675, 1780, 1360, 2720), "245/45R17", listOf("skyline", "r33", "r33 gtr", "r33 gt r", "skyline r33", "bcnr33", "skyline gt r", "skyline gtr"), Generic, setOf(Wing)),
+        c("nissan-skyline-r32", "Nissan", "Skyline GT-R", "R32", 1989..1994, Coupe, mm(4545, 1755, 1340, 2615), "225/50R16", listOf("skyline", "r32", "r32 gtr", "r32 gt r", "skyline r32", "bnr32", "skyline gt r", "skyline gtr"), Generic, setOf(BootLip)) { copy(roofR = 0.66f, rw = 0.84f) },
         c("nissan-skyline-r34", "Nissan", "Skyline GT-R", "R34", 1999..2002, Coupe, mm(4600, 1785, 1360, 2665), "245/40R18", listOf("skyline", "r34", "r34 gtr", "skyline gt r", "skyline gtr"), Generic, setOf(Wing)) { copy(roofR = 0.66f, rw = 0.84f) },
         c("nissan-370z", "Nissan", "370Z", "Z34", 2009..2020, Coupe, mm(4250, 1845, 1315, 2550), "245/40R19", listOf("370z", "350z", "z"), Wide) { copy(roofR = 0.62f, rw = 0.92f) },
 

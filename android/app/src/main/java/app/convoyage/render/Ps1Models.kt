@@ -38,7 +38,7 @@ object Ps1Models {
     private const val MM = 0.0016f
 
     private val TYRE = Surf.srgb(0x16181C)
-    private val GLASS = Surf.srgb(0x0E1A28)
+    private val GLASS = Surf.srgb(0x0E1A28, flag = 3)
     private val DARK = Surf.srgb(0x0A0D12)
     private val ARCH = Surf.srgb(0x050608)
     private val TRIM = Surf.srgb(0x3A414C)
@@ -50,6 +50,8 @@ object Ps1Models {
     private val TAIL = Surf.srgb(0xFF3D5A, flag = 2)
     private val GROUND = Surf.srgb(0xFFFFFF, tex = Ps1Textures.GROUND)
     private val SHADOW = Surf.srgb(0x05080D)
+    private val FOG = Surf.srgb(0xFFD27A, flag = 2)
+    private val ROTOR = Surf.srgb(0x5A5F66)
 
     fun frame(spec: Ps1Spec): Ps1Frame = spec.shape?.let { frame(it) } ?: bikeFrame(spec.body)
 
@@ -88,7 +90,12 @@ object Ps1Models {
         val rim = Surf.srgb(spec.wheel.rgb, Ps1Textures.RIM)
         val dy = spec.rideHeightMm * MM
         val sh = spec.shape
-        if (sh == null) bike(mb, spec.body, bikeSpec(spec.body), paint, rim, dy) else Car(mb, sh, paint, rim, dy).build()
+        val modelled = spec.model?.let { Ps1CarModels.of(it.id) }
+        when {
+            sh == null -> bike(mb, spec.body, bikeSpec(spec.body), paint, rim, dy)
+            modelled != null -> modelledCar(mb, modelled, paint, rim, dy)
+            else -> Car(mb, sh, paint, rim, dy).build()
+        }
 
         // The shadow blob under the vehicle, a hair above the ground.
         if (sh == null) Ps1Geo.disc(mb, f.groundY + 0.012f, 2.5f, 0.75f, 10, SHADOW)
@@ -97,6 +104,37 @@ object Ps1Models {
     }
 
     // ---- four wheels ------------------------------------------------------------------------------------------
+
+    /** A body modelled in Blender: its parts take the paint, glass and lamp surfaces; the wheels go in its arches. */
+    private fun modelledCar(mb: MeshBuilder, cm: Ps1CarModel, paint: Surf, rim: Surf, dyIn: Float) {
+        val h0 = cm.tyre / 2f
+        val dy = maxOf(dyIn, -0.06f * K)
+        for (part in cm.parts) {
+            val s = when (part.material) {
+                "paint" -> paint; "glass" -> GLASS; "dark" -> ARCH; "black" -> DARK; "trim" -> TRIM; "chrome" -> CHROME
+                "head" -> HEAD; "tail" -> TAIL; "fog" -> FOG; "plate" -> PLATE; else -> paint
+            }
+            val pos = part.positions; val nrm = part.normals
+            val ids = IntArray(pos.size / 3) { i ->
+                val x = pos[i * 3] * K; val y = (pos[i * 3 + 1] - h0) * K + dy; val z = pos[i * 3 + 2] * K
+                mb.vertex(x, y, z, nrm[i * 3], nrm[i * 3 + 1], nrm[i * 3 + 2], x / 7f + 0.5f, y / 2f, s)
+            }
+            val ix = part.indices
+            for (t in 0 until ix.size / 3) mb.tri(ids[ix[t * 3]], ids[ix[t * 3 + 1]], ids[ix[t * 3 + 2]])
+        }
+        val r = cm.tyre / 2f * K
+        val ww = cm.tyreW * K
+        for ((i, d) in floatArrayOf(cm.fo, cm.fo + cm.wb).withIndex()) {
+            val ax = (cm.len / 2f - d) * K
+            val ht = cm.halfTrack[i] * K
+            for (side in intArrayOf(1, -1)) {
+                Ps1Geo.wheel(mb, ax, 0f, side * ht, r, ww, TYRE, rim, segments = 16)
+                // Brake disc and caliper behind the spokes.
+                Ps1Geo.wheel(mb, ax, 0f, side * (ht - ww * 0.3f), r * 0.62f, 0.05f, ROTOR, ROTOR, segments = 12)
+                Ps1Geo.box(mb, ax - r * 0.42f, r * 0.2f, side * (ht - ww * 0.22f), r * 0.22f, r * 0.42f, 0.06f, TAIL)
+            }
+        }
+    }
 
     /** Builds one four-wheeler from its shape and profile. Helpers take metres (back from the nose, up from the ground). */
     private class Car(val mb: MeshBuilder, val sh: Ps1Shape, val paint: Surf, val rim: Surf, dyIn: Float) {

@@ -65,10 +65,22 @@ class Ps1MeshTest {
             assertTrue("${e.id} glass in order", sh.ws < sh.roofF && sh.roofF <= sh.roofR && sh.roofR <= sh.rw && sh.nose < sh.belt && sh.belt < sh.hgt)
             assertTrue("${e.id} tyre", sh.tyre in 0.55f..0.9f)
             val m = Ps1Models.build(spec)
-            assertTrue("${e.id} triangles", m.indices.size / 3 in 300..3500)
+            assertTrue("${e.id} triangles", m.indices.size / 3 in 300..8000)
             for (v in m.vertices) assertTrue("${e.id} finite", v.isFinite())
             for (idx in m.indices) assertTrue("${e.id} index", (idx.toInt() and 0xFFFF) < m.vertexCount)
         }
+    }
+
+    @Test fun blenderModelsLoadAndBuild() {
+        app.convoyage.render.Ps1CarModels.source = { path -> java.io.File("src/main/assets/$path").takeIf { it.exists() }?.readBytes() }
+        app.convoyage.render.Ps1CarModels.clear()
+        val cm = app.convoyage.render.Ps1CarModels.of("nissan-skyline-r33")!!
+        assertTrue("r33 triangles ${cm.triangles}", cm.triangles in 1000..6000)
+        assertTrue(cm.parts.map { it.material }.containsAll(listOf("paint", "glass", "head", "tail")))
+        assertEquals(2.72f, cm.wb, 1e-3f)
+        val m = Ps1Models.build(Ps1Spec.of("car", null, null, null, null, "coupe", "nissan-skyline-r33"))
+        for (v in m.vertices) assertTrue(v.isFinite())
+        assertTrue(m.vertexCount < 65536)
     }
 
     @Test fun makeAndModelPickTheRightGeneration() {
@@ -156,7 +168,7 @@ class Ps1MeshTest {
             val tex = m.vertices[i * Ps1Mesh.STRIDE + 11].toInt()
             val flag = m.vertices[i * Ps1Mesh.STRIDE + 12].toInt()
             assertTrue(tex in 0..3)
-            assertTrue(flag in 0..2)
+            assertTrue(flag in 0..3)
         }
     }
 
