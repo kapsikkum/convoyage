@@ -13,7 +13,26 @@ from mathutils import Vector
 from mathutils.bvhtree import BVHTree
 
 argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
-spec = json.load(open(argv[0], encoding='utf-8'))
+def load(path):
+    """A definition, merged over the one it "extends" (same folder): its keys replace the base's, except "profile"
+    (merged key by key) and lists named in "add" (appended to the base's)."""
+    import os
+    d = json.load(open(path, encoding='utf-8'))
+    if 'extends' not in d:
+        return d
+    base = load(os.path.join(os.path.dirname(path), d['extends'] + '.json'))
+    out = dict(base)
+    for k, v in d.items():
+        if k == 'profile':
+            out['profile'] = {**base.get('profile', {}), **v}
+        elif k in d.get('add', []):
+            out[k] = base.get(k, []) + v
+        else:
+            out[k] = v
+    return out
+
+
+spec = load(argv[0])
 out_glb = argv[1]
 preview = argv[2] if len(argv) > 2 else None
 
@@ -30,17 +49,46 @@ def curve(s):
         if dp[-1].isalpha():
             marks[dp[-1]] = float(dp[:-1]); dp = dp[:-1]
         pts.append((float(dp), float(v)))
-    return pts, marks
+    return Curve(pts, set(marks.values())), marks
+
+
+class Curve(list):
+    """Monotone cubic (PCHIP) through the points: slopes stay continuous, so panels don't
+    terrace or dent between keys. Marked points (cowl, roof, boot) keep a hard crease."""
+
+    def __init__(self, pts, kinks=()):
+        super().__init__(pts)
+        n = len(pts)
+        sec = [(pts[i + 1][1] - pts[i][1]) / max(pts[i + 1][0] - pts[i][0], 1e-6) for i in range(n - 1)]
+        self.tl, self.tr = [0.0] * n, [0.0] * n
+        for i in range(n):
+            if i == 0 or i == n - 1:
+                t = sec[0] if i == 0 else sec[-1]
+                self.tl[i] = self.tr[i] = t if n > 1 else 0.0
+                continue
+            a, b = sec[i - 1], sec[i]
+            if pts[i][0] in kinks:
+                self.tl[i], self.tr[i] = a, b
+            elif a * b <= 0:
+                self.tl[i] = self.tr[i] = 0.0
+            else:
+                h0, h1 = pts[i][0] - pts[i - 1][0], pts[i + 1][0] - pts[i][0]
+                w0, w1 = 2 * h1 + h0, h1 + 2 * h0
+                self.tl[i] = self.tr[i] = (w0 + w1) / (w0 / a + w1 / b)
 
 
 def at(pts, d):
     if d <= pts[0][0]: return pts[0][1]
-    for (a, va), (b, vb) in zip(pts, pts[1:]):
+    for i, ((a, va), (b, vb)) in enumerate(zip(pts, pts[1:])):
         if d <= b:
-            t = 0 if b - a < 1e-6 else (d - a) / (b - a)
-            # Smoothstep between points so silhouettes curve instead of kinking.
-            t = t * t * (3 - 2 * t) if spec.get('smooth', True) else t
-            return va + (vb - va) * t
+            h = b - a
+            if h < 1e-6: return vb
+            t = (d - a) / h
+            if not spec.get('smooth', True) or not isinstance(pts, Curve):
+                return va + (vb - va) * t
+            m0, m1 = pts.tr[i] * h, pts.tl[i + 1] * h
+            t2, t3 = t * t, t * t * t
+            return (2 * t3 - 3 * t2 + 1) * va + (t3 - 2 * t2 + t) * m0 + (-2 * t3 + 3 * t2) * vb + (t3 - t2) * m1
     return pts[-1][1]
 
 
@@ -72,6 +120,7 @@ COLORS = {
     'paint': (0.75, 0.05, 0.06, 1), 'glass': (0.02, 0.04, 0.07, 1), 'dark': (0.01, 0.01, 0.012, 1),
     'trim': (0.06, 0.065, 0.07, 1), 'chrome': (0.7, 0.72, 0.75, 1), 'head': (0.9, 0.97, 1, 1),
     'tail': (0.9, 0.05, 0.1, 1), 'fog': (1, 0.85, 0.5, 1), 'plate': (0.92, 0.92, 0.9, 1), 'black': (0.0, 0.0, 0.0, 1),
+    'red': (0.6, 0.02, 0.04, 1),
 }
 MATS = {}
 for name, col in COLORS.items():
@@ -343,6 +392,12 @@ for ex in spec.get('exhaust', []):
         for nme in COLORS: ob.data.materials.append(MATS[nme])
         for p in ob.data.polygons: p.material_index = MAT_INDEX['black' if abs(p.normal.x) > 0.9 else 'chrome']
         parts.append(ob)
+# Free-placed parts: spoilers, diffusers, vents, splitters. d back from the nose, y across (+ left), z up;
+# rot is pitch in degrees (+ lifts the trailing edge); mirror copies to the other side.
+for b in spec.get('boxes', []):
+    ys = [b.get('y', 0.0), -b.get('y', 0.0)] if b.get('mirror') and b.get('y', 0.0) != 0 else [b.get('y', 0.0)]
+    for y in ys:
+        box('part', (X(b['d']), y, b['z']), tuple(b['size']), b.get('mat', 'paint'), rot=(math.radians(b.get('roll', 0)) * (1 if y >= 0 else -1), math.radians(b.get('rot', 0)), 0))
 lip = spec.get('lip')
 if lip:
     box('lip', (X(0.12), 0, at(BOT, 0.1) - 0.01), (0.28, at(PLAN, 0.15) * 1.9, 0.025), 'black')

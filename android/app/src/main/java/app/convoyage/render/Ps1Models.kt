@@ -52,6 +52,7 @@ object Ps1Models {
     private val SHADOW = Surf.srgb(0x05080D)
     private val FOG = Surf.srgb(0xFFD27A, flag = 2)
     private val ROTOR = Surf.srgb(0x5A5F66)
+    private val RED = Surf.srgb(0xB0141E)
 
     fun frame(spec: Ps1Spec): Ps1Frame = spec.shape?.let { frame(it) } ?: bikeFrame(spec.body)
 
@@ -93,7 +94,8 @@ object Ps1Models {
         val modelled = spec.model?.let { Ps1CarModels.of(it.id) }
         when {
             sh == null -> bike(mb, spec.body, bikeSpec(spec.body), paint, rim, dy)
-            modelled != null -> modelledCar(mb, modelled, paint, rim, dy)
+            // Modelled bodies are smooth clear-coated paint, no texture.
+            modelled != null -> modelledCar(mb, modelled, Surf.srgb(spec.paint, 0, 1), rim, dy)
             else -> Car(mb, sh, paint, rim, dy).build()
         }
 
@@ -112,7 +114,7 @@ object Ps1Models {
         for (part in cm.parts) {
             val s = when (part.material) {
                 "paint" -> paint; "glass" -> GLASS; "dark" -> ARCH; "black" -> DARK; "trim" -> TRIM; "chrome" -> CHROME
-                "head" -> HEAD; "tail" -> TAIL; "fog" -> FOG; "plate" -> PLATE; else -> paint
+                "head" -> HEAD; "tail" -> TAIL; "fog" -> FOG; "plate" -> PLATE; "red" -> RED; else -> paint
             }
             val pos = part.positions; val nrm = part.normals
             val ids = IntArray(pos.size / 3) { i ->

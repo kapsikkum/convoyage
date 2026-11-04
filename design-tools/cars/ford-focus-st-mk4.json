@@ -1,0 +1,21 @@
+{
+  "extends": "ford-focus-mk4",
+  "add": ["front", "rear"],
+  "id": "ford-focus-st-mk4",
+  "name": "Ford Focus ST Mk4 (2020-24)",
+  "mm": [4388, 1825, 1453, 2700],
+  "tyre": 0.647,
+  "tyreW": 0.235,
+  "front": [
+    {"type": "line", "pts": [[-0.45, 0.205], [0.45, 0.205]], "w": 0.02, "mat": "black", "mirror": false, "offset": 0.016},
+    {"type": "poly", "pts": [[0.62, 0.32], [0.78, 0.33], [0.8, 0.42], [0.66, 0.43]], "mat": "trim", "offset": 0.016}
+  ],
+  "rear": [
+    {"type": "poly", "pts": [[-0.3, 0.26], [0.3, 0.26], [0.26, 0.36], [-0.26, 0.36]], "mat": "trim", "mirror": false, "offset": 0.014}
+  ],
+  "boxes": [
+    {"d": 3.9, "z": 1.38, "size": [0.36, 1.15, 0.04], "mat": "paint", "rot": 9},
+    {"d": 0.12, "z": 0.17, "size": [0.26, 1.5, 0.025], "mat": "black"}
+  ],
+  "exhaust": [{"y": 0.52, "z": 0.3, "r": 0.048, "mirror": true}]
+}

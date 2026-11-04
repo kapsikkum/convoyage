@@ -18,6 +18,7 @@ uniform mat4 uMV; uniform mat4 uP; uniform vec2 uRes; uniform vec3 uLight;
 uniform float uSpec; uniform float uShine; uniform float uMetal; uniform float uPearl; uniform vec3 uSpecCol;
 in vec3 aPos; in vec3 aNrm; in vec2 aUv; in vec3 aTint; in vec2 aMat;
 out vec3 vUvW; out vec3 vCol; out vec3 vSpec; flat out float vTex;
+out vec3 vN; out vec3 vP; flat out vec2 vKind; flat out vec3 vUp;
 vec3 hue(vec3 c, float a) {
   vec3 k = vec3(0.57735);
   return c * cos(a) + cross(k, c) * sin(a) + k * dot(k, c) * (1.0 - cos(a));
@@ -42,15 +43,11 @@ void main() {
   vec3 V = normalize(-vp.xyz);
   float s = pow(max(dot(n, normalize(L + V)), 0.0), uShine);
   vCol = tint * l;
-  vSpec = uSpecCol * (uSpec * s) * paint;
-  // The environment, Gran Turismo style: a sky-to-horizon-to-ground gradient reflected in paint and glass.
-  vec3 up = normalize(mat3(uMV) * vec3(0.0, 1.0, 0.0));
-  float hgt = dot(reflect(-V, n), up);
-  vec3 env = hgt > 0.0 ? mix(vec3(0.62, 0.68, 0.74), vec3(0.24, 0.34, 0.5), sqrt(hgt)) : mix(vec3(0.5, 0.52, 0.55), vec3(0.06, 0.06, 0.07), min(1.0, -hgt * 4.0));
-  float fres = 0.25 + 0.75 * pow(1.0 - max(dot(n, V), 0.0), 3.0);
-  vSpec += env * fres * paint * (0.08 + 0.22 * uMetal + 0.18 * min(uSpec, 1.0));
-  vCol = mix(vCol, tint * (0.35 + 0.3 * d), glass);
-  vSpec += env * (0.18 + 0.62 * fres) * glass;
+  vSpec = vec3(0.0);
+  // Paint and glass shine per pixel (see the fragment stage); here only their diffuse base.
+  vCol = mix(vCol, tint * (0.3 + 0.25 * d), glass);
+  vN = n; vP = vp.xyz; vKind = vec2(paint, glass);
+  vUp = normalize(mat3(uMV) * vec3(0.0, 1.0, 0.0));
   vUvW = vec3(aUv * p.w, p.w);
   vTex = aMat.x;
 }
@@ -60,7 +57,15 @@ void main() {
     const val FRAGMENT = """#version 300 es
 precision highp float;
 uniform sampler2D uBody; uniform sampler2D uRim; uniform sampler2D uGround;
+uniform vec3 uLight; uniform float uSpec; uniform float uShine; uniform float uMetal; uniform vec3 uSpecCol;
 in vec3 vUvW; in vec3 vCol; in vec3 vSpec; flat in float vTex;
+in vec3 vN; in vec3 vP; flat in vec2 vKind; flat in vec3 vUp;
+// The world a car reflects, Gran Turismo style: bright sky over a crisp horizon over dark ground.
+vec3 env(vec3 r, vec3 up) {
+  float h = dot(r, up);
+  if (h > 0.0) return mix(vec3(0.95, 0.97, 1.0), vec3(0.3, 0.45, 0.68), pow(h, 0.45));
+  return mix(vec3(0.42, 0.4, 0.38), vec3(0.05, 0.05, 0.06), min(1.0, -h * 7.0));
+}
 out vec4 o;
 float bayer(vec2 f) {
   int x = int(mod(f.x, 4.0)); int y = int(mod(f.y, 4.0));
@@ -74,7 +79,23 @@ void main() {
   else if (vTex > 1.5) t = textureLod(uRim, uv, 0.0);
   else if (vTex > 0.5) t = textureLod(uBody, uv, 0.0);
   vec3 c = t.rgb * vCol + vSpec;
-  c += (bayer(gl_FragCoord.xy) - 0.5) / 24.0;
+  if (vKind.x + vKind.y > 0.5) {
+    vec3 n = normalize(vN); vec3 V = normalize(-vP);
+    if (dot(n, V) < 0.0) n = -n;
+    vec3 e = env(reflect(-V, n), vUp);
+    float fres = 0.15 + 0.85 * pow(1.0 - max(dot(n, V), 0.0), 4.0);
+    float gloss = clamp(uSpec, 0.0, 1.0);
+    float hl = pow(max(dot(n, normalize(normalize(uLight) + V)), 0.0), uShine * 4.0 + 8.0);
+    if (vKind.y > 0.5) {
+      c = c + e * (0.22 + 0.7 * fres) + vec3(1.0) * hl * 0.8;
+    } else {
+      // Clear coat: the reflection rides on top of the colour; metallic flake tints it.
+      vec3 coat = mix(e, e * (vCol * 1.6 + 0.2), 0.5 * uMetal);
+      float cf = 0.3 + 0.7 * fres;
+      c = c * (1.0 - 0.3 * cf * gloss) + coat * cf * (0.1 + 0.55 * gloss) + uSpecCol * hl * (0.4 + 1.4 * gloss);
+    }
+  }
+  c += (bayer(gl_FragCoord.xy) - 0.5) / 40.0;
   c = pow(clamp(c, 0.0, 1.0), vec3(0.8));
   c = floor(c * 31.0 + 0.5) / 31.0;
   o = vec4(c, 1.0);
@@ -102,7 +123,7 @@ void main() { o = texture(uTex, vUv); }
 /** Camera and scene numbers that depend only on the framing, not on GL. */
 object Ps1Camera {
     const val FOV_DEG = 30f
-    const val ELEVATION = 0.3f
+    const val ELEVATION = 0.17f
 
     /** Distance at which ps1.html frames its car (12.2) scaled to the vehicle's size, and backed off for tall, narrow views. */
     fun distance(frame: Ps1Frame, aspect: Float, zoom: Float = 1f): Float =
