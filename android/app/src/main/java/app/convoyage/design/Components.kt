@@ -728,6 +728,8 @@ fun MapPin(
     tag: String? = null,
     /** A member's primary vehicle: its PS1 render replaces the initials in the dot. */
     vehicle: VehicleBadge? = null,
+    /** The map camera's tilt: a vehicle marker is drawn from the same angle so it sits on the road. */
+    tiltDeg: Float = 0f,
 ) {
     val c = Cv.colors
     val ring = when (kind) {
@@ -746,7 +748,7 @@ fun MapPin(
     }
     // A person with a vehicle shows as it, from above, turned the way they are going.
     if (vehicle != null && kind in CAR_KINDS) {
-        CarMarker(kind, ring, vehicle, heading, tag, modifier, fallback = { MapPin(kind, label, Modifier, heading, tag, null) })
+        CarMarker(kind, ring, vehicle, heading, tag, tiltDeg, modifier, fallback = { MapPin(kind, label, Modifier, heading, tag, null) })
         return
     }
     Box(modifier.size(56.dp), contentAlignment = Alignment.Center) {
@@ -799,23 +801,34 @@ private fun CarMarker(
     vehicle: VehicleBadge,
     heading: Float?,
     tag: String?,
+    tiltDeg: Float,
     modifier: Modifier,
     fallback: @Composable () -> Unit,
 ) {
     val c = Cv.colors
     val thumbs = app.convoyage.ui.LocalContainer.current.thumbs
     val spec = vehicle.ps1()
-    var image by remember(spec) { mutableStateOf(thumbs.cached(spec, ThumbSize.Top)) }
+    val flat = tiltDeg < 10f
+    // Tilted map: the frame drawn from the camera's angle for this heading. Flat map: one plan view, turned smoothly.
+    val steps = app.convoyage.render.VehicleThumbs.ANGLE_STEPS
+    val yaw = Math.floorMod(Math.round((heading ?: 0f) / (360f / steps)), steps)
+    val pitch = app.convoyage.render.VehicleThumbs.ANGLE_TILTS.indices.minBy { kotlin.math.abs(app.convoyage.render.VehicleThumbs.ANGLE_TILTS[it] - tiltDeg) }
+    var image by remember(spec) { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
     var failed by remember(spec) { mutableStateOf(false) }
-    LaunchedEffect(spec) {
-        if (image == null) {
-            image = thumbs.get(spec, ThumbSize.Top)
-            failed = image == null
-        }
+    // Keep showing the last frame until the next one is ready, so turning never blinks.
+    val want = if (flat) thumbs.cached(spec, ThumbSize.Top) else thumbs.cachedAngle(spec, yaw, pitch)
+    if (want != null && want !== image) image = want
+    LaunchedEffect(spec, flat, yaw, pitch) {
+        val got = if (flat) thumbs.get(spec, ThumbSize.Top) else thumbs.angle(spec, yaw, pitch)
+        if (got != null) image = got else if (image == null) failed = true
+    }
+    // Warm the whole turn at this tilt in the background, so later headings are instant.
+    LaunchedEffect(spec, flat, pitch) {
+        if (!flat) for (i in 0 until steps) thumbs.angle(spec, (yaw + i) % steps, pitch)
     }
     if (failed) { fallback(); return }
     Box(modifier.size(56.dp), contentAlignment = Alignment.Center) {
-        // Glow, then a soft dark footprint so a dark car still reads on the night map.
+        // Glow in the state colour (cyan for you) so the vehicle reads on the night map.
         Box(
             Modifier.size(if (kind == PinKind.Me) 46.dp else 38.dp)
                 .background(androidx.compose.ui.graphics.Brush.radialGradient(listOf(ring.copy(alpha = if (kind == PinKind.Me) 0.55f else 0.4f), ring.copy(alpha = 0f))), CircleShape),
@@ -824,7 +837,7 @@ private fun CarMarker(
         if (img != null) {
             androidx.compose.foundation.Image(
                 img, contentDescription = null,
-                modifier = Modifier.size(22.dp, 52.dp).rotate(heading ?: 0f),
+                modifier = if (flat) Modifier.size(22.dp, 52.dp).rotate(heading ?: 0f) else Modifier.size(56.dp),
                 contentScale = ContentScale.Fit, filterQuality = androidx.compose.ui.graphics.FilterQuality.None,
             )
         }

@@ -40,6 +40,14 @@ enum class ThumbSize(val w: Int, val h: Int, val ground: Boolean, val zoom: Floa
  * again after its build (or the renderer version) changes.
  */
 class VehicleThumbs(context: Context) {
+    companion object {
+        /** Headings per turn in the marker frames (11.25 degrees apart). */
+        const val ANGLE_STEPS = 32
+        /** Map tilts the marker frames are drawn for; the nearest is used. */
+        val ANGLE_TILTS = floatArrayOf(20f, 40f, 60f)
+        const val ANGLE_PX = 64
+    }
+
     private val dir = File(context.applicationContext.cacheDir, "ps1")
     private val memory = object : LruCache<String, ImageBitmap>(6 * 1024 * 1024) {
         override fun sizeOf(key: String, value: ImageBitmap) = value.width * value.height * 4
@@ -60,8 +68,19 @@ class VehicleThumbs(context: Context) {
     fun cached(spec: Ps1Spec, size: ThumbSize): ImageBitmap? = memory.get(keyOf(spec, size))
 
     /** The thumbnail from memory, then disk, then the GPU. Null if the device cannot do GL ES 3. */
-    suspend fun get(spec: Ps1Spec, size: ThumbSize): ImageBitmap? {
-        val key = keyOf(spec, size)
+    suspend fun get(spec: Ps1Spec, size: ThumbSize): ImageBitmap? = fetch(keyOf(spec, size), spec.kind.wire + " " + size.name) { it.render(spec, size) }
+
+    /**
+     * Map marker frames: the vehicle as the map camera sees it, so it sits on the road in 3D. [yaw] is one of
+     * [ANGLE_STEPS] headings relative to the screen (0 = driving away from the camera, clockwise), [pitch] one of
+     * [ANGLE_TILTS] map tilts.
+     */
+    fun cachedAngle(spec: Ps1Spec, yaw: Int, pitch: Int): ImageBitmap? = memory.get(spec.key("a$yaw.$pitch"))
+
+    suspend fun angle(spec: Ps1Spec, yaw: Int, pitch: Int): ImageBitmap? =
+        fetch(spec.key("a$yaw.$pitch"), "${spec.kind.wire} angle $yaw.$pitch") { it.renderAngle(spec, yaw * 360f / ANGLE_STEPS, 90f - ANGLE_TILTS[pitch]) }
+
+    private suspend fun fetch(key: String, what: String, render: (Offscreen) -> Bitmap): ImageBitmap? {
         memory.get(key)?.let { return it }
         // The work belongs to this object, not to whichever composable asked first: it finishes (and is cached) even if that one leaves.
         val job = synchronized(inFlight) {
@@ -69,7 +88,7 @@ class VehicleThumbs(context: Context) {
                 scope.async {
                     try {
                         val r = try {
-                            withContext(Dispatchers.IO) { readDisk(key) } ?: renderAndStore(spec, size, key)
+                            withContext(Dispatchers.IO) { readDisk(key) } ?: renderAndStore(key, what, render)
                         } catch (e: Exception) {
                             Log.w("Ps1Thumbs", "thumbnail failed", e)
                             null
@@ -85,15 +104,15 @@ class VehicleThumbs(context: Context) {
         return job.await()
     }
 
-    private suspend fun renderAndStore(spec: Ps1Spec, size: ThumbSize, key: String): ImageBitmap? {
+    private suspend fun renderAndStore(key: String, what: String, render: (Offscreen) -> Bitmap): ImageBitmap? {
         if (failed) return null
         val bmp = withContext(glThread) {
             try {
                 val o = offscreen ?: Offscreen().also { offscreen = it }
                 val t0 = System.nanoTime()
-                val b = o.render(spec, size)
+                val b = render(o)
                 renders++
-                Log.d("Ps1Thumbs", "rendered %s %s in %.1f ms".format(spec.kind.wire, size.name, (System.nanoTime() - t0) / 1e6))
+                Log.d("Ps1Thumbs", "rendered %s in %.1f ms".format(what, (System.nanoTime() - t0) / 1e6))
                 b
             } catch (e: Throwable) {
                 Log.w("Ps1Thumbs", "offscreen GL unavailable", e)
@@ -149,6 +168,13 @@ class VehicleThumbs(context: Context) {
             surface = EGL14.eglCreatePbufferSurface(display, configs[0], intArrayOf(EGL14.EGL_WIDTH, 1, EGL14.EGL_HEIGHT, 1, EGL14.EGL_NONE), 0)
             check(EGL14.eglMakeCurrent(display, surface, surface, context)) { "eglMakeCurrent failed" }
             gl.init()
+        }
+
+        fun renderAngle(spec: Ps1Spec, yawDeg: Float, elevationDeg: Float): Bitmap {
+            gl.setSpec(spec)
+            gl.renderAngle(ANGLE_PX, ANGLE_PX, yawDeg, elevationDeg)
+            val px = gl.readPixels(ANGLE_PX, ANGLE_PX)
+            return Bitmap.createBitmap(px, ANGLE_PX, ANGLE_PX, Bitmap.Config.ARGB_8888)
         }
 
         fun render(spec: Ps1Spec, size: ThumbSize): Bitmap {

@@ -255,6 +255,45 @@ class Ps1Gl {
         GLES30.glBindVertexArray(0)
     }
 
+    /**
+     * A map-marker frame: orthographic, looking down at [elevationDeg] above the horizon, the vehicle turned so that
+     * [relHeadingDeg] (clockwise from "driving away from the camera") is the way it faces. Origin at the middle.
+     */
+    fun renderAngle(w: Int, h: Int, relHeadingDeg: Float, elevationDeg: Float) {
+        val m = mesh ?: return
+        ensureTarget(w, h)
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo)
+        GLES30.glViewport(0, 0, w, h)
+        GLES30.glClearColor(0f, 0f, 0f, 0f)
+        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
+        GLES30.glEnable(GLES30.GL_DEPTH_TEST)
+        GLES30.glDisable(GLES30.GL_CULL_FACE)
+        GLES30.glDisable(GLES30.GL_BLEND)
+        val frame = Ps1Models.frame(kind)
+        val half = frame.fitRadius * 1.0f
+        Matrix.orthoM(proj, 0, -half, half, -half, half, 1f, 80f)
+        val e = Math.toRadians(elevationDeg.toDouble())
+        // The camera sits towards +z (south of the vehicle on screen) and up; screen up is away from it.
+        Matrix.setLookAtM(view, 0, 0f, (30 * kotlin.math.sin(e)).toFloat(), (30 * kotlin.math.cos(e)).toFloat(), 0f, 0f, 0f, 0f, 1f, 0f)
+        GLES30.glUseProgram(prog)
+        GLES30.glUniformMatrix4fv(loc("uP"), 1, false, proj, 0)
+        GLES30.glUniform2f(loc("uRes"), w.toFloat(), h.toFloat())
+        GLES30.glUniform3f(loc("uLight"), 0.5f, 0.9f, 0.7f)
+        GLES30.glUniform1f(loc("uSpec"), look.spec)
+        GLES30.glUniform1f(loc("uShine"), look.shine)
+        GLES30.glUniform1f(loc("uMetal"), look.metal)
+        GLES30.glUniform1f(loc("uPearl"), look.pearl)
+        GLES30.glUniform3f(loc("uSpecCol"), look.specCol[0], look.specCol[1], look.specCol[2])
+        bindTex(0, texBody, "uBody"); bindTex(1, texRim, "uRim"); bindTex(2, texGround, "uGround")
+        GLES30.glBindVertexArray(vao)
+        // Model +x is forward; facing away from the camera (-z) is a 90 degree turn, clockwise headings turn it back.
+        Matrix.setRotateM(model, 0, 90f - relHeadingDeg, 0f, 1f, 0f)
+        Matrix.multiplyMM(mv, 0, view, 0, model, 0)
+        GLES30.glUniformMatrix4fv(loc("uMV"), 1, false, mv, 0)
+        GLES30.glDrawElements(GLES30.GL_TRIANGLES, m.indices.size - m.groundIndexCount, GLES30.GL_UNSIGNED_SHORT, m.groundIndexCount * 2)
+        GLES30.glBindVertexArray(0)
+    }
+
     /** Shows the low-res target on the bound surface (default framebuffer), centred and scaled by a whole [scale] with NEAREST filtering. */
     fun blit(viewW: Int, viewH: Int, w: Int, h: Int, scale: Int) {
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)

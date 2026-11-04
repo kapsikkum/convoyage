@@ -349,6 +349,7 @@ fun ConvoyMap(
                         heading = pin.headingDeg?.let { (it - bearing).toFloat() },
                         tag = pin.tag,
                         vehicle = pin.vehicle,
+                        tiltDeg = m.cameraPosition.tilt.toFloat(),
                         modifier = Modifier.offset { IntOffset((p.x - half).toInt(), (p.y - half).toInt()) },
                     )
                 }
