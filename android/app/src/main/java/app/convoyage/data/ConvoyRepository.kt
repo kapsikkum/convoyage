@@ -341,6 +341,12 @@ class ConvoyRepository(
     fun dismissInvite() = _state.update { it.copy(invite = null) }
 
     /** Leader: open the convoy to Open Cruise drivers nearby, or close it. */
+    /** Leader: automatic regroup on or off, and how far the convoy may spread first. */
+    fun setAutoRegroup(enabled: Boolean, separationM: Double) {
+        val code = _state.value.activeCode ?: return
+        send(ClientMessage.ConvoyRegroup(code, enabled, separationM))
+    }
+
     fun setConvoyOpen(open: Boolean) {
         val code = _state.value.activeCode ?: return
         send(ClientMessage.ConvoyOpen(code, open))

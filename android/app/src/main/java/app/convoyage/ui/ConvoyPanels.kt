@@ -1,5 +1,8 @@
 package app.convoyage.ui
 
+import app.convoyage.design.SegOption
+import app.convoyage.design.Segmented
+import app.convoyage.design.CvCard
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -213,45 +216,56 @@ fun LeaderPanel(
     onRollOut: () -> Unit = {},
     onSetOpen: (Boolean) -> Unit = {},
     onJustCruise: () -> Unit = {},
+    onSetRegroup: (Boolean, Double) -> Unit = { _, _ -> },
 ) {
     val c = Cv.colors
     val room = ui.room ?: return
     val regroup = room.automaticRegroup
     LazyColumn(modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(Space.s3)) {
         item(key = "name") { RenameRow(room.name, onRename) }
-        item(key = "dest") {
+        // Where the convoy is going: one choice, one card, from the Round 2 mockup.
+        item(key = "going") {
+            val r = room.route
+            val d = room.destination
+            val mode = when { r != null -> 1; d != null -> 0; else -> 2 }
+            var showPinHint by remember { mutableStateOf(false) }
             Column(verticalArrangement = Arrangement.spacedBy(Space.s2)) {
-                Eyebrow("DESTINATION")
-                val d = room.destination
-                if (d == null) {
-                    CvText("None yet. Long-press the map to drop a pin, then confirm.", Cv.type.bodyS, c.inkMuted)
-                } else {
-                    CvText(d.label.ifBlank { "Dropped pin" }, Cv.type.bodyStrong, c.ink)
-                    CvText("%.4f, %.4f".format(java.util.Locale.ROOT, d.lat, d.lng), Cv.type.telemetry, c.inkMuted)
-                    CvButton("Clear destination", onClearDestination, Modifier.fillMaxWidth(), CvButtonKind.Ghost, compact = true)
-                }
-            }
-        }
-        item(key = "route") {
-            Column(verticalArrangement = Arrangement.spacedBy(Space.s2)) {
-                Eyebrow("ROUTE")
-                val r = room.route
-                if (r == null) {
-                    CvText("No shared route. Drive one of your saved routes, or set a destination.", Cv.type.bodyS, c.inkMuted)
-                } else {
-                    CvText(r.name.ifBlank { "Convoy route" }, Cv.type.bodyStrong, c.ink)
-                    CvText("${r.stops.size} stops", Cv.type.telemetry, c.inkMuted)
-                }
-                val shared = sharedRoute?.takeIf { it.code == room.code }
-                val atStaging = shared?.staging != null && room.destination?.let { d -> d.lat == shared.staging.lat && d.lng == shared.staging.lng } == true
-                if (atStaging) {
-                    CvText("Everyone is heading to the staging point. Roll out when the convoy is together.", Cv.type.bodyS, c.inkMuted)
-                    CvButton("Roll out", onRollOut, Modifier.fillMaxWidth(), compact = true)
-                }
-                CvButton(if (r == null) "Drive a saved route" else "Change route", onPickRoute, Modifier.fillMaxWidth(), CvButtonKind.Ghost, icon = CvIcons.Route, compact = true)
-                if (r != null || room.destination != null) {
-                    CvButton("Just cruise", onJustCruise, Modifier.fillMaxWidth(), CvButtonKind.Ghost, compact = true)
-                    CvText("Clears the destination and route: everyone just follows the leader.", Cv.type.bodyS, c.inkMuted)
+                Eyebrow("GOING")
+                Segmented(
+                    listOf(SegOption("Destination"), SegOption("Saved route"), SegOption("Just cruise")), mode,
+                    { i ->
+                        showPinHint = false
+                        when (i) {
+                            0 -> showPinHint = true
+                            1 -> onPickRoute()
+                            2 -> if (mode != 2) onJustCruise()
+                        }
+                    },
+                    Modifier.fillMaxWidth(),
+                )
+                CvCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(Space.s3), verticalArrangement = Arrangement.spacedBy(Space.s2)) {
+                        when {
+                            showPinHint || (mode == 0 && d == null) -> CvText("Long-press the map to drop a pin, then confirm it.", Cv.type.bodyS, c.inkMuted)
+                            r != null -> {
+                                CvText(r.name.ifBlank { "Convoy route" }, Cv.type.bodyStrong, c.ink)
+                                CvText("${r.stops.size} stops" + (d?.let { " · next: ${it.label.ifBlank { "dropped pin" }}" } ?: ""), Cv.type.bodyS, c.inkMuted)
+                            }
+                            d != null -> {
+                                CvText(d.label.ifBlank { "Dropped pin" }, Cv.type.bodyStrong, c.ink)
+                                CvText("%.4f, %.4f".format(java.util.Locale.ROOT, d.lat, d.lng), Cv.type.telemetry, c.inkMuted)
+                            }
+                            else -> CvText("No destination: everyone follows the leader.", Cv.type.bodyS, c.inkMuted)
+                        }
+                        val shared = sharedRoute?.takeIf { it.code == room.code }
+                        val atStaging = shared?.staging != null && d?.let { it.lat == shared.staging.lat && it.lng == shared.staging.lng } == true
+                        if (atStaging) CvText("Everyone is heading to the staging point. Roll out when the convoy is together.", Cv.type.bodyS, c.inkMuted)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.s2)) {
+                            if (atStaging) CvButton("Roll out", onRollOut, Modifier.weight(1f), compact = true)
+                            if (r != null) CvButton("Change", onPickRoute, Modifier.weight(1f), CvButtonKind.Ghost, compact = true)
+                            else if (d != null) CvButton("Clear", onClearDestination, Modifier.weight(1f), CvButtonKind.Ghost, compact = true)
+                        }
+                    }
                 }
             }
         }
@@ -266,12 +280,22 @@ fun LeaderPanel(
         }
         item(key = "regroup") {
             Column(verticalArrangement = Arrangement.spacedBy(Space.s2)) {
-                Eyebrow("REGROUP")
-                CvText(
-                    if (regroup.enabled) "Automatic regroup is on: a stop is called when the convoy spreads past ${Geo.formatDistance(regroup.separationM)}."
-                    else "Automatic regroup is off. It is chosen when a convoy starts.",
-                    Cv.type.bodyS, c.inkMuted,
-                )
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.s3)) {
+                    Column(Modifier.weight(1f)) {
+                        CvText("Auto regroup", Cv.type.bodyStrong, c.ink)
+                        CvText(
+                            if (regroup.enabled) "Calls a stop close to everyone when the convoy spreads past ${Geo.formatDistance(regroup.separationM)}."
+                            else "Off: call a stop yourself with Find a rest stop.",
+                            Cv.type.bodyS, c.inkMuted,
+                        )
+                    }
+                    CvChipToggle(if (regroup.enabled) "On" else "Off", regroup.enabled, { onSetRegroup(!regroup.enabled, regroup.separationM) })
+                }
+                if (regroup.enabled) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(Space.s2)) {
+                        listOf(2, 5, 10).forEach { km -> CvChipToggle("$km km", Math.round(regroup.separationM / 1000.0).toInt() == km, { onSetRegroup(true, km * 1000.0) }) }
+                    }
+                }
                 if (room.resting) {
                     CvButton("Continue to destination", onContinue, Modifier.fillMaxWidth(), compact = true)
                 } else {

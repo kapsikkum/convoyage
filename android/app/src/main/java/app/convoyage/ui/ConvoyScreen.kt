@@ -377,6 +377,7 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
                                 onPickRoute = { pickRoute = true },
                                 onRollOut = container.convoy::rollOut,
                                 onSetOpen = container.convoy::setConvoyOpen,
+                                onSetRegroup = container.convoy::setAutoRegroup,
                                 onJustCruise = container.convoy::justCruise,
                             )
                         }
