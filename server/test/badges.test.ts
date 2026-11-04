@@ -8,8 +8,8 @@ let t: TestServer;
 let owner: Session;
 let viewer: Session;
 let priv: Session;
-const build = { paint: '#aa1122', finish: 'metallic', wheel: 'te37', rideHeightMm: -30, decals: [{ id: 'stripe', slot: 'hood', color: '#ffffff' }] };
-const badge = { kind: 'car', build: { paint: '#aa1122', finish: 'metallic', wheel: 'te37', rideHeightMm: -30 } };
+const build = { paint: '#aa1122', finish: 'metallic', wheel: 'te37', rideHeightMm: -30, body: 'hot_hatch', decals: [{ id: 'stripe', slot: 'hood', color: '#ffffff' }] };
+const badge = { kind: 'car', build: { paint: '#aa1122', finish: 'metallic', wheel: 'te37', rideHeightMm: -30, body: 'hot_hatch' } };
 let vehicleId: string;
 const wsFor = (s: Session) => new WebSocket(`${t.wsBase}/ws`, ['convoyage.v1', `bearer.${s.token}`]);
 

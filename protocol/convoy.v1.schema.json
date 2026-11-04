@@ -72,7 +72,8 @@
             "paint": { "type": "string", "description": "#RRGGBB" },
             "finish": { "enum": ["gloss", "satin", "matte", "metallic", "pearl"] },
             "wheel": { "type": "string" },
-            "rideHeightMm": { "type": "integer" }
+            "rideHeightMm": { "type": "integer" },
+            "body": { "enum": ["sedan", "hatch", "coupe", "wagon", "suv", "van", "muscle", "roadster", "hot_hatch", "single_cab", "dual_cab", "4wd_wagon", "4wd_ute", "sport_bike", "naked", "cruiser", "adventure"] }
           },
           "additionalProperties": false
         }

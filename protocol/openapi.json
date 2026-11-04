@@ -124,6 +124,29 @@
             "maximum": 200,
             "description": "Offset from stock ride height, millimetres."
           },
+          "body": {
+            "type": "string",
+            "enum": [
+              "sedan",
+              "hatch",
+              "coupe",
+              "wagon",
+              "suv",
+              "van",
+              "muscle",
+              "roadster",
+              "hot_hatch",
+              "single_cab",
+              "dual_cab",
+              "4wd_wagon",
+              "4wd_ute",
+              "sport_bike",
+              "naked",
+              "cruiser",
+              "adventure"
+            ],
+            "description": "Body style; absent means the default for the kind."
+          },
           "decals": {
             "type": "array",
             "maxItems": 24,
@@ -195,6 +218,29 @@
                 "minimum": -200,
                 "maximum": 200,
                 "description": "Offset from stock ride height, millimetres."
+              },
+              "body": {
+                "type": "string",
+                "enum": [
+                  "sedan",
+                  "hatch",
+                  "coupe",
+                  "wagon",
+                  "suv",
+                  "van",
+                  "muscle",
+                  "roadster",
+                  "hot_hatch",
+                  "single_cab",
+                  "dual_cab",
+                  "4wd_wagon",
+                  "4wd_ute",
+                  "sport_bike",
+                  "naked",
+                  "cruiser",
+                  "adventure"
+                ],
+                "description": "Body style; absent means the default for the kind."
               }
             },
             "required": [],
@@ -4891,6 +4937,29 @@
                         "maximum": 200,
                         "description": "Offset from stock ride height, millimetres."
                       },
+                      "body": {
+                        "type": "string",
+                        "enum": [
+                          "sedan",
+                          "hatch",
+                          "coupe",
+                          "wagon",
+                          "suv",
+                          "van",
+                          "muscle",
+                          "roadster",
+                          "hot_hatch",
+                          "single_cab",
+                          "dual_cab",
+                          "4wd_wagon",
+                          "4wd_ute",
+                          "sport_bike",
+                          "naked",
+                          "cruiser",
+                          "adventure"
+                        ],
+                        "description": "Body style; absent means the default for the kind."
+                      },
                       "decals": {
                         "type": "array",
                         "maxItems": 24,
@@ -5285,6 +5354,29 @@
                         "minimum": -200,
                         "maximum": 200,
                         "description": "Offset from stock ride height, millimetres."
+                      },
+                      "body": {
+                        "type": "string",
+                        "enum": [
+                          "sedan",
+                          "hatch",
+                          "coupe",
+                          "wagon",
+                          "suv",
+                          "van",
+                          "muscle",
+                          "roadster",
+                          "hot_hatch",
+                          "single_cab",
+                          "dual_cab",
+                          "4wd_wagon",
+                          "4wd_ute",
+                          "sport_bike",
+                          "naked",
+                          "cruiser",
+                          "adventure"
+                        ],
+                        "description": "Body style; absent means the default for the kind."
                       },
                       "decals": {
                         "type": "array",

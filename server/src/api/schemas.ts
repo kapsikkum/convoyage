@@ -24,12 +24,15 @@ export const VISIBILITIES = ['public', 'followers', 'private'] as const;
 export const VEHICLE_KINDS = ['car', 'motorcycle', 'ute', '4wd'] as const;
 export const HAZARD_KINDS = ['police', 'hazard', 'works', 'fuel', 'rest', 'crash'] as const;
 export const FINISHES = ['gloss', 'satin', 'matte', 'metallic', 'pearl'] as const;
+/** Body styles the garage renders. Cars: sedan..hot_hatch; utes: single_cab, dual_cab; 4WD: 4wd_*; bikes: the rest. */
+export const BODIES = ['sedan', 'hatch', 'coupe', 'wagon', 'suv', 'van', 'muscle', 'roadster', 'hot_hatch', 'single_cab', 'dual_cab', '4wd_wagon', '4wd_ute', 'sport_bike', 'naked', 'cruiser', 'adventure'] as const;
 
 export const BuildSchema = obj({
   paint: { type: 'string', pattern: '^#[0-9a-fA-F]{6}$', description: 'Body colour as #RRGGBB.' },
   finish: { type: 'string', enum: [...FINISHES] },
   wheel: { type: 'string', minLength: 1, maxLength: 64, description: 'Wheel model id from the garage catalogue.' },
   rideHeightMm: { type: 'integer', minimum: -200, maximum: 200, description: 'Offset from stock ride height, millimetres.' },
+  body: { type: 'string', enum: [...BODIES], description: 'Body style; absent means the default for the kind.' },
   decals: {
     type: 'array', maxItems: 24,
     items: obj({
@@ -51,7 +54,7 @@ const models: Record<string, object> = {
   Build: BuildSchema,
   VehicleBadge: obj({
     kind: { type: 'string', enum: [...VEHICLE_KINDS] },
-    build: obj({ paint: BuildSchema.properties.paint, finish: BuildSchema.properties.finish, wheel: BuildSchema.properties.wheel, rideHeightMm: BuildSchema.properties.rideHeightMm }, []),
+    build: obj({ paint: BuildSchema.properties.paint, finish: BuildSchema.properties.finish, wheel: BuildSchema.properties.wheel, rideHeightMm: BuildSchema.properties.rideHeightMm, body: BuildSchema.properties.body }, []),
   }),
   UserRef: obj({
     id: uuid, handle: string, displayName: string, avatarMediaId: nUuid,

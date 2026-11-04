@@ -148,10 +148,10 @@ export async function relationship(db: Kysely<DB>, viewer: string, target: strin
 
 // ---- vehicle badges ------------------------------------------------------------------------------------------
 
-/** What an avatar badge needs of a user's primary vehicle: its kind and the four build fields that change how it looks. */
+/** What an avatar badge needs of a user's primary vehicle: its kind and the build fields that change how it looks. */
 export interface VehicleBadge {
   kind: 'car' | 'motorcycle' | 'ute' | '4wd';
-  build: { paint?: string; finish?: string; wheel?: string; rideHeightMm?: number };
+  build: { paint?: string; finish?: string; wheel?: string; rideHeightMm?: number; body?: string };
 }
 
 export function badgeOf(kind: VehicleBadge['kind'], build: unknown): VehicleBadge {
@@ -161,6 +161,7 @@ export function badgeOf(kind: VehicleBadge['kind'], build: unknown): VehicleBadg
   if (typeof b.finish === 'string') out.finish = b.finish;
   if (typeof b.wheel === 'string') out.wheel = b.wheel;
   if (typeof b.rideHeightMm === 'number') out.rideHeightMm = b.rideHeightMm;
+  if (typeof b.body === 'string') out.body = b.body;
   return { kind, build: out };
 }
 

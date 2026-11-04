@@ -30,6 +30,7 @@ test('vehicles: create with a build, first becomes primary, validation', async (
   assert.equal((await bad({ kind: 'car', make: 'x' })).status, 400);
   assert.equal((await bad({ kind: 'car', make: 'x', model: 'y', build: { paint: 'red' } })).status, 400);
   assert.equal((await bad({ kind: 'car', make: 'x', model: 'y', build: { rideHeightMm: 9000 } })).status, 400);
+  assert.equal((await bad({ kind: 'car', make: 'x', model: 'y', build: { body: 'spaceship' } })).status, 400);
   assert.equal((await bad({ kind: 'car', make: 'x', model: 'y', build: { finish: 'sparkly' } })).status, 400);
   assert.equal((await bad({ kind: 'car', make: 'x', model: 'y', year: 1700 })).status, 400);
   assert.equal((await t.req('POST', '/v1/vehicles', { token: a.token })).status, 400);
