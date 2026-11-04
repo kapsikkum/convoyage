@@ -46,12 +46,56 @@ class Ps1MeshTest {
         val wheelTris = 8 * 2 + 8 * 2
         assertEquals(32, wheelTris)
         val tris = car.indices.size / 3
-        assertTrue("car has $tris triangles", tris in 150..1200)
+        assertTrue("car has $tris triangles", tris in 300..3500)
         // The bike is the smallest model, the 4wd the busiest.
         val bike = Ps1Models.build(Ps1Spec(kind = Ps1Kind.Motorcycle)).indices.size
         val fwd = Ps1Models.build(Ps1Spec(kind = Ps1Kind.Fourwd)).indices.size
         assertTrue(bike < car.indices.size)
         assertTrue(fwd > car.indices.size)
+    }
+
+    @Test fun everyCatalogueModelBuildsCleanGeometry() {
+        val ids = app.convoyage.render.Ps1Catalog.ALL.map { it.id }
+        assertEquals("catalogue ids are unique", ids.size, ids.toSet().size)
+        for (e in app.convoyage.render.Ps1Catalog.ALL) {
+            val spec = Ps1Spec.of(e.body.kind.wire, null, null, null, null, e.body.wire, e.id)
+            assertEquals(e.id, e.body, spec.body)
+            val sh = e.shape ?: continue
+            assertTrue("${e.id} wheelbase fits", sh.wb < sh.len && sh.fo > 0.3f && sh.len - sh.wb - sh.fo > 0.3f)
+            assertTrue("${e.id} glass in order", sh.ws < sh.roofF && sh.roofF <= sh.roofR && sh.roofR <= sh.rw && sh.nose < sh.belt && sh.belt < sh.hgt)
+            assertTrue("${e.id} tyre", sh.tyre in 0.55f..0.9f)
+            val m = Ps1Models.build(spec)
+            assertTrue("${e.id} triangles", m.indices.size / 3 in 300..3500)
+            for (v in m.vertices) assertTrue("${e.id} finite", v.isFinite())
+            for (idx in m.indices) assertTrue("${e.id} index", (idx.toInt() and 0xFFFF) < m.vertexCount)
+        }
+    }
+
+    @Test fun makeAndModelPickTheRightGeneration() {
+        val c = app.convoyage.render.Ps1Catalog
+        assertEquals("bmw-m3-g80", c.best("BMW", "M3 Competition", 2022)?.id)
+        assertEquals("bmw-m3-e46", c.best("bmw", "m3", 2003)?.id)
+        assertEquals("hyundai-i30n-pd", c.best("Hyundai", "i30N", null)?.id)
+        assertEquals("hyundai-i30-pd", c.best("Hyundai", "i30", 2019)?.id)
+        assertEquals("ford-focus-rs-mk3", c.best("Ford", "Focus RS", 2017)?.id)
+        assertEquals("ford-focus-rs-mk2", c.best("Ford", "Focus RS", 2010)?.id)
+        assertEquals("nissan-patrol-y62", c.best("Nissan", "Patrol", 2023)?.id)
+        assertEquals("vw-golf-gti-mk7", c.best("VW", "Golf GTI", 2016)?.id)
+        assertEquals("toyota-lc79", c.best("", "Toyota LandCruiser 79", null)?.id)
+        // A model's number inside another word is not a match: an M340i is a 3 Series, not an M3.
+        assertEquals("bmw-3-g20", c.best("BMW", "M340i", 2021)?.id)
+        assertEquals(null, c.best("Toyota", "", null))
+        // Every i30 variant is offered for "i30".
+        val i30 = c.candidates("Hyundai", "i30", null).map { it.id }
+        assertTrue(i30.containsAll(listOf("hyundai-i30-pd", "hyundai-i30n-pd", "hyundai-i30-cn7")))
+        assertEquals("hyundai-i30-pd", i30.first())
+    }
+
+    @Test fun hatchesEndTheirRoofEarlierThanWagons() {
+        val hatch = app.convoyage.render.Ps1Shapes.generic(Ps1Body.Hatch)!!
+        val wagon = app.convoyage.render.Ps1Shapes.generic(Ps1Body.Wagon)!!
+        assertTrue(hatch.len - hatch.roofR > 0.6f)
+        assertTrue(wagon.len - wagon.roofR < 0.3f)
     }
 
     @Test fun everyBodyBuildsCleanGeometry() {
@@ -191,7 +235,7 @@ class Ps1MeshTest {
 
     @Test fun cameraBacksOffForNarrowViewsAndZoomsIn() {
         val wide = Ps1Camera.distance(Ps1Body.Sedan, 1.43f)
-        assertEquals(12.2f, wide, 1e-3f)
+        assertEquals(12.2f * Ps1Models.frame(Ps1Body.Sedan).fitRadius / 3.6f, wide, 1e-3f)
         assertTrue(Ps1Camera.distance(Ps1Body.Sedan, 1f) > wide)
         assertTrue(Ps1Camera.distance(Ps1Body.Sedan, 1.43f, zoom = 1.5f) < wide)
         assertTrue(Ps1Camera.distance(Ps1Body.Naked, 1.43f) < wide)

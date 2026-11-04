@@ -65,6 +65,9 @@ import app.convoyage.design.Readout
 import app.convoyage.design.SegOption
 import app.convoyage.design.Segmented
 import app.convoyage.design.Space
+import app.convoyage.render.Ps1Body
+import app.convoyage.render.Ps1Kind
+import app.convoyage.render.Ps1Catalog
 import app.convoyage.render.Ps1Spec
 import app.convoyage.design.cutPanel
 import kotlinx.coroutines.launch
@@ -189,7 +192,10 @@ fun GarageDetailScreen(vehicleId: String, onBack: () -> Unit, onEdit: (String) -
             Column(Modifier.padding(Space.s4), verticalArrangement = Arrangement.spacedBy(Space.s3)) {
                 BuildLine("Paint", VehicleOptions.paintName(v.build.paint) + (v.build.paint?.let { "  $it" } ?: ""))
                 BuildLine("Finish", v.build.finish?.replaceFirstChar { it.uppercase() } ?: "Stock")
-                BuildLine("Body", app.convoyage.render.Ps1Body.of(v.build.body, app.convoyage.render.Ps1Kind.of(v.kind)).label)
+                val spec = v.ps1()
+                val entry = v.catalogModel()
+                if (entry != null) BuildLine("Model", listOf(entry.model, entry.gen).filter { it.isNotBlank() }.joinToString(" "))
+                BuildLine("Body", spec.body.label)
                 BuildLine("Wheels", VehicleOptions.wheelLabel(v.build.wheel))
                 BuildLine("Ride height", v.build.rideHeightMm?.let { (if (it > 0) "+" else "") + "$it mm" } ?: "Stock")
                 BuildLine("Decals", BuildText.textOf(v.build).ifBlank { "None" })
@@ -268,12 +274,25 @@ private fun VehicleForm(existing: Vehicle?, onDone: () -> Unit) {
     var wheel by rememberSaveable { mutableStateOf(existing?.build?.wheel ?: "stock") }
     var height by rememberSaveable { mutableIntStateOf(existing?.build?.rideHeightMm ?: 0) }
     var body by rememberSaveable { mutableStateOf(existing?.build?.body) }
-    val bodyNow = app.convoyage.render.Ps1Body.of(body, app.convoyage.render.Ps1Kind.of(kind))
+    // A catalogue id, GENERIC_SHAPE (a body chosen by hand), or null (match make and model automatically).
+    var shape by rememberSaveable { mutableStateOf(existing?.build?.shape) }
+    val kindNow = Ps1Kind.of(kind)
+    val yearNow = year.toIntOrNull()
+    val auto = remember(make, model, year, kind) { Ps1Catalog.best(make, model, yearNow, kindNow) }
+    val variants = remember(make, model, year) { Ps1Catalog.candidates(make, model, yearNow) }
+    val chosen = when (shape) {
+        null -> auto
+        GENERIC_SHAPE -> null
+        else -> Ps1Catalog.byId(shape)?.takeIf { it.body.kind == kindNow }
+    }
+    val bodyNow = chosen?.body ?: Ps1Body.of(body, kindNow)
+    // Typing another car drops a model picked by hand, so the match follows the text again.
+    fun edited() { if (shape != GENERIC_SHAPE) shape = null }
     var decals by rememberSaveable { mutableStateOf(existing?.build?.let(BuildText::textOf) ?: "") }
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
-    VehicleViewport(Ps1Spec.of(kind, paint, finish, wheel, height, bodyNow.wire), Modifier.fillMaxWidth().height(220.dp), live = true, caption = finish.uppercase())
+    VehicleViewport(Ps1Spec.of(kind, paint, finish, wheel, height, bodyNow.wire, chosen?.id), Modifier.fillMaxWidth().height(220.dp), live = true, caption = finish.uppercase())
 
     Eyebrow("TYPE")
     Segmented(
@@ -281,30 +300,40 @@ private fun VehicleForm(existing: Vehicle?, onDone: () -> Unit) {
         VehicleOptions.KINDS.indexOf(kind).coerceAtLeast(0), { kind = VehicleOptions.KINDS[it] }, Modifier.fillMaxWidth(),
     )
 
-    Eyebrow("BODY · ${bodyNow.label.uppercase()}")
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Space.s2)) {
-        app.convoyage.render.Ps1Body.forKind(app.convoyage.render.Ps1Kind.of(kind)).forEach { b ->
-            val on = b == bodyNow
-            Column(
-                Modifier.width(112.dp).cutPanel(if (on) c.surface300 else c.surface200, if (on) c.signal else c.line, CutMShape)
-                    .clickable(role = androidx.compose.ui.semantics.Role.RadioButton) { body = b.wire }
-                    .semantics { contentDescription = b.label }
-                    .padding(Space.s1),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Ps1Thumb(Ps1Spec.of(kind, paint, finish, wheel, height, b.wire), app.convoyage.render.ThumbSize.Card, Modifier.fillMaxWidth().height(70.dp))
-                CvText(b.label, Cv.type.label, if (on) c.signal else c.ink, maxLines = 1)
+    CvTextField(make, { make = it.take(60); edited() }, "Make", placeholder = "Toyota")
+    CvTextField(model, { model = it.take(60); edited() }, "Model", placeholder = "GR Yaris")
+    CvTextField(
+        year, { year = it.filter(Char::isDigit).take(4); edited() }, "Year (optional)", placeholder = "2023", mono = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+    )
+    CvTextField(nickname, { nickname = it.take(60) }, "Nickname (optional)", placeholder = "Yari")
+
+    if (variants.isNotEmpty()) {
+        Eyebrow(if (chosen != null) "MODEL · ${chosen.make.uppercase()} ${chosen.model.uppercase()} ${chosen.gen.uppercase()}".trimEnd() else "MODEL · PICK ONE")
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Space.s2)) {
+            variants.forEach { m ->
+                ShapeTile(
+                    Ps1Spec.of(m.body.kind.wire, paint, finish, wheel, height, m.body.wire, m.id),
+                    listOf(m.model, m.gen).filter { it.isNotBlank() }.joinToString(" "), m.yearsLabel, on = chosen === m,
+                ) {
+                    kind = m.body.kind.wire
+                    body = m.body.wire
+                    shape = m.id
+                }
             }
         }
     }
 
-    CvTextField(make, { make = it.take(60) }, "Make", placeholder = "Toyota")
-    CvTextField(model, { model = it.take(60) }, "Model", placeholder = "GR Yaris")
-    CvTextField(nickname, { nickname = it.take(60) }, "Nickname (optional)", placeholder = "Yari")
-    CvTextField(
-        year, { year = it.filter(Char::isDigit).take(4) }, "Year (optional)", placeholder = "2023", mono = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-    )
+    Eyebrow("BODY · ${bodyNow.label.uppercase()}")
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Space.s2)) {
+        Ps1Body.forKind(kindNow).forEach { b ->
+            ShapeTile(Ps1Spec.of(kind, paint, finish, wheel, height, b.wire), b.label, null, on = chosen == null && b == bodyNow) {
+                body = b.wire
+                shape = GENERIC_SHAPE
+            }
+        }
+    }
+
 
     Eyebrow("PAINT · ${VehicleOptions.paintName(paint).uppercase()}")
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Space.s3)) {
@@ -349,7 +378,10 @@ private fun VehicleForm(existing: Vehicle?, onDone: () -> Unit) {
         {
             saving = true
             error = null
-            val build = Build(paint = paint, finish = finish, wheel = wheel, rideHeightMm = height, decals = BuildText.decalsOf(decals), body = bodyNow.wire)
+            val build = Build(
+                paint = paint, finish = finish, wheel = wheel, rideHeightMm = height, decals = BuildText.decalsOf(decals), body = bodyNow.wire,
+                shape = chosen?.id ?: GENERIC_SHAPE.takeIf { shape == GENERIC_SHAPE },
+            )
             val yearInt = year.toIntOrNull()?.takeIf { it in 1885..2028 }
             scope.launch {
                 val r = if (existing == null) {
@@ -368,4 +400,22 @@ private fun VehicleForm(existing: Vehicle?, onDone: () -> Unit) {
     )
     if (year.isNotEmpty() && year.toIntOrNull()?.let { it in 1885..2028 } != true) Eyebrow("YEAR MUST BE 1885 TO 2028, OR LEAVE IT BLANK")
     if (existing != null) Eyebrow("A YEAR CAN BE CHANGED BUT NOT CLEARED YET")
+}
+
+
+/** A body or catalogue model to pick: its render on the current paint, a name and an optional second line. */
+@Composable
+private fun ShapeTile(spec: Ps1Spec, label: String, sub: String?, on: Boolean, onPick: () -> Unit) {
+    val c = Cv.colors
+    Column(
+        Modifier.width(120.dp).cutPanel(if (on) c.surface300 else c.surface200, if (on) c.signal else c.line, CutMShape)
+            .clickable(role = androidx.compose.ui.semantics.Role.RadioButton, onClick = onPick)
+            .semantics { contentDescription = label }
+            .padding(Space.s1),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Ps1Thumb(spec, app.convoyage.render.ThumbSize.Card, Modifier.fillMaxWidth().height(70.dp))
+        CvText(label, Cv.type.label, if (on) c.signal else c.ink, maxLines = 1)
+        if (sub != null) CvText(sub, Cv.type.label, c.inkMuted, maxLines = 1)
+    }
 }

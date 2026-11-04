@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Debug builds talk to the dev server over plain http (http://10.0.2.2:8080 on the emulator). -->
-    <application android:usesCleartextTraffic="true" />
+    <application android:usesCleartextTraffic="true">
+        <activity android:name=".debug.ModelSheetActivity" android:exported="true" android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+    </application>
 </manifest>

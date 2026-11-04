@@ -24,6 +24,8 @@ data class Build(
     val decals: List<Decal>? = null,
     /** Body style (see Ps1Body); null = the kind's default. */
     val body: String? = null,
+    /** Catalogue model id (see Ps1Catalog), "generic" for a body picked by hand, null = match make and model. */
+    val shape: String? = null,
 )
 
 @Serializable
@@ -51,7 +53,8 @@ data class Vehicle(
 @Serializable
 data class VehicleBadge(val kind: String = "car", val build: Build = Build())
 
-fun Vehicle.badge() = VehicleBadge(kind, build)
+/** The badge others see; a vehicle saved before models were matched gets its match here. */
+fun Vehicle.badge() = VehicleBadge(kind, build.copy(shape = build.shape ?: app.convoyage.render.Ps1Catalog.best(make, model, year, app.convoyage.render.Ps1Kind.of(kind))?.id))
 
 /** GET /v1/catalogue: the ids the build fields carry. Static on the server. */
 @Serializable

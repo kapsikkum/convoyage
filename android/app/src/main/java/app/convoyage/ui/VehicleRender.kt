@@ -24,9 +24,19 @@ import app.convoyage.render.Ps1SurfaceView
 import app.convoyage.render.ThumbSize
 
 fun Ps1Spec.Companion.of(kind: String?, build: Build?): Ps1Spec =
-    of(kind, build?.paint, build?.finish, build?.wheel, build?.rideHeightMm, build?.body)
+    of(kind, build?.paint, build?.finish, build?.wheel, build?.rideHeightMm, build?.body, build?.shape)
 
-fun Vehicle.ps1() = Ps1Spec.of(kind, build)
+/** Marks a body picked by hand, so make and model are not matched to the catalogue. */
+const val GENERIC_SHAPE = "generic"
+
+/** The catalogue model this vehicle renders as: the one saved, else the best match for its make, model and year. */
+fun Vehicle.catalogModel(): app.convoyage.render.Ps1Model? = when (val s = build.shape) {
+    null -> app.convoyage.render.Ps1Catalog.best(make, model, year, app.convoyage.render.Ps1Kind.of(kind))
+    GENERIC_SHAPE -> null
+    else -> app.convoyage.render.Ps1Catalog.byId(s)
+}
+
+fun Vehicle.ps1() = Ps1Spec.of(kind, build.copy(shape = catalogModel()?.id ?: build.shape))
 
 fun VehicleBadge.ps1() = Ps1Spec.of(kind, build)
 

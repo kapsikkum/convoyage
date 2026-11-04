@@ -64,6 +64,23 @@ class VehicleThumbs(context: Context) {
 
     private fun keyOf(spec: Ps1Spec, size: ThumbSize) = spec.key(size.name)
 
+    /** Development: [specs] drawn at each of [yaws], one row per spec, uncached. Null without GL ES 3. */
+    suspend fun sheet(specs: List<Ps1Spec>, yaws: List<Float>, w: Int, h: Int): Bitmap? = withContext(glThread) {
+        try {
+            val o = offscreen ?: Offscreen().also { offscreen = it }
+            val out = Bitmap.createBitmap(w * yaws.size, h * specs.size, Bitmap.Config.ARGB_8888)
+            val canvas = android.graphics.Canvas(out)
+            canvas.drawColor(0xFF05080D.toInt())
+            for ((r, spec) in specs.withIndex()) for ((c, yaw) in yaws.withIndex()) {
+                canvas.drawBitmap(o.renderYaw(spec, w, h, yaw), (c * w).toFloat(), (r * h).toFloat(), null)
+            }
+            out
+        } catch (e: Throwable) {
+            Log.w("Ps1Thumbs", "sheet failed", e)
+            null
+        }
+    }
+
     /** The thumbnail if it is already in memory. Cheap enough to call while composing. */
     fun cached(spec: Ps1Spec, size: ThumbSize): ImageBitmap? = memory.get(keyOf(spec, size))
 
@@ -175,6 +192,12 @@ class VehicleThumbs(context: Context) {
             gl.renderAngle(ANGLE_PX, ANGLE_PX, yawDeg, elevationDeg)
             val px = gl.readPixels(ANGLE_PX, ANGLE_PX)
             return Bitmap.createBitmap(px, ANGLE_PX, ANGLE_PX, Bitmap.Config.ARGB_8888)
+        }
+
+        fun renderYaw(spec: Ps1Spec, w: Int, h: Int, yawDeg: Float): Bitmap {
+            gl.setSpec(spec)
+            gl.renderLowRes(w, h, yawDeg, true, 1f, false)
+            return Bitmap.createBitmap(gl.readPixels(w, h), w, h, Bitmap.Config.ARGB_8888)
         }
 
         fun render(spec: Ps1Spec, size: ThumbSize): Bitmap {

@@ -14,21 +14,30 @@ enum class Ps1Kind(val wire: String) {
 enum class Ps1Body(val wire: String, val kind: Ps1Kind, val label: String) {
     Sedan("sedan", Ps1Kind.Car, "Sedan"),
     Hatch("hatch", Ps1Kind.Car, "Hatch"),
-    Wagon("wagon", Ps1Kind.Car, "Wagon"),
-    Coupe("coupe", Ps1Kind.Car, "Coupe"),
-    Suv("suv", Ps1Kind.Car, "SUV"),
-    Van("van", Ps1Kind.Car, "Van"),
     HotHatch("hot_hatch", Ps1Kind.Car, "Hot hatch"),
-    Muscle("muscle", Ps1Kind.Car, "Muscle"),
+    Wagon("wagon", Ps1Kind.Car, "Wagon"),
+    Liftback("liftback", Ps1Kind.Car, "Liftback"),
+    Coupe("coupe", Ps1Kind.Car, "Coupe"),
+    Convertible("convertible", Ps1Kind.Car, "Convertible"),
     Roadster("roadster", Ps1Kind.Car, "Roadster"),
+    Muscle("muscle", Ps1Kind.Car, "Muscle"),
+    Suv("suv", Ps1Kind.Car, "SUV"),
+    PeopleMover("people_mover", Ps1Kind.Car, "People mover"),
+    Van("van", Ps1Kind.Car, "Van"),
     SingleCab("single_cab", Ps1Kind.Ute, "Single cab"),
+    ExtraCab("extra_cab", Ps1Kind.Ute, "Extra cab"),
     DualCab("dual_cab", Ps1Kind.Ute, "Dual cab"),
+    CabChassis("cab_chassis", Ps1Kind.Ute, "Cab chassis"),
     FourwdWagon("4wd_wagon", Ps1Kind.Fourwd, "Wagon"),
     FourwdUte("4wd_ute", Ps1Kind.Fourwd, "Dual cab ute"),
+    FourwdCabChassis("4wd_cab_chassis", Ps1Kind.Fourwd, "Cab chassis"),
     Naked("naked", Ps1Kind.Motorcycle, "Naked"),
     SportBike("sport_bike", Ps1Kind.Motorcycle, "Sport"),
     Cruiser("cruiser", Ps1Kind.Motorcycle, "Cruiser"),
-    Adventure("adventure", Ps1Kind.Motorcycle, "Adventure");
+    Tourer("tourer", Ps1Kind.Motorcycle, "Tourer"),
+    Adventure("adventure", Ps1Kind.Motorcycle, "Adventure"),
+    Dirt("dirt", Ps1Kind.Motorcycle, "Dirt"),
+    Scooter("scooter", Ps1Kind.Motorcycle, "Scooter");
 
     companion object {
         fun defaultFor(kind: Ps1Kind): Ps1Body = when (kind) {
@@ -89,13 +98,18 @@ data class Ps1Spec(
     val rideHeightMm: Int = 0,
     /** Always one of [kind]'s bodies. */
     val body: Ps1Body = Ps1Body.defaultFor(kind),
+    /** A catalogue model's shape (always of [body]); null = the body's generic shape. */
+    val model: Ps1Shape? = null,
 ) {
+    /** The shape the renderer builds: the model's, else the body's typical one. Null for motorcycles. */
+    val shape: Ps1Shape? get() = model ?: Ps1Shapes.generic(body)
+
     /**
      * A stable cache key for one render of this build: the same visible build always gives the same key (case and
      * out-of-range values are normalised away) and any visible change gives another. [variant] separates thumbnail sizes.
      */
     fun key(variant: String = ""): String {
-        val canonical = "v$RENDERER_VERSION|${kind.wire}|${body.wire}|%06x|${finish.wire}|${wheel.id}|$rideHeightMm|$variant".format(paint and 0xFFFFFF)
+        val canonical = "v$RENDERER_VERSION|${kind.wire}|${body.wire}|${model?.id ?: "-"}|%06x|${finish.wire}|${wheel.id}|$rideHeightMm|$variant".format(paint and 0xFFFFFF)
         val digest = MessageDigest.getInstance("SHA-256").digest(canonical.toByteArray())
         return digest.take(10).joinToString("") { "%02x".format(it) }
     }
@@ -104,7 +118,7 @@ data class Ps1Spec(
         const val DEFAULT_PAINT = 0xB8BCC2
 
         /** Bump to throw every cached thumbnail away when the models or shaders change. */
-        const val RENDERER_VERSION = 3
+        const val RENDERER_VERSION = 4
 
         /** `#RRGGBB` (any case) or null/garbage, which gives the default paint. */
         fun parseHex(hex: String?): Int {
@@ -113,13 +127,19 @@ data class Ps1Spec(
             return h.toIntOrNull(16) ?: DEFAULT_PAINT
         }
 
-        fun of(kind: String?, paint: String?, finish: String?, wheel: String?, rideHeightMm: Int?, body: String? = null): Ps1Spec = Ps1Spec(
-            kind = Ps1Kind.of(kind),
-            body = Ps1Body.of(body, Ps1Kind.of(kind)),
+        /** [shape] is a catalogue id; one of [kind] wins over [body]. */
+        fun of(kind: String?, paint: String?, finish: String?, wheel: String?, rideHeightMm: Int?, body: String? = null, shape: String? = null): Ps1Spec {
+            val k = Ps1Kind.of(kind)
+            val entry = Ps1Catalog.byId(shape)?.takeIf { it.body.kind == k }
+            return Ps1Spec(
+            kind = k,
+            body = entry?.body ?: Ps1Body.of(body, k),
+            model = entry?.shape,
             paint = parseHex(paint),
             finish = Ps1Finish.of(finish),
             wheel = Ps1Wheels.of(wheel),
             rideHeightMm = (rideHeightMm ?: 0).coerceIn(-200, 200),
-        )
+            )
+        }
     }
 }
