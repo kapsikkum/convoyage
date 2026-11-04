@@ -80,6 +80,32 @@ const models: Record<string, object> = {
     character: { type: 'string', enum: ['relaxed', 'flowing', 'twisty'], description: 'From how much the road turns per kilometre.' },
     turnDegPerKm: { type: 'number' },
   }),
+  ConditionItem: obj({
+    id: string, source: { type: 'string', enum: ['tfnsw', 'waze', 'convoyage'] },
+    kind: { type: 'string', description: 'police, camera, hazard, crash, jam, closure, roadwork, event, flood, fire or alpine.' },
+    title: string, detail: string, lat: num, lng: num, km: { type: 'number', description: 'Kilometres from the start of the route.' }, reportedAt: nDate,
+  }),
+  WeatherPoint: obj({
+    km: num, lat: num, lng: num, at: dateTime, tempC: nNum, precipProbPct: nNum, precipMm: nNum, code: nInt,
+    windKmh: nNum, gustKmh: nNum, visibilityM: nNum, label: string, isDay: bool,
+  }),
+  RoadSummary: obj({
+    km: obj({ good: num, fair: num, poor: num, unknown: num }),
+    unpavedKm: num,
+    runs: arrayOf(obj({ grade: { type: 'string', enum: ['good', 'fair', 'poor', 'unknown'] }, km: num, name: string, surface: string, line: { type: 'string', description: 'Polyline precision 6.' } })),
+    worst: arrayOf(obj({ name: string, km: num, surface: string })),
+    fetchedAt: dateTime,
+  }),
+  RouteConditions: obj({
+    computedAt: dateTime,
+    traffic: obj({ level: { type: 'string', enum: ['clear', 'light', 'moderate', 'heavy'] }, delayMin: num, summary: string, items: arrayOf(ref('ConditionItem')) }),
+    police: arrayOf(ref('ConditionItem')),
+    hazards: arrayOf(ref('ConditionItem')),
+    weather: obj({ summary: string, worst: { type: 'integer', minimum: 0, maximum: 3, description: '0 nothing to 3 take care.' }, points: arrayOf(ref('WeatherPoint')) }),
+    roads: nullableRef('RoadSummary'),
+    sources: obj(Object.fromEntries(['tfnsw', 'waze', 'weather', 'roads'].map((k) => [k, { type: 'string', enum: ['ok', 'off', 'error', 'partial', 'pending'] }]))),
+    cached: { type: 'boolean', description: 'A saved snapshot, not computed for this request.' },
+  }, ['computedAt', 'traffic', 'police', 'hazards', 'weather', 'roads', 'sources']),
   Vehicle: obj({
     id: uuid, ownerId: uuid, kind: { type: 'string', enum: [...VEHICLE_KINDS] }, make: string, model: string, year: nInt, nickname: string,
     build: ref('Build'), isPrimary: bool, soldAt: nDate, createdAt: dateTime, updatedAt: dateTime,

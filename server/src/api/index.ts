@@ -22,6 +22,7 @@ import { rideRoutes } from './routes/rides.js';
 import { userRoutes } from './routes/users.js';
 import { vehicleRoutes } from './routes/vehicles.js';
 import { savedRouteRoutes } from './routes/savedRoutes.js';
+import { conditionsRoutes } from './routes/conditions.js';
 import { registerSchemas } from './schemas.js';
 
 export type { ApiContext, ConvoyLink } from './common.js';
@@ -109,6 +110,7 @@ export async function registerApi(app: FastifyInstance, ctx: ApiContext, version
     await userRoutes(api, ctx);
     await vehicleRoutes(api, ctx);
     await savedRouteRoutes(api, ctx);
+    await conditionsRoutes(api, ctx);
     await rideRoutes(api, ctx);
     await mediaRoutes(api, ctx);
     await postRoutes(api, ctx);

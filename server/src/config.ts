@@ -36,6 +36,10 @@ export interface Config {
   osrmProfiles: { car: string; motorcycle: string };
   /** Overpass API endpoint for rest-stop search. */
   overpassUrls: string[];
+  /** Transport for NSW Open Data key (live traffic hazards on routes). Null turns that source off. */
+  tfnswApiKey: string | null;
+  /** Self-hosted Waze report harvester (police, jams). Null turns it off. Self-host only. */
+  waze: { url: string; key: string } | null;
   routeRateLimit: { max: number; windowMs: number };
   /** LiveKit (push-to-talk). Null until LIVEKIT_API_KEY and LIVEKIT_API_SECRET are set. */
   livekit: { url: string; apiKey: string; apiSecret: string } | null;
@@ -124,6 +128,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     // Stock OSRM has one profile per deployment; the public demo only answers 'driving'. Override per profile if you run a motorcycle build.
     osrmProfiles: { car: env.OSRM_PROFILE_CAR || 'driving', motorcycle: env.OSRM_PROFILE_MOTORCYCLE || 'driving' },
     overpassUrls: list(env.OVERPASS_URL).length ? list(env.OVERPASS_URL) : ['https://overpass-api.de/api/interpreter', 'https://overpass.openstreetmap.fr/api/interpreter'],
+    tfnswApiKey: env.TFNSW_API_KEY?.trim() || null,
+    waze: env.WAZE_HARVESTER_URL ? { url: env.WAZE_HARVESTER_URL.trim(), key: (env.WAZE_HARVESTER_KEY ?? '').trim() } : null,
     routeRateLimit: { max: int(env.ROUTE_RATE_LIMIT_MAX, 30), windowMs: int(env.RATE_LIMIT_WINDOW_MS, 60_000) },
     livekit: env.LIVEKIT_API_KEY && env.LIVEKIT_API_SECRET
       ? { url: env.LIVEKIT_URL || 'ws://localhost:7880', apiKey: env.LIVEKIT_API_KEY, apiSecret: env.LIVEKIT_API_SECRET }

@@ -51,7 +51,11 @@ export interface SavedRoutesTable {
   waypoints: ColumnType<[number, number][], string, string>; geometry: OptNull<string>; distance_m: OptNull<number>;
   duration_s: OptNull<number>; staging_lat: OptNull<number>; staging_lng: OptNull<number>; visibility: Opt<Visibility>;
   source: Opt<'convoyage' | 'photoscout'>; source_id: OptNull<string>; created_at: Ts; updated_at: Ts;
+  conditions: ColumnType<unknown | null, string | null | undefined, string | null>; conditions_at: TsNull;
 }
+
+export interface RouteRoadsTable { hash: string; fetched_at: Date | string; result: ColumnType<unknown, string, string> }
+export interface RoadCellsTable { cell: string; fetched_at: Date | string; ways: ColumnType<unknown, string, string> }
 
 export interface RidesTable {
   id: Generated<string>; owner_id: string; vehicle_id: OptNull<string>; title: Opt<string>; status: Opt<'active' | 'finished'>;
@@ -115,6 +119,8 @@ export interface DB {
   vehicles: VehiclesTable;
   rides: RidesTable;
   saved_routes: SavedRoutesTable;
+  route_roads: RouteRoadsTable;
+  road_cells: RoadCellsTable;
   ride_photos: RidePhotosTable;
   posts: PostsTable;
   post_media: PostMediaTable;

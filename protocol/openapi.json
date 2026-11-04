@@ -517,6 +517,404 @@
         ],
         "additionalProperties": false
       },
+      "ConditionItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "tfnsw",
+              "waze",
+              "convoyage"
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "description": "police, camera, hazard, crash, jam, closure, roadwork, event, flood, fire or alpine."
+          },
+          "title": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "lat": {
+            "type": "number"
+          },
+          "lng": {
+            "type": "number"
+          },
+          "km": {
+            "type": "number",
+            "description": "Kilometres from the start of the route."
+          },
+          "reportedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "source",
+          "kind",
+          "title",
+          "detail",
+          "lat",
+          "lng",
+          "km",
+          "reportedAt"
+        ],
+        "additionalProperties": false
+      },
+      "WeatherPoint": {
+        "type": "object",
+        "properties": {
+          "km": {
+            "type": "number"
+          },
+          "lat": {
+            "type": "number"
+          },
+          "lng": {
+            "type": "number"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "tempC": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "precipProbPct": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "precipMm": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "code": {
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "windKmh": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "gustKmh": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "visibilityM": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "isDay": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "km",
+          "lat",
+          "lng",
+          "at",
+          "tempC",
+          "precipProbPct",
+          "precipMm",
+          "code",
+          "windKmh",
+          "gustKmh",
+          "visibilityM",
+          "label",
+          "isDay"
+        ],
+        "additionalProperties": false
+      },
+      "RoadSummary": {
+        "type": "object",
+        "properties": {
+          "km": {
+            "type": "object",
+            "properties": {
+              "good": {
+                "type": "number"
+              },
+              "fair": {
+                "type": "number"
+              },
+              "poor": {
+                "type": "number"
+              },
+              "unknown": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "good",
+              "fair",
+              "poor",
+              "unknown"
+            ],
+            "additionalProperties": false
+          },
+          "unpavedKm": {
+            "type": "number"
+          },
+          "runs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "grade": {
+                  "type": "string",
+                  "enum": [
+                    "good",
+                    "fair",
+                    "poor",
+                    "unknown"
+                  ]
+                },
+                "km": {
+                  "type": "number"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "surface": {
+                  "type": "string"
+                },
+                "line": {
+                  "type": "string",
+                  "description": "Polyline precision 6."
+                }
+              },
+              "required": [
+                "grade",
+                "km",
+                "name",
+                "surface",
+                "line"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "worst": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "km": {
+                  "type": "number"
+                },
+                "surface": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "km",
+                "surface"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "fetchedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "km",
+          "unpavedKm",
+          "runs",
+          "worst",
+          "fetchedAt"
+        ],
+        "additionalProperties": false
+      },
+      "RouteConditions": {
+        "type": "object",
+        "properties": {
+          "computedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "traffic": {
+            "type": "object",
+            "properties": {
+              "level": {
+                "type": "string",
+                "enum": [
+                  "clear",
+                  "light",
+                  "moderate",
+                  "heavy"
+                ]
+              },
+              "delayMin": {
+                "type": "number"
+              },
+              "summary": {
+                "type": "string"
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ConditionItem"
+                }
+              }
+            },
+            "required": [
+              "level",
+              "delayMin",
+              "summary",
+              "items"
+            ],
+            "additionalProperties": false
+          },
+          "police": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConditionItem"
+            }
+          },
+          "hazards": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConditionItem"
+            }
+          },
+          "weather": {
+            "type": "object",
+            "properties": {
+              "summary": {
+                "type": "string"
+              },
+              "worst": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 3,
+                "description": "0 nothing to 3 take care."
+              },
+              "points": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WeatherPoint"
+                }
+              }
+            },
+            "required": [
+              "summary",
+              "worst",
+              "points"
+            ],
+            "additionalProperties": false
+          },
+          "roads": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoadSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sources": {
+            "type": "object",
+            "properties": {
+              "tfnsw": {
+                "type": "string",
+                "enum": [
+                  "ok",
+                  "off",
+                  "error",
+                  "partial",
+                  "pending"
+                ]
+              },
+              "waze": {
+                "type": "string",
+                "enum": [
+                  "ok",
+                  "off",
+                  "error",
+                  "partial",
+                  "pending"
+                ]
+              },
+              "weather": {
+                "type": "string",
+                "enum": [
+                  "ok",
+                  "off",
+                  "error",
+                  "partial",
+                  "pending"
+                ]
+              },
+              "roads": {
+                "type": "string",
+                "enum": [
+                  "ok",
+                  "off",
+                  "error",
+                  "partial",
+                  "pending"
+                ]
+              }
+            },
+            "required": [
+              "tfnsw",
+              "waze",
+              "weather",
+              "roads"
+            ],
+            "additionalProperties": false
+          },
+          "cached": {
+            "type": "boolean",
+            "description": "A saved snapshot, not computed for this request."
+          }
+        },
+        "required": [
+          "computedAt",
+          "traffic",
+          "police",
+          "hazards",
+          "weather",
+          "roads",
+          "sources"
+        ],
+        "additionalProperties": false
+      },
       "Vehicle": {
         "type": "object",
         "properties": {
@@ -6047,6 +6445,349 @@
         "responses": {
           "204": {
             "description": "Response"
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (also used when the viewer may not see the thing)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict with the current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/conditions": {
+      "post": {
+        "summary": "Conditions along a route",
+        "tags": [
+          "routes"
+        ],
+        "description": "Traffic (TfNSW incidents and roadworks, Waze jams, crashes and closures), weather at the time you reach each part, OpenStreetMap road quality, and police, cameras and hazards near the line. Sources that are not configured or not answering are reported in `sources`. Can take up to ~30 s while Waze scans.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "geometry": {
+                    "type": "string",
+                    "maxLength": 200000,
+                    "description": "The route line, polyline precision 6."
+                  },
+                  "durationS": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "minimum": 0
+                  },
+                  "departAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                },
+                "required": [
+                  "geometry"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RouteConditions"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (also used when the viewer may not see the thing)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict with the current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/routes/{id}/conditions": {
+      "get": {
+        "summary": "Conditions along a saved route",
+        "tags": [
+          "routes"
+        ],
+        "description": "The saved snapshot when it is under 10 minutes old (`cached: true`), else computed now and saved. `refresh=true` always recomputes; `cachedOnly=true` returns the saved snapshot however old (404 if none).",
+        "parameters": [
+          {
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "in": "query",
+            "name": "refresh",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "in": "query",
+            "name": "cachedOnly",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RouteConditions"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (also used when the viewer may not see the thing)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict with the current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/roads": {
+      "get": {
+        "summary": "Road quality on the map",
+        "tags": [
+          "routes"
+        ],
+        "description": "OpenStreetMap roads in a box, graded good / fair / poor / unknown from surface and smoothness tags, as GeoJSON lines. Up to 0.15 degrees a side; cached on the server for 14 days.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "bbox",
+            "required": true,
+            "description": "south,west,north,east"
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "type": {
+                      "type": "string"
+                    },
+                    "features": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
           },
           "400": {
             "description": "Bad request",

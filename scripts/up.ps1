@@ -19,6 +19,11 @@ if ($psUrl) {
   $psSecret = EnvVal 'PHOTOSCOUT_CLIENT_SECRET' ''
   if ($psSecret) { $psArgs += '-e', "PHOTOSCOUT_CLIENT_SECRET=$psSecret" }
 }
+# Route conditions: TfNSW live traffic key, and the Waze harvester (an SSH tunnel to data-server, see docs). Both optional.
+$tfKey = EnvVal 'TFNSW_API_KEY' ''
+if ($tfKey) { $psArgs += '-e', "TFNSW_API_KEY=$tfKey" }
+$wazeUrl = EnvVal 'WAZE_HARVESTER_URL' ''
+if ($wazeUrl) { $psArgs += '-e', "WAZE_HARVESTER_URL=$wazeUrl", '-e', "WAZE_HARVESTER_KEY=$(EnvVal 'WAZE_HARVESTER_KEY' '')" }
 $lkKey = EnvVal 'LIVEKIT_API_KEY' 'devkey'
 $lkSecret = EnvVal 'LIVEKIT_API_SECRET' 'convoyage-dev-livekit-secret-0123456789'
 $osrm = EnvVal 'OSRM_URL' 'https://router.project-osrm.org'
