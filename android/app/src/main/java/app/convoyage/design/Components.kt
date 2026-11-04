@@ -713,7 +713,7 @@ fun CvTabBar(selected: Tab?, onSelect: (Tab) -> Unit, modifier: Modifier = Modif
 
 // ---- Map pins (Compose overlays) ---------------------------------------------------------------
 
-enum class PinKind { Me, Member, Lead, Stopped, Offline, Destination, Hazard, Police, Start, End, Photo }
+enum class PinKind { Me, Member, Lead, Stopped, Offline, Destination, Hazard, Police, Start, End, Photo, Stop }
 
 /**
  * Round map pin: heading wedge behind a round dot ringed by state. Only physically round things are round.
@@ -742,6 +742,7 @@ fun MapPin(
         PinKind.Start -> c.go
         PinKind.End -> c.pulse
         PinKind.Photo -> c.hazard
+        PinKind.Stop -> c.inkMuted
     }
     Box(modifier.size(56.dp), contentAlignment = Alignment.Center) {
         if (heading != null) {

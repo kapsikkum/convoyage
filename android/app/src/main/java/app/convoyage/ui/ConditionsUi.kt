@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import app.convoyage.api.ApiResult
 import app.convoyage.api.ConditionItem
 import app.convoyage.api.RouteConditions
+import app.convoyage.api.Stop
 import app.convoyage.data.LatLngD
 import app.convoyage.data.Polyline
 import app.convoyage.design.Cv
@@ -69,7 +70,7 @@ fun rememberRouteConditions(routeId: String): ConditionsUi {
                 is ApiResult.Ok -> ui.value = r.value
                 is ApiResult.Err -> { ui.error = r.message; break }
             }
-            if (ui.value?.sources?.roads != "pending" || ++tries > 3) break
+            if ((ui.value?.sources?.roads != "pending" && ui.value?.sources?.stops != "pending") || ++tries > 3) break
             ui.loading = false
             delay(30_000)
             ui.loading = true
@@ -104,6 +105,28 @@ fun roadSegments(c: RouteConditions?): List<Pair<List<LatLngD>, String>> =
         val pts = runCatching { Polyline.decode(run.line, 6) }.getOrNull() ?: return@mapNotNull null
         if (pts.size < 2) null else pts to (MapNightStyle.GRADE_COLORS[run.grade] ?: MapNightStyle.ROUTE_COLOR)
     }
+
+/** Short word on a stop's pin. */
+fun stopLabel(kind: String) = when (kind) { "fuel" -> "FUEL"; "food" -> "EAT"; "cafe" -> "CAFE"; "toilets" -> "WC"; "rest" -> "REST"; "ev" -> "EV"; else -> "•" }
+
+/** The fuels people ask about, in the order we show them. FuelCheck's DL is diesel. */
+private val FUEL_ORDER = listOf("U91" to "U91", "E10" to "E10", "P95" to "P95", "P98" to "P98", "DL" to "Diesel", "PDL" to "Prem diesel", "LPG" to "LPG")
+
+fun fuelName(code: String) = FUEL_ORDER.firstOrNull { it.first == code }?.second ?: code
+
+/** "U91 199.9 · Diesel 210.5" for a servo. */
+fun priceLine(s: Stop, max: Int = 3): String =
+    FUEL_ORDER.mapNotNull { (code, name) -> s.prices[code]?.let { "$name ${"%.1f".format(java.util.Locale.ROOT, it)}" } }.take(max).joinToString(" · ")
+
+/** Stops as map pins: the kind as a word, a servo's cheapest regular fuel as its tag. */
+fun stopPins(stops: List<Stop>): List<MapPinData> = stops.map { s ->
+    val tag = (s.prices["U91"] ?: s.prices["E10"] ?: s.prices["DL"])?.let { "%.1f".format(java.util.Locale.ROOT, it) }
+    MapPinData("s-${s.id}", PinKind.Stop, stopLabel(s.kind), s.lat, s.lng, tag = tag)
+}
+
+/** The next servo ahead of [atKm] on the route, and how far. */
+fun nextFuel(stops: List<Stop>, atKm: Double): Pair<Stop, Double>? =
+    stops.filter { it.kind == "fuel" && it.km >= atKm - 0.05 }.minByOrNull { it.km }?.let { it to (it.km - atKm).coerceAtLeast(0.0) }
 
 /** Police, cameras and hazards on the route as map pins. */
 fun conditionPins(c: RouteConditions?): List<MapPinData> {
@@ -221,6 +244,10 @@ fun ConditionsCard(ui: ConditionsUi, modifier: Modifier = Modifier) {
                 CvText("Road surfaces are still loading.", Cv.type.bodyS, c.inkMuted)
             }
 
+            // Stops on the way: servos with prices, then food, toilets, rest areas, chargers.
+            if (v.stops.isNotEmpty()) StopsList(v.stops, fuelOff = v.sources.fuel == "off")
+            else if (v.sources.stops == "pending") CvText("Servos and stops are still loading.", Cv.type.bodyS, c.inkMuted)
+
             // What was found, by distance along the route
             val found = (v.traffic.items + v.police + v.hazards).distinctBy { it.id }.sortedBy { it.km }
             if (found.isNotEmpty()) {
@@ -234,17 +261,51 @@ fun ConditionsCard(ui: ConditionsUi, modifier: Modifier = Modifier) {
                 if (v.sources.waze == "error") add("Waze")
                 if (v.sources.weather == "error") add("weather")
                 if (v.sources.roads == "error") add("road surfaces")
+                if (v.sources.stops == "error") add("stops")
+                if (v.sources.fuel == "error") add("FuelCheck")
             }
             if (missing.isNotEmpty()) CvText("Not answering right now: ${missing.joinToString(", ")}.", Cv.type.bodyS, c.inkMuted)
             CvText(
                 "From " + listOfNotNull(
                     "Live Traffic NSW".takeIf { v.sources.tfnsw == "ok" || v.sources.tfnsw == "partial" },
                     "Waze".takeIf { v.sources.waze == "ok" || v.sources.waze == "partial" },
-                    "Convoyage reports", "Open-Meteo".takeIf { v.weather.points.isNotEmpty() }, "OpenStreetMap".takeIf { roads != null },
+                    "Convoyage reports", "Open-Meteo".takeIf { v.weather.points.isNotEmpty() }, "OpenStreetMap".takeIf { roads != null || v.stops.isNotEmpty() },
+                    "NSW FuelCheck".takeIf { v.sources.fuel == "ok" && v.stops.any { it.prices.isNotEmpty() } },
                 ).joinToString(", ") + ".",
                 Cv.type.label, c.inkMuted,
             )
         }
+    }
+}
+
+/** Servos first (cheapest regular fuel called out), then a line per other kind. */
+@Composable
+fun StopsList(stops: List<Stop>, fuelOff: Boolean, max: Int = 6) {
+    val c = Cv.colors
+    Column(verticalArrangement = Arrangement.spacedBy(Space.s2)) {
+        Eyebrow("STOPS ON THE WAY")
+        val servos = stops.filter { it.kind == "fuel" }
+        val cheapest = servos.filter { it.prices["U91"] != null }.minByOrNull { it.prices["U91"]!! }
+        cheapest?.let { s -> CvText("Cheapest U91: ${s.name.ifBlank { s.brand.ifBlank { "servo" } }} at km ${fmtKm(s.km)}, ${"%.1f".format(java.util.Locale.ROOT, s.prices["U91"])}", Cv.type.bodyStrong, c.go) }
+        servos.take(max).forEach { s ->
+            Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(Space.s3)) {
+                CvText("KM ${fmtKm(s.km)}", Cv.type.telemetry, c.inkMuted, Modifier.width(64.dp), maxLines = 1)
+                Column(Modifier.weight(1f)) {
+                    CvText(s.name.ifBlank { s.brand.ifBlank { "Servo" } } + if (s.open24) " · 24/7" else "", Cv.type.bodyStrong, c.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    val prices = priceLine(s)
+                    if (prices.isNotBlank()) CvText(prices, Cv.type.telemetry, c.signal, maxLines = 1)
+                }
+            }
+        }
+        if (servos.size > max) CvText("and ${servos.size - max} more servos", Cv.type.bodyS, c.inkMuted)
+        listOf("food" to "Food", "cafe" to "Cafes", "toilets" to "Toilets", "rest" to "Rest areas", "ev" to "EV charging").forEach { (k, label) ->
+            val these = stops.filter { it.kind == k }
+            if (these.isNotEmpty()) CvText(
+                "$label: " + these.take(3).joinToString(" · ") { "${it.name.ifBlank { label.removeSuffix("s") }} km ${fmtKm(it.km)}" } + if (these.size > 3) " +${these.size - 3}" else "",
+                Cv.type.bodyS, c.inkMuted, maxLines = 2, overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (fuelOff && servos.isNotEmpty()) CvText("Fuel prices need a NSW FuelCheck key on the server.", Cv.type.label, c.inkMuted)
     }
 }
 

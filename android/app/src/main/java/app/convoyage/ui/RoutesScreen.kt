@@ -250,7 +250,7 @@ private fun RouteDetailSheet(r: SavedRoute, onDismiss: () -> Unit, onDrive: () -
                         line.firstOrNull()?.let { MapPinData("start", PinKind.Start, "Start", it.lat, it.lng) },
                         line.lastOrNull()?.takeIf { !r.isCircuit }?.let { MapPinData("end", PinKind.End, "Finish", it.lat, it.lng) },
                         r.staging?.let { MapPinData("staging", PinKind.Destination, "Staging", it.lat, it.lng) },
-                    ) + conditionPins(conditions.value),
+                    ) + conditionPins(conditions.value) + stopPins(conditions.value?.stops.orEmpty()),
                     me = null, route = emptyList(), routeLine = line, routeSegments = roadSegments(conditions.value),
                     buildings3d = false, follow = false, recenterTick = 0,
                     onUserMoved = {}, fitTo = line.map { LatLng(it.lat, it.lng) } + listOfNotNull(r.staging?.let { LatLng(it.lat, it.lng) }),

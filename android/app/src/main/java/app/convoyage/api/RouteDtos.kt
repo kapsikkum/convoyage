@@ -129,7 +129,28 @@ data class RoadSummary(
 
 /** Each source: ok, off (not set up), error, partial or pending (still loading on the server; ask again soon). */
 @Serializable
-data class ConditionSources(val tfnsw: String = "off", val waze: String = "off", val weather: String = "off", val roads: String = "off")
+data class ConditionSources(
+    val tfnsw: String = "off", val waze: String = "off", val weather: String = "off", val roads: String = "off",
+    val stops: String = "off", val fuel: String = "off",
+)
+
+/** A servo, food or cafe, toilets, rest area or EV charger; on a route it has [km] along it. */
+@Serializable
+data class Stop(
+    val id: String,
+    /** fuel, food, cafe, toilets, rest or ev. */
+    val kind: String = "",
+    val name: String = "",
+    val brand: String = "",
+    val lat: Double = 0.0,
+    val lng: Double = 0.0,
+    val open24: Boolean = false,
+    /** Cents per litre by FuelCheck code: U91, E10, P95, P98, DL, PDL, LPG. */
+    val prices: Map<String, Double> = emptyMap(),
+    val pricesAt: String? = null,
+    val km: Double = 0.0,
+    val offM: Double = 0.0,
+)
 
 /** GET /v1/routes/{id}/conditions and POST /v1/conditions. */
 @Serializable
@@ -140,6 +161,7 @@ data class RouteConditions(
     val hazards: List<ConditionItem> = emptyList(),
     val weather: WeatherConditions = WeatherConditions(),
     val roads: RoadSummary? = null,
+    val stops: List<Stop> = emptyList(),
     val sources: ConditionSources = ConditionSources(),
     val cached: Boolean = false,
 )

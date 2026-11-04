@@ -1,5 +1,7 @@
 package app.convoyage.ui
 
+import app.convoyage.design.CvCard
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -160,14 +162,23 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
 
     val active = nav.phase == NavPhase.Active || nav.phase == NavPhase.Arrived
     val line = remember(nav.route) { nav.route?.points.orEmpty() }
+    // Traffic, police, weather, road surface and stops for the route being previewed or driven.
+    val routeGeo = remember(nav.route) { nav.route?.let { app.convoyage.data.Polyline.encode(it.points, 6) } }
+    val navCond = rememberLineConditions(routeGeo, nav.route?.durationS)
+    val routeStops = navCond.value?.stops.orEmpty()
+    val atKm = nav.route?.let { (it.distanceM - nav.remainingM) / 1000.0 } ?: 0.0
+    val upcomingFuel = if (nav.phase == NavPhase.Active) nextFuel(routeStops, atKm) else null
     // Off track while following: which way back to the route (from the part ahead of where we left it).
     val rejoin = if (nav.phase == NavPhase.Active && fix != null)
         app.convoyage.nav.Rejoin.target(line, app.convoyage.data.LatLngD(fix.lat, fix.lng), nav.progress?.snap?.seg ?: 0) else null
     val fit = remember(nav.route, nav.phase) {
         if (nav.phase == NavPhase.Preview) nav.route?.points.orEmpty().let { p -> p.filterIndexed { i, _ -> i % maxOf(1, p.size / 150) == 0 }.map { LatLng(it.lat, it.lng) } } else emptyList()
     }
-    val pins = remember(nav.destination, nav.routeHazards, fix, nav.bearing, convoy.nearbyDrivers, convoy.nearbyConvoys, drive != null) {
+    val pins = remember(nav.destination, nav.routeHazards, fix, nav.bearing, convoy.nearbyDrivers, convoy.nearbyConvoys, drive != null, routeStops, nav.phase) {
         buildList {
+            // While driving only servos ahead stay on the map; the preview shows every stop.
+            if (nav.phase == NavPhase.Preview) addAll(stopPins(routeStops))
+            else if (nav.phase == NavPhase.Active) addAll(stopPins(routeStops.filter { it.kind == "fuel" && it.km >= atKm }))
             if (drive != null && nav.phase == NavPhase.Idle) addAll(nearbyPins(convoy.nearbyDrivers, convoy.nearbyConvoys))
             nav.routeHazards.forEach { add(it.hazard.toPin()) }
             nav.destination?.let { add(MapPinData("dest", PinKind.Destination, "", it.lat, it.lng, tag = it.name.take(12).uppercase().ifBlank { "DEST" })) }
@@ -177,7 +188,7 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
         }
     }
     val following = nav.phase == NavPhase.Active && local.follow
-    val sheetHeight = when (nav.phase) { NavPhase.Idle -> if (drive != null) DriveDockPeek else 0.dp; NavPhase.Active, NavPhase.Arrived -> 296.dp; else -> 236.dp } + chrome
+    val sheetHeight = when (nav.phase) { NavPhase.Idle -> if (drive != null) DriveDockPeek else 0.dp; NavPhase.Active, NavPhase.Arrived -> 296.dp; else -> 236.dp + (if (navCond.value != null) 44.dp else 0.dp) } + chrome
 
     Box(Modifier.fillMaxSize().onSizeChanged { boxH = it.height }) {
         ConvoyMap(
@@ -289,6 +300,16 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
         if (active) {
             SpeedReadout(nav.speedMps, Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = sheetHeight + navInset + Space.s3))
         }
+        // Next servo on the route, with its price, above the speed.
+        upcomingFuel?.let { (s, km) ->
+            CvCard(Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = sheetHeight + navInset + Space.s3 + 96.dp).widthIn(max = 220.dp), shape = CutSShape) {
+                Column(Modifier.padding(horizontal = Space.s3, vertical = Space.s2)) {
+                    Eyebrow("NEXT FUEL · " + Fmt.km(km * 1000) + " KM")
+                    CvText(s.name.ifBlank { s.brand.ifBlank { "Servo" } }, Cv.type.bodyStrong, c.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    priceLine(s, 2).takeIf { it.isNotBlank() }?.let { CvText(it, Cv.type.telemetry, c.signal, maxLines = 1) }
+                }
+            }
+        }
         if (active) {
             Column(
                 Modifier.align(Alignment.CenterEnd).padding(end = 12.dp, top = 60.dp),
@@ -315,6 +336,7 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
                 Box(Modifier.align(Alignment.CenterHorizontally).size(width = 40.dp, height = 4.dp).cutPanel(c.lineStrong, c.lineStrong, CutSShape))
                 EtaSheet(
                     nav = nav,
+                    conditions = navCond.value,
                     inConvoy = room != null,
                     onStart = vm::start,
                     onInvite = vm::inviteFriends,
@@ -451,7 +473,7 @@ internal fun ManeuverCard(step: app.convoyage.nav.RouteStep, distanceM: Double, 
 }
 
 @Composable
-private fun EtaSheet(nav: NavState, inConvoy: Boolean, onStart: () -> Unit, onInvite: () -> Unit, onEnd: () -> Unit) {
+private fun EtaSheet(nav: NavState, conditions: app.convoyage.api.RouteConditions?, inConvoy: Boolean, onStart: () -> Unit, onInvite: () -> Unit, onEnd: () -> Unit) {
     val c = Cv.colors
     val preview = nav.phase == NavPhase.Preview || nav.phase == NavPhase.Routing
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
@@ -469,6 +491,20 @@ private fun EtaSheet(nav: NavState, inConvoy: Boolean, onStart: () -> Unit, onIn
         },
         Cv.type.bodyS, c.inkMuted, maxLines = 2, overflow = TextOverflow.Ellipsis,
     )
+    // The route at a glance before setting off: traffic, police, weather, surface, and the cheapest fuel on the way.
+    if (preview && conditions != null) {
+        val cheapest = conditions.stops.filter { it.prices["U91"] != null }.minByOrNull { it.prices["U91"]!! }
+        CvText(
+            listOfNotNull(
+                "Traffic " + conditions.traffic.level,
+                if (conditions.police.isEmpty()) "no police" else "${conditions.police.size} police",
+                conditions.weather.points.firstOrNull()?.let { p -> p.label + (p.tempC?.let { t -> " ${Math.round(t)}°" } ?: "") },
+                conditions.roads?.let { r -> if (r.unpavedKm > 0) "${r.unpavedKm} km unsealed" else "sealed" },
+                conditions.stops.count { it.kind == "fuel" }.takeIf { it > 0 }?.let { "$it servos" },
+            ).joinToString(" · ") + (cheapest?.let { s -> "\nCheapest U91 ${"%.1f".format(java.util.Locale.ROOT, s.prices["U91"])} at km ${Math.round(s.km)}" } ?: ""),
+            Cv.type.bodyS, c.ink, maxLines = 2, overflow = TextOverflow.Ellipsis,
+        )
+    }
     if (preview) {
         CvButton(if (nav.phase == NavPhase.Routing) "Finding route..." else "Start", onStart, Modifier.fillMaxWidth(), enabled = nav.phase == NavPhase.Preview, icon = CvIcons.Navigate)
     }
