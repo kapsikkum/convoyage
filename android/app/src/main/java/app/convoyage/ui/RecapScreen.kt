@@ -94,6 +94,7 @@ data class RecapUi(
     val avgMps: Double = 0.0,
     val maxMps: Double = 0.0,
     val elevationM: Double? = null,
+    val maxLeanDeg: Double? = null,
     val photos: List<RecapPhoto> = emptyList(),
     val upload: UploadState = UploadState.Done,
     val visibility: String = "followers",
@@ -144,7 +145,7 @@ class RecapViewModel(private val container: AppContainer, private val remoteRide
                 loading = false, isLocal = true, rideId = m.serverRideId, title = m.title,
                 whenLine = Fmt.whenLine(m.startedAtMs), vehicleName = m.vehicleName, route = cachedRoute,
                 distanceM = s.stats.distanceM, durationS = s.stats.durationS, movingS = s.stats.movingTimeS,
-                avgMps = s.stats.avgSpeedMps, maxMps = s.stats.maxSpeedMps, elevationM = s.stats.elevationGainM,
+                avgMps = s.stats.avgSpeedMps, maxMps = s.stats.maxSpeedMps, elevationM = s.stats.elevationGainM, maxLeanDeg = s.stats.maxLeanDeg,
                 photos = photos, upload = if (m.stage == RideStage.Uploaded) UploadState.Done else s.upload,
                 visibility = m.visibility, posted = m.postId != null, gone = false,
             )
@@ -163,7 +164,7 @@ class RecapViewModel(private val container: AppContainer, private val remoteRide
                             loading = false, isLocal = false, rideId = ride.id, title = ride.title.ifBlank { "Ride" },
                             whenLine = Fmt.whenLine(ride.startedAt), route = route,
                             distanceM = ride.distanceM ?: 0.0, durationS = ride.durationS ?: 0, movingS = null,
-                            avgMps = ride.avgSpeedMps ?: 0.0, maxMps = ride.maxSpeedMps ?: 0.0, elevationM = ride.elevationGainM,
+                            avgMps = ride.avgSpeedMps ?: 0.0, maxMps = ride.maxSpeedMps ?: 0.0, elevationM = ride.elevationGainM, maxLeanDeg = ride.maxLeanDeg,
                             photos = ride.photos.map { p ->
                                 RecapPhoto(p.id, p.lat, p.lng, ImageSource.Remote(p.media.thumbUrl), ImageSource.Remote(p.media.url))
                             },
@@ -374,8 +375,7 @@ private fun Stats(ui: RecapUi) {
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.s3)) {
             Readout("Elevation", ui.elevationM?.let { Fmt.metres(it) } ?: "--", Modifier.weight(1f), unit = "m")
-            // TODO(lean): needs the rotation-vector sensor.
-            Readout("Max lean", "--", Modifier.weight(1f), unit = "°")
+            Readout("Max lean", ui.maxLeanDeg?.let { "%.0f".format(it) } ?: "--", Modifier.weight(1f), unit = "°")
         }
         if (ui.movingS != null && ui.durationS > ui.movingS + 5) {
             Eyebrow("TOTAL TIME ${Fmt.clock(ui.durationS)} · STOPPED ${Fmt.clock(ui.durationS - ui.movingS)}")

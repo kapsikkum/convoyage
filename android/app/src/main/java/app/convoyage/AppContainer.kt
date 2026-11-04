@@ -101,12 +101,18 @@ class AppContainer(private val context: Context) {
     val thumbs = VehicleThumbs(context)
     val feed = FeedRepository(appScope, api, location = { tracker.lastKnown()?.let { LatLngD(it.lat, it.lng) } })
 
+    /** Live lean angle; held by Ride mode while it is on screen (the phone is on the bike there). */
+    val lean = app.convoyage.data.LeanSensor(context) {
+        tracker.fix.value?.takeIf { System.currentTimeMillis() - it.timeMs < 5_000 }?.speedMps
+    }
+
     /** The ride being recorded (or waiting to upload). Saved on disk as it goes. */
     val recorder = RideRecorder(
         scope = appScope,
         store = RideStore(File(context.filesDir, "ride")),
         fixes = tracker.fix,
         api = api,
+        lean = lean.lean,
         acquireTracker = tracker::acquire,
         releaseTracker = tracker::release,
         preparePhoto = { ImageLoader.prepareForUpload(it, context.cacheDir) },

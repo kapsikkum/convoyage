@@ -27,7 +27,7 @@ data class RideStats(
     val avgSpeedMps: Double = 0.0,
     /** Null when the device never reported an altitude. */
     val elevationGainM: Double? = null,
-    /** TODO(lean): needs the rotation-vector sensor; always null until then. */
+    /** Largest lean while recording in Ride mode (see [LeanSensor]); null if never measured. Not from the trace. */
     val maxLeanDeg: Double? = null,
 ) {
     companion object {

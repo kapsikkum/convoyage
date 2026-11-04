@@ -65,6 +65,13 @@ fun RideScreen(onExit: () -> Unit, onReport: () -> Unit) {
     var showRecord by remember { mutableStateOf(false) }
 
     val speed = ConvoyViewModel.speedKmh(ui.fix)
+    // The phone is on the bike while Ride mode is up: measure lean for the meter and the ride's max lean.
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        container.lean.acquire()
+        onDispose { container.lean.release() }
+    }
+    val lean by container.lean.lean.collectAsStateWithLifecycle()
+    val navState by container.nav.state.collectAsStateWithLifecycle()
     val toLeader = vm.metersToLeader(ui)
     val last = ui.lastRider
 
@@ -107,8 +114,19 @@ fun RideScreen(onExit: () -> Unit, onReport: () -> Unit) {
             }
         }
 
-        // Destination / next-step card. TODO(nav): turn-by-turn instructions go here.
-        Row(
+        // Navigating: the next turn, big. Otherwise the convoy's destination.
+        val step = navState.maneuver
+        if (navState.isOn && step != null) {
+            val arrived = navState.phase == app.convoyage.nav.NavPhase.Arrived
+            ManeuverCard(
+                step = step,
+                distanceM = if (arrived) 0.0 else navState.progress?.distToManeuverM ?: 0.0,
+                then = navState.thenStep,
+                muted = false,
+                arrived = arrived,
+                arrivedLine = navState.destination?.name?.let { "Arrived at $it" } ?: "You have arrived",
+            )
+        } else Row(
             Modifier.fillMaxWidth().cutPanel(c.surface100, c.lineStrong, CutLShape).padding(horizontal = Space.s4, vertical = 14.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -123,11 +141,7 @@ fun RideScreen(onExit: () -> Unit, onReport: () -> Unit) {
 
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = Space.s2), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
             Readout("Speed", "%3d".format(speed).trim(), unit = "km/h", valueStyle = Cv.type.telemetryXl, valueColor = c.signal)
-            // TODO(lean): lean angle needs the rotation-vector sensor; placeholder meter until then.
-            Column(Modifier.width(96.dp).padding(bottom = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Readout("Lean", "--", unit = "°")
-                Box(Modifier.fillMaxWidth().height(6.dp).clip(CutSShape).background(c.surface300, CutSShape))
-            }
+            LeanMeter(lean, rec.stats.maxLeanDeg.takeIf { rec.isActive }, Modifier.width(112.dp).padding(bottom = 6.dp))
         }
 
         Column(verticalArrangement = Arrangement.spacedBy(Space.s3)) {
@@ -161,7 +175,6 @@ fun RideScreen(onExit: () -> Unit, onReport: () -> Unit) {
             Modifier.fillMaxWidth().padding(vertical = Space.s2),
             horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically,
         ) {
-            val navState by container.nav.state.collectAsStateWithLifecycle()
             Readout("ETA", if (navState.isOn) navState.etaMs?.let { Fmt.clockOfDay(it) } ?: "--:--" else "--:--", Modifier.width(96.dp))
             val ptt = rememberPtt()
             PushToTalk(ptt.state, size = 128.dp, caption = ptt.caption, onPress = ptt.onPress, onRelease = ptt.onRelease)
@@ -170,5 +183,34 @@ fun RideScreen(onExit: () -> Unit, onReport: () -> Unit) {
     }
     if (showRecord) RecordSheet(onDismiss = { showRecord = false })
     PhotoConfirmSheet(capture)
+    }
+}
+
+
+/**
+ * Lean: the angle with L or R, and a bar that fills from the centre towards the side the bike leans (full at 60).
+ * [lean] is null when the phone has no gyroscope; [max] is this ride's max lean while recording.
+ */
+@Composable
+private fun LeanMeter(lean: Double?, max: Double?, modifier: Modifier = Modifier) {
+    val c = Cv.colors
+    val a = lean?.let { kotlin.math.abs(it) } ?: 0.0
+    val side = when { lean == null || a < 1.0 -> ""; lean > 0 -> "L "; else -> "R " }
+    val tone = when { a >= 45 -> c.pulse; a >= 30 -> c.hazard; else -> c.signal }
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Readout("Lean", if (lean == null) "--" else side + "%.0f".format(a), unit = "°", valueColor = if (lean == null) c.ink else tone)
+        Row(Modifier.fillMaxWidth().height(6.dp).clip(CutSShape).background(c.surface300, CutSShape)) {
+            val f = (a / 60.0).coerceIn(0.0, 1.0).toFloat()
+            val left = lean != null && lean > 0
+            // Two halves; the leaning side fills outward from the middle.
+            Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.CenterEnd) {
+                if (left && f > 0f) Box(Modifier.fillMaxWidth(f).fillMaxHeight().background(tone))
+            }
+            Box(Modifier.width(2.dp).fillMaxHeight().background(c.lineStrong))
+            Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.CenterStart) {
+                if (!left && f > 0f) Box(Modifier.fillMaxWidth(f).fillMaxHeight().background(tone))
+            }
+        }
+        if (max != null) Eyebrow("MAX %.0f°".format(max))
     }
 }

@@ -65,14 +65,15 @@ data class RecorderState(
  *    paused, and a ride that was stopped but not uploaded is uploaded again.
  *  - Upload is create-then-finish, then the photos. Each step is saved, so a retry only repeats what is missing.
  *
- * Foreground only. TODO(background): a foreground service with ACCESS_BACKGROUND_LOCATION so recording survives the
- * screen being off or another app in front; today fixes stop arriving when the app is hidden.
+ * Keeps running with the screen off: [app.convoyage.service.ConvoyService] holds the tracker in the foreground
+ * while a ride is active. Max lean comes from [lean] (null when no one holds the sensor) and is saved in the meta.
  */
 class RideRecorder(
     private val scope: CoroutineScope,
     private val store: RideStore,
     private val fixes: Flow<Fix?>,
     private val api: RideApi,
+    private val lean: Flow<Double?> = kotlinx.coroutines.flow.emptyFlow(),
     private val acquireTracker: () -> Unit = {},
     private val releaseTracker: () -> Unit = {},
     private val now: () -> Long = System::currentTimeMillis,
@@ -95,6 +96,7 @@ class RideRecorder(
     private var acceptFrom = 0L
     private var holdingTracker = false
     private var collector: Job? = null
+    private var leanJob: Job? = null
     private var ticker: Job? = null
     private var syncJob: Job? = null
     private var retryJob: Job? = null
@@ -457,6 +459,8 @@ class RideRecorder(
         }
         collector?.cancel()
         collector = scope.launch { fixes.filterNotNull().collect(::onFix) }
+        leanJob?.cancel()
+        leanJob = scope.launch { lean.filterNotNull().collect(::onLean) }
         ticker?.cancel()
         ticker = scope.launch {
             while (isActive) {
@@ -469,6 +473,8 @@ class RideRecorder(
     private fun stopCollecting() {
         collector?.cancel()
         collector = null
+        leanJob?.cancel()
+        leanJob = null
         ticker?.cancel()
         ticker = null
         if (holdingTracker) {
@@ -488,9 +494,19 @@ class RideRecorder(
         publish()
     }
 
+    private fun onLean(deg: Double) {
+        val m = meta ?: return
+        if (m.stage != RideStage.Recording) return
+        val a = kotlin.math.abs(deg)
+        // Whole degrees are enough, and keep the meta from being rewritten for every wobble.
+        if (a < (m.maxLeanDeg ?: 0.0) + 1.0) return
+        saveMeta(m.copy(maxLeanDeg = Math.floor(a)))
+        publish()
+    }
+
     private fun computeFinal(): RideStats {
         val m = meta ?: return RideStats.EMPTY
-        return TraceMath.stats(TraceMath.fillGaps(trace), m.elapsedMs(now()))
+        return TraceMath.stats(TraceMath.fillGaps(trace), m.elapsedMs(now())).copy(maxLeanDeg = m.maxLeanDeg)
     }
 
     private fun saveMeta(m: RideMeta) {
@@ -523,7 +539,8 @@ class RideRecorder(
         _state.value = RecorderState(
             meta = m,
             elapsedS = elapsed / 1000,
-            stats = if (m != null && m.stage >= RideStage.Stopped) finalStats ?: acc.snapshot(elapsed) else acc.snapshot(elapsed),
+            stats = if (m != null && m.stage >= RideStage.Stopped) finalStats ?: acc.snapshot(elapsed).copy(maxLeanDeg = m.maxLeanDeg)
+            else acc.snapshot(elapsed).copy(maxLeanDeg = m?.maxLeanDeg),
             pointCount = trace.size,
             upload = upload,
         )

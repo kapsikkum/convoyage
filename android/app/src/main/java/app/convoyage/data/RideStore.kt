@@ -51,6 +51,8 @@ data class RideMeta(
     val photos: List<RidePhotoRecord> = emptyList(),
     val lastError: String? = null,
     val postId: String? = null,
+    /** Largest lean seen while recording in Ride mode, in degrees; null if it was never measured. */
+    val maxLeanDeg: Double? = null,
 ) {
     /** Active time (pauses excluded) up to [nowMs], or up to the end for a stopped ride. */
     fun elapsedMs(nowMs: Long): Long {
