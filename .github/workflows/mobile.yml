@@ -56,6 +56,7 @@ jobs:
         working-directory: android
         run: |
           chmod +x gradlew
+          bash scripts/fetch-maplibre-terrain.sh
           VERSION_ARGS=""
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then VERSION_ARGS="-PversionName=${GITHUB_REF_NAME#v}"; fi
           ./gradlew assembleRelease -PversionCode=${{ github.run_number }} $VERSION_ARGS

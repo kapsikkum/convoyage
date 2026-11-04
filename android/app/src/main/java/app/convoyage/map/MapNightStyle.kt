@@ -74,6 +74,9 @@ object MapNightStyle {
     // Terrain in 3D: shaded relief from public Terrarium elevation tiles (AWS open data, no key).
     const val DEM_SOURCE = "terrain-dem"
     const val HILLSHADE_LAYER = "terrain-hillshade"
+    /** Its own DEM source for the 3D ground (sharing one with the hillshade makes MapLibre warn and resample). */
+    const val TERRAIN_SOURCE = "terrain-mesh"
+    const val TERRAIN_EXAGGERATION = 1.0f
     const val DEM_TILES = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
     const val HILL_SHADOW = "#000000"
     const val HILL_HIGHLIGHT = "#5a86ad"
@@ -382,7 +385,16 @@ object MapNightStyle {
 
     fun setBuildings3d(style: Style, extrusionIds: List<String>, on: Boolean) {
         for (id in extrusionIds) style.getLayerAs<FillExtrusionLayer>(id)?.setProperties(visibility(if (on) Property.VISIBLE else Property.NONE))
-        style.getLayer(HILLSHADE_LAYER)?.setProperties(visibility(if (on) Property.VISIBLE else Property.NONE))
+        // The terrain build drapes nothing else while a hillshade layer is on, so: shading in 2D, raised ground in 3D.
+        style.getLayer(HILLSHADE_LAYER)?.setProperties(visibility(if (on) Property.NONE else Property.VISIBLE))
+        setTerrain(style, on)
+    }
+
+    /** Raised 3D ground under everything (community MapLibre build with feature/terrain-3d). Off in 2D. */
+    fun setTerrain(style: Style, on: Boolean) {
+        runCatching {
+            style.setTerrain(if (on) org.maplibre.android.style.terrain.Terrain(TERRAIN_SOURCE, TERRAIN_EXAGGERATION) else null)
+        }.onFailure { android.util.Log.w("MapNightStyle", "3D terrain unavailable", it) }
     }
 
     /**
@@ -396,15 +408,16 @@ object MapNightStyle {
                 maxZoom = 15f
                 attribution = "Elevation: Mapzen Terrain Tiles (AWS Open Data)"
             }
-            style.addSource(org.maplibre.android.style.sources.RasterDemSource(DEM_SOURCE, tiles, 256))
-            val hill = org.maplibre.android.style.layers.HillshadeLayer(HILLSHADE_LAYER, DEM_SOURCE).withProperties(
+            style.addSource(org.maplibre.android.style.sources.RasterDemSource(TERRAIN_SOURCE, tiles, 256))
+            val hill = org.maplibre.android.style.layers.HillshadeLayer(HILLSHADE_LAYER, TERRAIN_SOURCE).withProperties(
                 org.maplibre.android.style.layers.PropertyFactory.hillshadeShadowColor(arrayOf(HILL_SHADOW)),
                 org.maplibre.android.style.layers.PropertyFactory.hillshadeHighlightColor(arrayOf(HILL_HIGHLIGHT)),
                 org.maplibre.android.style.layers.PropertyFactory.hillshadeAccentColor(HILL_ACCENT),
                 org.maplibre.android.style.layers.PropertyFactory.hillshadeExaggeration(1.0f),
-                visibility(if (on) Property.VISIBLE else Property.NONE),
+                visibility(if (on) Property.NONE else Property.VISIBLE),
             )
             if (below != null) style.addLayerBelow(hill, below) else style.addLayer(hill)
+            setTerrain(style, on)
         }.onFailure { android.util.Log.w("MapNightStyle", "terrain unavailable", it) }
     }
 }

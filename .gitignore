@@ -8,6 +8,7 @@ android/build/
 android/app/build/
 android/local.properties
 android/.idea/
+android/third_party/
 *.iml
 .DS_Store
 ios/build/

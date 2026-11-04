@@ -193,10 +193,12 @@ fun ConvoyMap(
     }
 
     // Keep the map clear of the bottom sheet so "centre" means centre of the visible part.
-    LaunchedEffect(map, bottomPadding, topPadding) {
+    LaunchedEffect(map, bottomPadding, topPadding, buildings3d) {
         val m = map ?: return@LaunchedEffect
         val bottom = with(density) { bottomPadding.toPx() }.toInt()
-        m.setPadding(0, with(density) { topPadding.toPx() }.toInt(), 0, bottom)
+        // 3D terrain (community MapLibre build) renders nothing with camera padding, so in 3D the follow camera aims
+        // ahead of the car instead (see below) and the padding stays zero.
+        m.setPadding(0, if (buildings3d) 0 else with(density) { topPadding.toPx() }.toInt(), 0, if (buildings3d) 0 else bottom)
         m.uiSettings.setAttributionMargins(with(density) { 12.dp.toPx() }.toInt(), 0, 0, bottom + with(density) { 4.dp.toPx() }.toInt())
     }
 
@@ -245,6 +247,13 @@ fun ConvoyMap(
 
     // Speed zoom, lagged over seconds so braking into a corner and accelerating out does not pump the camera.
     val ease = remember { FollowEase() }
+    // Ground height under the car (refreshed every ~300 m): the 3D camera's centre sits on it, not at sea level,
+    // or a street-level camera ends up inside the hill (Bathurst is ~700 m up).
+    val meCell = me?.let { Pair(Math.round(it.latitude * 300), Math.round(it.longitude * 300)) }
+    LaunchedEffect(buildings3d, meCell) {
+        val p = me ?: return@LaunchedEffect
+        if (buildings3d) TerrainHeight.at(p.latitude, p.longitude)?.let { ease.groundM = it }
+    }
     LaunchedEffect(map, me, follow, recenterTick, followBearing, followZoom, scaling, userZoom) {
         val m = map ?: return@LaunchedEffect
         // Zoom gestures pivot on the followed marker; free-roaming pinches pivot on the fingers.
@@ -252,8 +261,18 @@ fun ConvoyMap(
         if (scaling) return@LaunchedEffect
         if (follow && me != null) {
             val now = m.cameraPosition
-            val target = userZoom ?: followZoom ?: now.zoom.coerceAtLeast(14.0)
-            val near = now.target?.let { it.distanceTo(me) < 250 } == true && kotlin.math.abs(now.zoom - target) < 2.5
+            val wanted = userZoom ?: followZoom ?: now.zoom.coerceAtLeast(14.0)
+            // The terrain build keeps the camera's height relative to sea level, so on high ground a close camera ends
+            // up inside the hill and draws nothing. Stop zooming in where the eye would come within 120 m of the ground.
+            val target = if (buildings3d && size.height > 0) {
+                val tilt = Math.toRadians(if (followBearing != null) 60.0 else now.tilt)
+                val halfH = size.height / 2.0 / density.density
+                val eyePx = halfH / kotlin.math.tan(Math.toRadians((if (now.fov > 1.0) now.fov else 36.87) / 2.0))
+                val mpp0 = m.projection.getMetersPerPixelAtLatitude(me.latitude) * Math.pow(2.0, now.zoom)
+                val clearZ = kotlin.math.log2(eyePx * mpp0 * kotlin.math.cos(tilt) / (ease.groundM * MapNightStyle.TERRAIN_EXAGGERATION + 120.0))
+                wanted.coerceAtMost(minOf(clearZ, 14.5))
+            } else wanted
+            val near = now.target?.let { it.distanceTo(me) < (if (buildings3d) 800 else 250) } == true && kotlin.math.abs(now.zoom - target) < 2.5
             // Time-based easing (updates come every frame while the pin glides, so a per-update factor would
             // change speed with the frame rate). Zoom settles over ~4 s, the heading over ~0.5 s.
             val tNs = System.nanoTime()
@@ -263,16 +282,29 @@ fun ConvoyMap(
                 val from = ease.zoom ?: now.zoom
                 (from + (target - from) * (1 - kotlin.math.exp(-dt / 4.0))).also { ease.zoom = it }
             } else target.also { ease.zoom = it }
-            val cam = CameraPosition.Builder(now).target(me).zoom(zoom)
+            val cam = CameraPosition.Builder(now).zoom(zoom)
+            var bearing = now.bearing
             if (followBearing != null) {
                 // Turn part of the way each update: [me] changes every frame while it glides, so this eases in.
                 var d = (followBearing - now.bearing) % 360
                 if (d > 180) d -= 360
                 if (d < -180) d += 360
-                cam.bearing((now.bearing + d * (1 - kotlin.math.exp(-dt / 0.5)) + 360) % 360).tilt(60.0)
+                bearing = (now.bearing + d * (1 - kotlin.math.exp(-dt / 0.5)) + 360) % 360
+                cam.bearing(bearing).tilt(60.0)
             } else if (headingUpFallbackNorth) {
+                bearing = 0.0
                 cam.bearing(0.0)
             }
+            // In 3D there is no padding: put the car where the padding would have, by looking a little ahead of it.
+            val centre = if (buildings3d && size.height > 0) {
+                val h = size.height.toDouble()
+                val wantY = (with(density) { topPadding.toPx() } + h - with(density) { bottomPadding.toPx() }) / 2.0
+                val offDp = (wantY - h / 2.0) / density.density
+                val mpp = m.projection.getMetersPerPixelAtLatitude(me.latitude) * Math.pow(2.0, now.zoom - zoom)
+                val tilt = if (followBearing != null) 60.0 else now.tilt
+                aheadOf(me, offDp * mpp / kotlin.math.cos(Math.toRadians(tilt)).coerceAtLeast(0.3), bearing)
+            } else me
+            cam.target(centre)
             // Close by: follow the gliding position exactly. Far (first fix, recentre): fly there.
             if (near) m.moveCamera(CameraUpdateFactory.newCameraPosition(cam.build()))
             else m.easeCamera(CameraUpdateFactory.newCameraPosition(cam.build()), 900)
@@ -317,4 +349,14 @@ fun ConvoyMap(
 private class FollowEase {
     var zoom: Double? = null
     var lastNs = 0L
+    var groundM = 0.0
+}
+
+
+/** The point [metres] from [p] towards [bearingDeg] (negative goes behind). Flat-earth: fine for a few hundred metres. */
+private fun aheadOf(p: LatLng, metres: Double, bearingDeg: Double): LatLng {
+    val b = Math.toRadians(bearingDeg)
+    val dLat = metres * kotlin.math.cos(b) / 111_320.0
+    val dLng = metres * kotlin.math.sin(b) / (111_320.0 * kotlin.math.cos(Math.toRadians(p.latitude)))
+    return LatLng(p.latitude + dLat, p.longitude + dLng)
 }
