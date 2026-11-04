@@ -260,18 +260,11 @@ fun ConvoyMap(
         m.uiSettings.focalPoint = if (follow && me != null) runCatching { m.projection.toScreenLocation(me) }.getOrNull() else null
         if (scaling) return@LaunchedEffect
         if (follow && me != null) {
+            // 3D terrain: keep the camera centre on the ground under the car, not at sea level, or a street-level
+            // camera ends up inside the hill (Bathurst is ~750 m up). Later camera moves keep this altitude.
+            if (buildings3d && size.height > 0) TerrainCamera.keepOnGround(m, ease, (size.height / density.density).toDouble(), ease.groundM * MapNightStyle.TERRAIN_EXAGGERATION)
             val now = m.cameraPosition
-            val wanted = userZoom ?: followZoom ?: now.zoom.coerceAtLeast(14.0)
-            // The terrain build keeps the camera's height relative to sea level, so on high ground a close camera ends
-            // up inside the hill and draws nothing. Stop zooming in where the eye would come within 120 m of the ground.
-            val target = if (buildings3d && size.height > 0) {
-                val tilt = Math.toRadians(if (followBearing != null) 60.0 else now.tilt)
-                val halfH = size.height / 2.0 / density.density
-                val eyePx = halfH / kotlin.math.tan(Math.toRadians((if (now.fov > 1.0) now.fov else 36.87) / 2.0))
-                val mpp0 = m.projection.getMetersPerPixelAtLatitude(me.latitude) * Math.pow(2.0, now.zoom)
-                val clearZ = kotlin.math.log2(eyePx * mpp0 * kotlin.math.cos(tilt) / (ease.groundM * MapNightStyle.TERRAIN_EXAGGERATION + 120.0))
-                wanted.coerceAtMost(minOf(clearZ, 14.5))
-            } else wanted
+            val target = userZoom ?: followZoom ?: now.zoom.coerceAtLeast(14.0)
             val near = now.target?.let { it.distanceTo(me) < (if (buildings3d) 800 else 250) } == true && kotlin.math.abs(now.zoom - target) < 2.5
             // Time-based easing (updates come every frame while the pin glides, so a per-update factor would
             // change speed with the frame rate). Zoom settles over ~4 s, the heading over ~0.5 s.
@@ -328,7 +321,7 @@ fun ConvoyMap(
         if (m != null && tick >= 0) {
             val bearing = m.cameraPosition.bearing
             pins.forEach { pin ->
-                val p: PointF = m.projection.toScreenLocation(LatLng(pin.lat, pin.lng))
+                val p: PointF = TerrainCamera.screen(m, LatLng(pin.lat, pin.lng), buildings3d)
                 if (p.x > -80 && p.y > -80 && p.x < size.width + 80 && p.y < size.height + 80) {
                     val half = with(density) { 28.dp.toPx() }
                     MapPin(
@@ -346,7 +339,7 @@ fun ConvoyMap(
 }
 
 /** Camera easing state kept across follow updates (plain fields: writing it must not recompose the map). */
-private class FollowEase {
+internal class FollowEase {
     var zoom: Double? = null
     var lastNs = 0L
     var groundM = 0.0
@@ -359,4 +352,64 @@ private fun aheadOf(p: LatLng, metres: Double, bearingDeg: Double): LatLng {
     val dLat = metres * kotlin.math.cos(b) / 111_320.0
     val dLng = metres * kotlin.math.sin(b) / (111_320.0 * kotlin.math.cos(Math.toRadians(p.latitude)))
     return LatLng(p.latitude + dLat, p.longitude + dLng)
+}
+
+/** Keeping the camera and the Compose pins right when the camera centre is raised onto 3D terrain. */
+internal object TerrainCamera {
+    /**
+     * Raise (or lower) the centre to [groundM] when it is more than 20 m off, keeping the view. The engine refuses when
+     * the camera is already at or under that ground, so first back out to a zoom whose camera clears it.
+     */
+    fun keepOnGround(m: org.maplibre.android.maps.MapLibreMap, ease: FollowEase, heightDp: Double, groundM: Double) {
+        if (groundM <= 0.0 || kotlin.math.abs(m.centerAltitude - groundM) < 20.0) return
+        if (!m.setCenterAltitudeKeepingView(groundM)) {
+            val cam = m.cameraPosition
+            val lat = cam.target?.latitude ?: return
+            val eyeDp = heightDp / 2.0 / kotlin.math.tan(Math.toRadians((if (cam.fov > 1.0) cam.fov else 36.87) / 2.0))
+            val mpp0 = m.projection.getMetersPerPixelAtLatitude(lat) * Math.pow(2.0, cam.zoom)
+            val rise = groundM - m.centerAltitude
+            // The zoom at which the eye is about twice the rise above the current centre.
+            val safe = kotlin.math.log2(eyeDp * mpp0 * kotlin.math.cos(Math.toRadians(cam.tilt)).coerceAtLeast(0.2) / (2.0 * kotlin.math.abs(rise) + 200.0))
+            if (safe < cam.zoom) {
+                m.moveCamera(
+                    org.maplibre.android.camera.CameraUpdateFactory.newCameraPosition(
+                        org.maplibre.android.camera.CameraPosition.Builder(cam).zoom(safe).build(),
+                    ),
+                )
+            }
+            if (!m.setCenterAltitudeKeepingView(groundM)) return
+        }
+        // The move changed the zoom: let the follow easing carry on from here rather than jump back.
+        ease.zoom = m.cameraPosition.zoom
+    }
+
+    /**
+     * Where a point on the ground shows on screen. MapLibre's projection works on the sea-level plane; with the
+     * centre raised, the ground near it is on the plane at the centre's altitude, so refine the sea-level answer
+     * against the inverse projection at that altitude (a few Newton steps).
+     */
+    fun screen(m: org.maplibre.android.maps.MapLibreMap, p: LatLng, terrain: Boolean): PointF {
+        val proj = m.projection
+        val first = proj.toScreenLocation(p)
+        if (!terrain || m.centerAltitude < 1.0) return first
+        var x = first.x
+        var y = first.y
+        repeat(3) {
+            val q = proj.fromScreenLocationAtCenterAltitude(PointF(x, y)) ?: return PointF(x, y)
+            val qx = proj.fromScreenLocationAtCenterAltitude(PointF(x + 20f, y)) ?: return PointF(x, y)
+            val qy = proj.fromScreenLocationAtCenterAltitude(PointF(x, y + 20f)) ?: return PointF(x, y)
+            // Jacobian of screen -> (lng, lat), per 20 px.
+            val a = qx.longitude - q.longitude
+            val b = qy.longitude - q.longitude
+            val c = qx.latitude - q.latitude
+            val d = qy.latitude - q.latitude
+            val det = a * d - b * c
+            if (kotlin.math.abs(det) < 1e-18) return PointF(x, y)
+            val el = p.longitude - q.longitude
+            val et = p.latitude - q.latitude
+            x += (20.0 * (d * el - b * et) / det).toFloat()
+            y += (20.0 * (-c * el + a * et) / det).toFloat()
+        }
+        return PointF(x, y)
+    }
 }
