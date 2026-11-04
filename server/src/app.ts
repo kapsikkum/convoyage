@@ -3,6 +3,8 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { registerApi, type ApiContext } from './api/index.js';
 import { Rooms } from './convoy/rooms.js';
 import { attachRealtime, type RealtimeOptions } from './realtime.js';
+import { liveRoutes } from './api/routes/live.js';
+import { authenticate } from './api/common.js';
 
 // Resolves to server/package.json from both src/ and dist/.
 export const VERSION: string = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
@@ -30,6 +32,8 @@ export async function buildApp(opts: AppOptions): Promise<FastifyInstance> {
   app.get('/health', async () => ({ ok: true, version: VERSION }));
   if (opts.api) {
     await registerApi(app, { ...opts.api, convoy: { roomsOf: (id) => rooms.roomsOf(id), sendToRoom: realtime.sendToRoom, offlineMemberIds: (code) => rooms.offlineMemberIds(code), renameUser: realtime.renameUser, setVehicle: realtime.setVehicle } }, VERSION);
+    // Live links: watch a convoy in a browser. Outside /v1's OpenAPI document; the page is public by design.
+    await liveRoutes(app, rooms, authenticate(opts.api.tokens));
   }
   await app.ready();
   return app;
