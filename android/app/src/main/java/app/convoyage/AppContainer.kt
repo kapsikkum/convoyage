@@ -119,6 +119,9 @@ class AppContainer(private val context: Context) {
         preparePhoto = { ImageLoader.prepareForUpload(it, context.cacheDir) },
     )
 
+    /** PhotoScout spots and events on the Drive map (when the account is linked). */
+    val layers = app.convoyage.data.PhotoScoutLayers(appScope, api)
+
     /** Notifications without Google services: UnifiedPush, or our own socket kept alive. */
     val push = app.convoyage.push.PushManager(
         context, appScope, api,
@@ -182,11 +185,13 @@ class AppContainer(private val context: Context) {
     /** Loads the person's own data after sign-in (or at startup when already signed in). */
     fun refreshAccountData() {
         garage.refresh()
+        layers.refreshStatus()
     }
 
     /** Forgets everything that belongs to the signed-in person. A ride that has not uploaded stays on disk. */
     private fun clearAccountData() {
         garage.clear()
+        layers.clear()
         rides.clear()
         feed.clear()
         images.clear()

@@ -96,6 +96,16 @@ class SessionStore(context: Context) {
         _pushMode.value = mode
     }
 
+    private val _layerSpots = MutableStateFlow(prefs.getBoolean("layerSpots", false))
+    private val _layerEvents = MutableStateFlow(prefs.getBoolean("layerEvents", false))
+
+    /** PhotoScout map layers on the Drive map. */
+    val layerSpots: StateFlow<Boolean> = _layerSpots.asStateFlow()
+    val layerEvents: StateFlow<Boolean> = _layerEvents.asStateFlow()
+
+    fun setLayerSpots(on: Boolean) { prefs.edit().putBoolean("layerSpots", on).apply(); _layerSpots.value = on }
+    fun setLayerEvents(on: Boolean) { prefs.edit().putBoolean("layerEvents", on).apply(); _layerEvents.value = on }
+
     private val _openCruise = MutableStateFlow(prefs.getBoolean("openCruise", false))
     /** Open Cruise: show me to drivers nearby who have it on too. Off unless chosen. */
     val openCruise: StateFlow<Boolean> = _openCruise.asStateFlow()

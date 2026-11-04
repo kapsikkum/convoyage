@@ -1,5 +1,6 @@
 package app.convoyage.map
 
+import androidx.compose.foundation.clickable
 import android.graphics.PointF
 import android.view.Gravity
 import androidx.compose.foundation.layout.Box
@@ -97,6 +98,9 @@ fun ConvoyMap(
     headingUpFallbackNorth: Boolean = false,
     /** Extra padding above the visible map, so the followed position sits in the lower part of the screen. */
     topPadding: Dp = 0.dp,
+    /** A tap on a pin of one of these kinds (spots, events). Other pins stay untappable. */
+    tappable: Set<PinKind> = emptySet(),
+    onPinTap: (MapPinData) -> Unit = {},
 ) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -115,6 +119,7 @@ fun ConvoyMap(
     val onViewportNow by rememberUpdatedState(onViewport)
     val onLongPressNow by rememberUpdatedState(onLongPress)
     val onTapNow by rememberUpdatedState(onTap)
+    val onPinTapNow by rememberUpdatedState(onPinTap)
     val initial3d = remember { buildings3d }
 
     // Your marker (and the camera on it) sits exactly on the road: snapped to the route while navigating, else to the
@@ -350,7 +355,8 @@ fun ConvoyMap(
                         tag = pin.tag,
                         vehicle = pin.vehicle,
                         tiltDeg = m.cameraPosition.tilt.toFloat(),
-                        modifier = Modifier.offset { IntOffset((p.x - half).toInt(), (p.y - half).toInt()) },
+                        modifier = Modifier.offset { IntOffset((p.x - half).toInt(), (p.y - half).toInt()) }
+                            .then(if (pin.kind in tappable) Modifier.clickable { onPinTapNow(pin) } else Modifier),
                     )
                 }
             }

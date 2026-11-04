@@ -139,6 +139,16 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
 
     // Load the hazards for what the map shows now, and again every 30 s while the screen is on.
     var viewport by remember { mutableStateOf<Bbox?>(null) }
+    // PhotoScout layers: offered once the account is linked; they follow the map like the hazards.
+    val layers by container.layers.state.collectAsStateWithLifecycle()
+    val spotsOn by container.session.layerSpots.collectAsStateWithLifecycle()
+    val eventsOn by container.session.layerEvents.collectAsStateWithLifecycle()
+    var openSpot by remember { mutableStateOf<app.convoyage.api.PsSpot?>(null) }
+    var openEvent by remember { mutableStateOf<app.convoyage.api.PsEvent?>(null) }
+    LaunchedEffect(Unit) { container.layers.refreshStatus() }
+    LaunchedEffect(viewport, spotsOn, eventsOn, layers.available) {
+        viewport?.let { container.layers.onViewport(it, spotsOn && layers.available, eventsOn && layers.available) }
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(viewport) {
         val box = viewport ?: return@LaunchedEffect
@@ -164,7 +174,11 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
 
     val myFix = rememberSmoothedFix(ui.fix)
     val headingUp = rememberHeadingUp(myFix)
-    val pins = remember(ui.roster, myFix, hazards, room?.destination, local.pendingDest, motionNow) {
+    val layerPins = remember(layers, spotsOn, eventsOn) {
+        (if (spotsOn && layers.available) layers.spots.map { MapPinData("spot-${it.id}", PinKind.Spot, "", it.lat, it.lng) } else emptyList()) +
+            (if (eventsOn && layers.available) layers.events.map { MapPinData("event-${it.id}", PinKind.Event, "", it.lat!!, it.lng!!, tag = Fmt.whenLine(it.startTime).uppercase().ifBlank { null }) } else emptyList())
+    }
+    val pins = layerPins + remember(ui.roster, myFix, hazards, room?.destination, local.pendingDest, motionNow) {
         ui.roster.mapNotNull { e ->
             if (e.isMe || e.lat == null || e.lng == null) return@mapNotNull null
             val pose = motion.pose(e.id, motionNow)
@@ -219,6 +233,14 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
             // Rounded to ~1 km so small pans do not reload; the 30 s loop above keeps it fresh.
             onViewport = { b -> viewport = Bbox(b.south.round2(), b.west.round2(), b.north.round2(), b.east.round2()) },
             onLongPress = if (room != null) { ll -> vm.proposeDestination(ll.latitude, ll.longitude) } else null,
+            tappable = setOf(PinKind.Spot, PinKind.Event),
+            onPinTap = { pin ->
+                when (pin.kind) {
+                    PinKind.Spot -> openSpot = layers.spots.firstOrNull { "spot-${it.id}" == pin.id }
+                    PinKind.Event -> openEvent = layers.events.firstOrNull { "event-${it.id}" == pin.id }
+                    else -> Unit
+                }
+            },
         )
 
         // Top: banners, then the toggle row.
@@ -291,7 +313,10 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
             Row(horizontalArrangement = Arrangement.spacedBy(Space.s2)) {
                 CvChipToggle("3D", local.buildings3d, vm::toggle3d)
                 if (rec.isActive) CvChipToggle("REC ${Fmt.clock(rec.elapsedS)}${if (rec.isPaused) " II" else ""}", true, { showRecord = true })
-                // TODO(layers): SPOTS / EVENTS / WAZE overlays are not in this version.
+                if (layers.available) {
+                    CvChipToggle("SPOTS", spotsOn, { container.session.setLayerSpots(!spotsOn) })
+                    CvChipToggle("EVENTS", eventsOn, { container.session.setLayerEvents(!eventsOn) })
+                }
             }
         }
 
@@ -401,6 +426,17 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
         }
 
         if (showRecord) RecordSheet(onDismiss = { showRecord = false })
+        openSpot?.let { s ->
+            SpotSheet(s, onNavigate = { p -> openSpot = null; container.nav.navigateTo(p, container.tracker.lastKnown()) }, onDismiss = { openSpot = null })
+        }
+        openEvent?.let { e ->
+            EventSheet(
+                e,
+                onNavigate = { p -> openEvent = null; container.nav.navigateTo(p, container.tracker.lastKnown()) },
+                onJoinCruise = { openEvent = null; container.convoy.joinCruise(e.id) },
+                onDismiss = { openEvent = null },
+            )
+        }
         if (pickRoute) SavedRoutePickerSheet(onDismiss = { pickRoute = false }, onBuild = { pickRoute = false; onBuildRoute() })
         PhotoConfirmSheet(capture)
 

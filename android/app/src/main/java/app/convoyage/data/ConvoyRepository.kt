@@ -175,6 +175,9 @@ class ConvoyRepository(
 
     fun join(code: String) = send(ClientMessage.ConvoyJoin(code.trim().uppercase()))
 
+    /** Opens (or joins) the convoy of a PhotoScout cruise event. */
+    fun joinCruise(eventId: String) = send(ClientMessage.ConvoyCruise(eventId))
+
     fun leave() {
         val code = _state.value.activeCode ?: return
         send(ClientMessage.ConvoyLeave(code))

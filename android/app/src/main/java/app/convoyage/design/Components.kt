@@ -713,7 +713,7 @@ fun CvTabBar(selected: Tab?, onSelect: (Tab) -> Unit, modifier: Modifier = Modif
 
 // ---- Map pins (Compose overlays) ---------------------------------------------------------------
 
-enum class PinKind { Me, Member, Lead, Stopped, Offline, Destination, Hazard, Police, Start, End, Photo, Stop }
+enum class PinKind { Me, Member, Lead, Stopped, Offline, Destination, Hazard, Police, Start, End, Photo, Stop, Spot, Event }
 
 /**
  * Round map pin: heading wedge behind a round dot ringed by state. Only physically round things are round.
@@ -745,6 +745,8 @@ fun MapPin(
         PinKind.End -> c.pulse
         PinKind.Photo -> c.hazard
         PinKind.Stop -> c.inkMuted
+        PinKind.Spot -> c.signal
+        PinKind.Event -> c.lead
     }
     // A person with a vehicle shows as it, from above, turned the way they are going.
     if (vehicle != null && kind in CAR_KINDS) {
@@ -776,7 +778,8 @@ fun MapPin(
             if (kind == PinKind.Me) CvIcon(CvIcons.Navigate, c.signalInk, size = 16.dp, modifier = Modifier.rotate(heading ?: 0f))
             else if (kind == PinKind.Destination) CvIcon(CvIcons.Route, c.ink, size = 18.dp)
             else if (kind == PinKind.Hazard || kind == PinKind.Police) CvIcon(CvIcons.Alert, ring, size = 18.dp)
-            else if (kind == PinKind.Photo) CvIcon(CvIcons.Camera, ring, size = 18.dp)
+            else if (kind == PinKind.Photo || kind == PinKind.Spot) CvIcon(CvIcons.Camera, ring, size = 18.dp)
+            else if (kind == PinKind.Event) CvIcon(CvIcons.Flag, ring, size = 18.dp)
             else if (vehicle != null) Ps1Thumb(vehicle.ps1(), ThumbSize.Badge, Modifier.fillMaxSize(), ContentScale.Fit, fallback = { CvText(label, Cv.type.label.copy(fontSize = 11.sp, letterSpacing = 0.sp), c.ink) })
             else CvText(label, Cv.type.label.copy(fontSize = 11.sp, letterSpacing = 0.sp), if (kind == PinKind.Offline) c.inkMuted else c.ink)
         }

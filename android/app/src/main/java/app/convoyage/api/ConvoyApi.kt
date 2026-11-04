@@ -302,6 +302,24 @@ class ConvoyApi(
         refresher.refresh(current.access) ?: current.access.takeIf { !force && !Jwt.expiresWithin(it, 0) }
     }
 
+    // ---- PhotoScout map layers --------------------------------------------------------------------
+
+    suspend fun photoscoutStatus(): ApiResult<PhotoScoutStatus> = send("GET", "v1/photoscout/status", null, PhotoScoutStatus.serializer())
+
+    /** Spots inside [box]. */
+    suspend fun photoscoutSpots(box: app.convoyage.data.Bbox): ApiResult<List<PsSpot>> =
+        send("GET", "v1/photoscout/spots", null, ListSerializer(PsSpot.serializer()), query = mapOf("bbox" to "${box.south},${box.west},${box.north},${box.east}"))
+
+    /** Upcoming events within [radiusKm] of [lat],[lng], soonest first. */
+    suspend fun photoscoutEvents(lat: Double, lng: Double, radiusKm: Double): ApiResult<List<PsEvent>> =
+        send("GET", "v1/photoscout/events", null, ListSerializer(PsEvent.serializer()), query = mapOf("near" to "$lat,$lng", "radiusKm" to radiusKm.toString()))
+
+    suspend fun photoscoutRsvp(eventId: String, body: PsRsvpRequest): ApiResult<PsRsvp> =
+        send(
+            "POST", "v1/photoscout/events/${java.net.URLEncoder.encode(eventId, "UTF-8")}/rsvp",
+            ApiJson.encodeToString(PsRsvpRequest.serializer(), body), PsRsvp.serializer(),
+        )
+
     // ---- push devices ----------------------------------------------------------------------------
 
     /** Registers this device for notifications: a UnifiedPush endpoint and its Web Push keys. Idempotent. */
