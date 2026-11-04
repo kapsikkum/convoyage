@@ -87,6 +87,8 @@ fun ConvoyMap(
     followBearing: Double? = null,
     /** Navigation: zoom level while following. Null = keep the current zoom (at least 14). */
     followZoom: Double? = null,
+    /** While following with no [followBearing] (stopped), turn back to north-up. */
+    headingUpFallbackNorth: Boolean = false,
     /** Extra padding above the visible map, so the followed position sits in the lower part of the screen. */
     topPadding: Dp = 0.dp,
 ) {
@@ -98,6 +100,10 @@ fun ConvoyMap(
     var style by remember { mutableStateOf<Style?>(null) }
     var extrusions by remember { mutableStateOf<List<String>>(emptyList()) }
     var tick by remember { mutableIntStateOf(0) }
+    // A pinch in progress: following pauses so the camera does not fight the fingers.
+    var scaling by remember { mutableStateOf(false) }
+    // The zoom the person pinched to while following; it wins over [followZoom] until they recentre.
+    var userZoom by remember(recenterTick) { mutableStateOf<Double?>(null) }
     var size by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
     val onUserMovedNow by rememberUpdatedState(onUserMoved)
     val onViewportNow by rememberUpdatedState(onViewport)
@@ -154,6 +160,20 @@ fun ConvoyMap(
                 if (handler != null) handler(latLng)
                 handler != null
             }
+            // Pinch: keep following and zoom around the marker (the focal point below). Rotating by hand stops following.
+            m.addOnScaleListener(object : MapLibreMap.OnScaleListener {
+                override fun onScaleBegin(detector: org.maplibre.android.gestures.StandardScaleGestureDetector) { scaling = true }
+                override fun onScale(detector: org.maplibre.android.gestures.StandardScaleGestureDetector) = Unit
+                override fun onScaleEnd(detector: org.maplibre.android.gestures.StandardScaleGestureDetector) {
+                    userZoom = m.cameraPosition.zoom
+                    scaling = false
+                }
+            })
+            m.addOnRotateListener(object : MapLibreMap.OnRotateListener {
+                override fun onRotateBegin(detector: org.maplibre.android.gestures.RotateGestureDetector) = onUserMovedNow()
+                override fun onRotate(detector: org.maplibre.android.gestures.RotateGestureDetector) = Unit
+                override fun onRotateEnd(detector: org.maplibre.android.gestures.RotateGestureDetector) = Unit
+            })
             m.addOnMoveListener(object : MapLibreMap.OnMoveListener {
                 override fun onMoveBegin(detector: org.maplibre.android.gestures.MoveGestureDetector) = onUserMovedNow()
                 override fun onMove(detector: org.maplibre.android.gestures.MoveGestureDetector) = Unit
@@ -194,11 +214,14 @@ fun ConvoyMap(
         m.animateCamera(CameraUpdateFactory.newCameraPosition(CameraPosition.Builder(cam).tilt(if (buildings3d) 60.0 else 0.0).build()), 600)
     }
 
-    LaunchedEffect(map, me, follow, recenterTick, followBearing, followZoom) {
+    LaunchedEffect(map, me, follow, recenterTick, followBearing, followZoom, scaling, userZoom) {
         val m = map ?: return@LaunchedEffect
+        // Zoom gestures pivot on the followed marker; free-roaming pinches pivot on the fingers.
+        m.uiSettings.focalPoint = if (follow && me != null) runCatching { m.projection.toScreenLocation(me) }.getOrNull() else null
+        if (scaling) return@LaunchedEffect
         if (follow && me != null) {
             val now = m.cameraPosition
-            val zoom = followZoom ?: now.zoom.coerceAtLeast(14.0)
+            val zoom = userZoom ?: followZoom ?: now.zoom.coerceAtLeast(14.0)
             val cam = CameraPosition.Builder(now).target(me).zoom(zoom)
             if (followBearing != null) {
                 // Turn part of the way each update: [me] changes every frame while it glides, so this eases in.
@@ -206,6 +229,8 @@ fun ConvoyMap(
                 if (d > 180) d -= 360
                 if (d < -180) d += 360
                 cam.bearing((now.bearing + d * 0.12 + 360) % 360).tilt(60.0)
+            } else if (headingUpFallbackNorth) {
+                cam.bearing(0.0)
             }
             val near = now.target?.let { it.distanceTo(me) < 250 } == true && kotlin.math.abs(now.zoom - zoom) < 0.5
             // Close by: follow the gliding position exactly. Far (first fix, recentre): fly there.

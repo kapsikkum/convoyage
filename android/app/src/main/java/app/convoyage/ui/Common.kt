@@ -70,6 +70,37 @@ fun rememberSmoothedFix(raw: app.convoyage.data.Fix?): app.convoyage.data.Fix? {
     return shown
 }
 
+/**
+ * The camera bearing for following, Waze / Google Maps style: heading-up while moving (above ~10 km/h, so a parked
+ * phone does not spin), held through short slow patches, north-up only once stopped for a while.
+ */
+@androidx.compose.runtime.Composable
+fun rememberHeadingUp(fix: app.convoyage.data.Fix?): Double? {
+    var held by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<Double?>(null) }
+    var slowSince by androidx.compose.runtime.remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+    val speed = fix?.speedMps ?: 0.0
+    val heading = fix?.headingDeg
+    val now = System.currentTimeMillis()
+    if (heading != null && speed > 2.8) { held = heading; slowSince = 0L }
+    else if (held != null) {
+        if (slowSince == 0L) slowSince = now
+        if (now - slowSince > 8_000) held = null
+    }
+    return held
+}
+
+/** "Re-centre": shown whenever the camera stopped following (a pan or a turn); one tap brings it back. */
+@androidx.compose.runtime.Composable
+fun RecenterPill(visible: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    androidx.compose.animation.AnimatedVisibility(
+        visible = visible, modifier = modifier,
+        enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically { it / 2 },
+        exit = androidx.compose.animation.fadeOut(),
+    ) {
+        app.convoyage.design.CvButton("Re-centre", onClick, icon = app.convoyage.design.CvIcons.Navigate)
+    }
+}
+
 /** Bottom room the floating tab bar needs (bar height + its margin). */
 val TabBarClearance = 112.dp
 

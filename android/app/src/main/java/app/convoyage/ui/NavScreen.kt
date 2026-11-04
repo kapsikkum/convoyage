@@ -114,6 +114,7 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
     val query by vm.query.collectAsStateWithLifecycle()
     val rawFix by container.tracker.fix.collectAsStateWithLifecycle()
     val fix = rememberSmoothedFix(rawFix)
+    val headingUp = rememberHeadingUp(fix)
     val hazards by container.hazards.active.collectAsStateWithLifecycle()
     val convoy by container.convoy.state.collectAsStateWithLifecycle()
     val voiceOn by container.session.navVoice.collectAsStateWithLifecycle()
@@ -184,8 +185,9 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
             recenterTick = local.recenterTick,
             onUserMoved = vm::userMovedMap,
             bottomPadding = sheetHeight + 24.dp,
-            topPadding = if (following) 120.dp else 0.dp,
-            followBearing = if (following) nav.bearing else null,
+            topPadding = if (following || (nav.phase == NavPhase.Idle && headingUp != null && local.follow)) 120.dp else 0.dp,
+            followBearing = if (following) nav.bearing else if (nav.phase == NavPhase.Idle && local.follow) headingUp else null,
+            headingUpFallbackNorth = nav.phase == NavPhase.Idle,
             followZoom = if (nav.phase == NavPhase.Active) followZoomFor(nav.speedMps) else null,
             fitTo = fit,
             onViewport = { b -> viewport = Bbox(b.south, b.west, b.north, b.east) },
@@ -314,6 +316,12 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
                 if (active) DriveRecordBar(rec, onRecord = { showRecord = true }, onPhoto = { capture.shoot(rec.isActive) })
             }
         }
+
+        RecenterPill(
+            visible = !local.follow && nav.phase != NavPhase.Preview && nav.phase != NavPhase.Routing && fix != null && (!idleDrive || dockDetent == Detent.Peek),
+            onClick = vm::recenter,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = sheetHeight + navInset + Space.s3),
+        )
 
         if (idleDrive && drive != null) {
             ConvoySheet(

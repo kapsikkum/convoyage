@@ -153,6 +153,7 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
     }
 
     val myFix = rememberSmoothedFix(ui.fix)
+    val headingUp = rememberHeadingUp(myFix)
     val pins = remember(ui.roster, myFix, hazards, room?.destination, local.pendingDest, motionNow) {
         ui.roster.mapNotNull { e ->
             if (e.isMe || e.lat == null || e.lng == null) return@mapNotNull null
@@ -191,6 +192,8 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
             recenterTick = local.recenterTick,
             onUserMoved = vm::userMovedMap,
             fitTo = fitAll,
+            followBearing = if (local.follow && !navState.phase.guiding()) headingUp else if (local.follow) navState.bearing else null,
+            headingUpFallbackNorth = true,
             // The map keeps the same padding in every state, so the camera does not lurch as the sheet moves.
             bottomPadding = peekPad,
             // Rounded to ~1 km so small pans do not reload; the 30 s loop above keeps it fresh.
@@ -291,6 +294,12 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
                 RailButton(CvIcons.Camera, "Take a photo", "PHOTO", { capture.shoot(rec.isActive) }, tint = c.signal, edge = c.signal)
             }
         }
+
+        RecenterPill(
+            visible = !local.follow && myFix != null && detent == Detent.Peek,
+            onClick = vm::recenter,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = peekPad + Space.s3),
+        )
 
         ConvoySheet(
             detent = detent,
