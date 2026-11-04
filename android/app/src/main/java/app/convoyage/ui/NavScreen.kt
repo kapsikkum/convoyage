@@ -89,10 +89,11 @@ fun maneuverGlyph(icon: ManeuverIcon): ImageVector = when (icon) {
 
 /** Zoom while following: closer when slow (junctions matter), further out when fast. */
 fun followZoomFor(speedMps: Double): Double = when {
-    speedMps < 6 -> 17.5
-    speedMps < 14 -> 16.8
-    speedMps < 22 -> 16.0
-    else -> 15.2
+    speedMps < 6 -> 18.0
+    speedMps < 14 -> 17.6
+    speedMps < 22 -> 17.1
+    speedMps < 30 -> 16.7
+    else -> 16.4
 }
 
 /** What the Drive tab adds around navigation: the dock's convoy, recording and route actions. */
@@ -188,7 +189,7 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
             topPadding = if (following || (nav.phase == NavPhase.Idle && headingUp != null && local.follow)) 120.dp else 0.dp,
             followBearing = if (following) nav.bearing else if (nav.phase == NavPhase.Idle && local.follow) headingUp else null,
             headingUpFallbackNorth = nav.phase == NavPhase.Idle,
-            followZoom = if (nav.phase == NavPhase.Active) followZoomFor(nav.speedMps) else null,
+            followZoom = if (nav.phase == NavPhase.Active) followZoomFor(maxOf(nav.speedMps, fix?.speedMps ?: 0.0)) else if (nav.phase == NavPhase.Idle && local.follow && fix != null) followZoomFor(fix.speedMps ?: 0.0) else null,
             fitTo = fit,
             onViewport = { b -> viewport = Bbox(b.south, b.west, b.north, b.east) },
             onLongPress = if (nav.phase != NavPhase.Active) { ll -> vm.pick(ll.latitude, ll.longitude) } else null,

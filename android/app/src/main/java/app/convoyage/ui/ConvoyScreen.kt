@@ -194,6 +194,7 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
             fitTo = fitAll,
             followBearing = if (local.follow && !navState.phase.guiding()) headingUp else if (local.follow) navState.bearing else null,
             headingUpFallbackNorth = true,
+            followZoom = if (local.follow && myFix != null) followZoomFor(myFix.speedMps ?: 0.0) else null,
             // The map keeps the same padding in every state, so the camera does not lurch as the sheet moves.
             bottomPadding = peekPad,
             // Rounded to ~1 km so small pans do not reload; the 30 s loop above keeps it fresh.
