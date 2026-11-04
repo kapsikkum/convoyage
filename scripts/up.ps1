@@ -22,6 +22,8 @@ if ($psUrl) {
 # Route conditions: TfNSW live traffic key, and the Waze harvester (an SSH tunnel to data-server, see docs). Both optional.
 $tfKey = EnvVal 'TFNSW_API_KEY' ''
 if ($tfKey) { $psArgs += '-e', "TFNSW_API_KEY=$tfKey" }
+$fcKey = EnvVal 'FUELCHECK_API_KEY' ''
+if ($fcKey) { $psArgs += '-e', "FUELCHECK_API_KEY=$fcKey", '-e', "FUELCHECK_API_SECRET=$(EnvVal 'FUELCHECK_API_SECRET' '')" }
 $wazeUrl = EnvVal 'WAZE_HARVESTER_URL' ''
 if ($wazeUrl) { $psArgs += '-e', "WAZE_HARVESTER_URL=$wazeUrl", '-e', "WAZE_HARVESTER_KEY=$(EnvVal 'WAZE_HARVESTER_KEY' '')" }
 $lkKey = EnvVal 'LIVEKIT_API_KEY' 'devkey'

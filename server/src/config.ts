@@ -40,6 +40,8 @@ export interface Config {
   tfnswApiKey: string | null;
   /** Self-hosted Waze report harvester (police, jams). Null turns it off. Self-host only. */
   waze: { url: string; key: string } | null;
+  /** NSW FuelCheck (api.nsw.gov.au) key and secret, for fuel prices at servos. Null turns prices off. */
+  fuelCheck: { key: string; secret: string } | null;
   routeRateLimit: { max: number; windowMs: number };
   /** LiveKit (push-to-talk). Null until LIVEKIT_API_KEY and LIVEKIT_API_SECRET are set. */
   livekit: { url: string; apiKey: string; apiSecret: string } | null;
@@ -129,6 +131,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     osrmProfiles: { car: env.OSRM_PROFILE_CAR || 'driving', motorcycle: env.OSRM_PROFILE_MOTORCYCLE || 'driving' },
     overpassUrls: list(env.OVERPASS_URL).length ? list(env.OVERPASS_URL) : ['https://overpass-api.de/api/interpreter', 'https://overpass.openstreetmap.fr/api/interpreter'],
     tfnswApiKey: env.TFNSW_API_KEY?.trim() || null,
+    fuelCheck: env.FUELCHECK_API_KEY && env.FUELCHECK_API_SECRET ? { key: env.FUELCHECK_API_KEY.trim(), secret: env.FUELCHECK_API_SECRET.trim() } : null,
     waze: env.WAZE_HARVESTER_URL ? { url: env.WAZE_HARVESTER_URL.trim(), key: (env.WAZE_HARVESTER_KEY ?? '').trim() } : null,
     routeRateLimit: { max: int(env.ROUTE_RATE_LIMIT_MAX, 30), windowMs: int(env.RATE_LIMIT_WINDOW_MS, 60_000) },
     livekit: env.LIVEKIT_API_KEY && env.LIVEKIT_API_SECRET

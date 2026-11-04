@@ -111,7 +111,7 @@ let a: Session;
 let b: Session;
 const asked: string[] = [];
 
-async function fakeFetch(url: string): Promise<Response> {
+async function fakeFetch(url: string, init?: RequestInit): Promise<Response> {
   asked.push(url);
   if (url.startsWith('https://api.transport.nsw.gov.au/')) {
     if (!url.includes('/roadwork/')) return Response.json({ type: 'FeatureCollection', features: [] });
@@ -130,6 +130,20 @@ async function fakeFetch(url: string): Promise<Response> {
     const one = { hourly: { time: [now, now + 3600], temperature_2m: [14, 15], precipitation_probability: [70, 80], precipitation: [1, 2], weather_code: [63, 63], wind_speed_10m: [10, 12], wind_gusts_10m: [20, 22], visibility: [9000, 9000], is_day: [1, 1] } };
     return Response.json(n === 1 ? one : Array.from({ length: n }, () => one));
   }
+  if (url.includes('overpass') && decodeURIComponent(String(init?.body ?? '')).includes('amenity')) {
+    return Response.json({ elements: [
+      { type: 'node', id: 11, lat: -33.4441, lon: 149.5606, tags: { amenity: 'fuel', brand: 'Shell', name: 'Shell Panorama', opening_hours: '24/7' } },
+      { type: 'way', id: 12, center: { lat: -33.4466, lon: 149.5700 }, tags: { amenity: 'toilets' } },
+      { type: 'node', id: 13, lat: -33.4100, lon: 149.5900, tags: { amenity: 'cafe', name: 'Too far' } },
+    ] });
+  }
+  if (url.startsWith('https://api.onegov.nsw.gov.au/oauth')) return Response.json({ access_token: 'tok', expires_in: '43199' });
+  if (url.startsWith('https://api.onegov.nsw.gov.au/FuelPriceCheck')) {
+    return Response.json({
+      stations: [{ code: 1, name: 'Shell Panorama', brand: 'Shell', location: { latitude: -33.4442, longitude: 149.5607 } }, { code: 2, name: 'Metro Kelso', brand: 'Metro', location: { latitude: -33.4469, longitude: 149.5780 } }],
+      prices: [{ stationcode: 1, fueltype: 'U91', price: 199.9, lastupdated: '04/11/2026 10:00:00' }, { stationcode: 2, fueltype: 'E10', price: 189.5, lastupdated: '04/11/2026 09:00:00' }],
+    });
+  }
   if (url.includes('overpass')) {
     return Response.json({ elements: [{ type: 'way', id: 1, tags: { name: 'Mountain Straight', surface: 'asphalt', smoothness: 'good', highway: 'tertiary' }, geometry: lap.map(([lon, lat]) => ({ lat, lon })) }] });
   }
@@ -137,7 +151,7 @@ async function fakeFetch(url: string): Promise<Response> {
 }
 
 before(async () => {
-  t = await testServer({ fetch: fakeFetch, env: { TFNSW_API_KEY: 'tf-key', WAZE_HARVESTER_URL: 'http://harvester:8088', WAZE_HARVESTER_KEY: 'wk', OVERPASS_URL: 'https://overpass.test/api/interpreter' } });
+  t = await testServer({ fetch: fakeFetch, env: { TFNSW_API_KEY: 'tf-key', WAZE_HARVESTER_URL: 'http://harvester:8088', WAZE_HARVESTER_KEY: 'wk', FUELCHECK_API_KEY: 'fk', FUELCHECK_API_SECRET: 'fs', OVERPASS_URL: 'https://overpass.test/api/interpreter' } });
   a = await t.signup('ca');
   b = await t.signup('cb');
 });
@@ -146,7 +160,11 @@ after(() => t.close());
 test('conditions for a line: traffic, police, weather and road quality, nearest first', async () => {
   const r = await t.req('POST', '/v1/conditions', { token: a.token, body: { geometry, durationS: 300 } });
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.deepEqual(r.body.sources, { tfnsw: 'ok', waze: 'ok', weather: 'ok', roads: 'ok' });
+  assert.deepEqual(r.body.sources, { tfnsw: 'ok', waze: 'ok', weather: 'ok', roads: 'ok', stops: 'ok', fuel: 'ok' });
+  assert.deepEqual(r.body.stops.map((x: any) => [x.kind, x.name]), [['fuel', 'Shell Panorama'], ['toilets', ''], ['fuel', 'Metro Kelso']]);
+  assert.equal(r.body.stops[0].prices.U91, 199.9, 'FuelCheck price matched to the mapped servo');
+  assert.equal(r.body.stops[0].open24, true);
+  assert.equal(r.body.stops[2].prices.E10, 189.5, 'a FuelCheck station the map lacks is added');
   assert.deepEqual(r.body.traffic.items.map((i: any) => i.kind), ['jam', 'roadwork']);
   assert.equal(r.body.traffic.level, 'moderate');
   assert.equal(r.body.traffic.delayMin, 5);
@@ -198,6 +216,7 @@ test('sources that are not configured say off', async () => {
     assert.equal(r.status, 200);
     assert.equal(r.body.sources.tfnsw, 'off');
     assert.equal(r.body.sources.waze, 'off');
+    assert.equal(r.body.sources.fuel, 'off');
     assert.equal(r.body.traffic.level, 'clear');
   } finally { await t2.close(); }
 });
@@ -206,7 +225,7 @@ test('slow road data: answer without it (pending), keep fetching, and serve it f
   const { ConditionsService } = await import('../src/conditions/conditions.js');
   let release!: () => void;
   const gate = new Promise<void>((r) => { release = r; });
-  const slow = async (url: string) => { if (url.includes('overpass')) await gate; return fakeFetch(url); };
+  const slow = async (url: string, init?: RequestInit) => { if (url.includes('overpass')) await gate; return fakeFetch(url, init); };
   const svc = new ConditionsService(t.database.db, { ...t.config, tfnswApiKey: null, waze: null }, slow);
   const line: Pt[] = [[149.60, -33.40], [149.61, -33.41], [149.62, -33.40]];
   const first = await svc.forRoute(line, { roadsWaitMs: 50 });
@@ -217,4 +236,19 @@ test('slow road data: answer without it (pending), keep fetching, and serve it f
   const second = await svc.forRoute(line, { roadsWaitMs: 50 });
   assert.equal(second.sources.roads, 'ok');
   assert.ok(second.roads);
+});
+
+test('stops: kinds from map tags, FuelCheck parsing, the map layer', async () => {
+  const { stopKind, parseFuelCheck } = await import('../src/conditions/stops.js');
+  assert.equal(stopKind({ amenity: 'fuel' }), 'fuel');
+  assert.equal(stopKind({ amenity: 'fast_food' }), 'food');
+  assert.equal(stopKind({ highway: 'rest_area' }), 'rest');
+  assert.equal(stopKind({ amenity: 'charging_station' }), 'ev');
+  assert.equal(stopKind({ amenity: 'bench' }), null);
+  const fc = parseFuelCheck({ stations: [{ code: 5, name: 'X', brand: 'Y', location: { latitude: -33, longitude: 149 } }, { code: 6 }], prices: [{ stationcode: 5, fueltype: 'DL', price: 210.1 }, { stationcode: 5, fueltype: 'U91', price: 0 }] });
+  assert.equal(fc.stations.length, 1);
+  assert.deepEqual(fc.prices.map((p) => p.fuel), ['DL']);
+  const r = await t.req('GET', '/v1/stops?bbox=-33.45,149.55,-33.44,149.58', { token: a.token });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.ok(r.body.some((x: any) => x.kind === 'fuel' && x.prices.U91 === 199.9));
 });

@@ -759,6 +759,73 @@
         ],
         "additionalProperties": false
       },
+      "Stop": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "fuel",
+              "food",
+              "cafe",
+              "toilets",
+              "rest",
+              "ev"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "brand": {
+            "type": "string"
+          },
+          "lat": {
+            "type": "number"
+          },
+          "lng": {
+            "type": "number"
+          },
+          "open24": {
+            "type": "boolean"
+          },
+          "prices": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            },
+            "description": "Cents per litre by FuelCheck fuel code (U91, E10, P95, P98, DL, PDL, LPG)."
+          },
+          "pricesAt": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "km": {
+            "type": "number",
+            "description": "Along the route (route stops only)."
+          },
+          "offM": {
+            "type": "number",
+            "description": "From the route, metres (route stops only)."
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "brand",
+          "lat",
+          "lng",
+          "open24",
+          "prices",
+          "pricesAt"
+        ],
+        "additionalProperties": false
+      },
       "RouteConditions": {
         "type": "object",
         "properties": {
@@ -847,6 +914,12 @@
               }
             ]
           },
+          "stops": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Stop"
+            }
+          },
           "sources": {
             "type": "object",
             "properties": {
@@ -889,13 +962,35 @@
                   "partial",
                   "pending"
                 ]
+              },
+              "stops": {
+                "type": "string",
+                "enum": [
+                  "ok",
+                  "off",
+                  "error",
+                  "partial",
+                  "pending"
+                ]
+              },
+              "fuel": {
+                "type": "string",
+                "enum": [
+                  "ok",
+                  "off",
+                  "error",
+                  "partial",
+                  "pending"
+                ]
               }
             },
             "required": [
               "tfnsw",
               "waze",
               "weather",
-              "roads"
+              "roads",
+              "stops",
+              "fuel"
             ],
             "additionalProperties": false
           },
@@ -911,6 +1006,7 @@
           "hazards",
           "weather",
           "roads",
+          "stops",
           "sources"
         ],
         "additionalProperties": false
@@ -6675,6 +6771,106 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RouteConditions"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (also used when the viewer may not see the thing)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict with the current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/stops": {
+      "get": {
+        "summary": "Stops on the map",
+        "tags": [
+          "routes"
+        ],
+        "description": "Servos (with NSW FuelCheck prices when set up), fast food and cafes, toilets, rest areas and EV chargers in a box, up to 0.15 degrees a side. From OpenStreetMap, cached a week.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "bbox",
+            "required": true,
+            "description": "south,west,north,east"
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Stop"
+                  }
                 }
               }
             }

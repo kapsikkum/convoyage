@@ -12,6 +12,7 @@ import { RoadQuality, type RoadSummary } from './roads.js';
 import { TfnswFeed, type TrafficItem } from './tfnsw.js';
 import { WazeHarvester, type WazeAlert } from './waze.js';
 import { RouteWeather, weatherSeverity, type WeatherPoint } from './weather.js';
+import { Stops, type RouteStop } from './stops.js';
 
 export type TrafficLevel = 'clear' | 'light' | 'moderate' | 'heavy';
 /** `pending`: still being fetched in the background; ask again shortly. */
@@ -39,7 +40,9 @@ export interface RouteConditions {
   hazards: ConditionItem[];
   weather: { summary: string; worst: number; points: WeatherPoint[] };
   roads: RoadSummary | null;
-  sources: { tfnsw: SourceState; waze: SourceState; weather: SourceState; roads: SourceState };
+  /** Servos, food, toilets, rest areas and EV chargers within 300 m of the route, in driving order. */
+  stops: RouteStop[];
+  sources: { tfnsw: SourceState; waze: SourceState; weather: SourceState; roads: SourceState; stops: SourceState; fuel: SourceState };
 }
 
 const TFNSW_NEAR_M = 150;
@@ -109,6 +112,7 @@ export function routeBoxes(index: RouteIndex, chunkM: number, padM: number) {
 
 export class ConditionsService {
   readonly roads: RoadQuality;
+  readonly stops: Stops;
   private tfnsw: TfnswFeed | null;
   private waze: WazeHarvester | null;
   private weather: RouteWeather;
@@ -119,6 +123,7 @@ export class ConditionsService {
     private onError: (source: string, err: unknown) => void = () => {},
   ) {
     this.roads = new RoadQuality(db, config.overpassUrls, fetcher, now);
+    this.stops = new Stops(db, config.overpassUrls, fetcher, config.fuelCheck, now);
     this.tfnsw = config.tfnswApiKey ? new TfnswFeed(config.tfnswApiKey, fetcher, now) : null;
     this.waze = config.waze ? new WazeHarvester(config.waze.url, config.waze.key, fetcher, now) : null;
     this.weather = new RouteWeather(fetcher, now);
@@ -130,7 +135,7 @@ export class ConditionsService {
     const km = (m: number) => Math.round(m / 100) / 10;
     const depart = opts.departAt ?? new Date(this.now());
     const box = boxOf(line, 500);
-    const sources: RouteConditions['sources'] = { tfnsw: this.tfnsw ? 'ok' : 'off', waze: this.waze ? 'ok' : 'off', weather: 'ok', roads: opts.withRoads === false ? 'off' : 'ok' };
+    const sources: RouteConditions['sources'] = { tfnsw: this.tfnsw ? 'ok' : 'off', waze: this.waze ? 'ok' : 'off', weather: 'ok', roads: opts.withRoads === false ? 'off' : 'ok', stops: 'ok', fuel: this.stops.fuel ? 'ok' : 'off' };
 
     const tfnswP = (async (): Promise<ConditionItem[]> => {
       if (!this.tfnsw) return [];
@@ -228,7 +233,20 @@ export class ConditionsService {
       finally { clearTimeout(timer); }
     })();
 
-    const [tfnsw, waze, reports, weather, roads] = await Promise.all([tfnswP, wazeP, reportsP, weatherP, roadsP]);
+    const stopsP = (async (): Promise<RouteStop[]> => {
+      const job = this.stops.along(line, index);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const late = new Promise<'late'>((r) => { timer = setTimeout(() => r('late'), opts.roadsWaitMs ?? 20_000); });
+      try {
+        const got = await Promise.race([job, late]);
+        if (got === 'late') { sources.stops = 'pending'; job.catch((err) => this.onError('stops', err)); return []; }
+        sources.fuel = got.fuel;
+        return got.stops;
+      } catch (err) { sources.stops = 'error'; this.onError('stops', err); return []; }
+      finally { clearTimeout(timer); }
+    })();
+
+    const [tfnsw, waze, reports, weather, roads, stops] = await Promise.all([tfnswP, wazeP, reportsP, weatherP, roadsP, stopsP]);
     const all = [...tfnsw, ...waze, ...reports].sort((a, b) => a.km - b.km);
     const trafficKinds = new Set(['closure', 'crash', 'jam', 'roadwork', 'event']);
     const traffic = all.filter((i) => trafficKinds.has(i.kind));
@@ -246,6 +264,7 @@ export class ConditionsService {
       hazards: all.filter((i) => !trafficKinds.has(i.kind) && i.kind !== 'police' && i.kind !== 'camera'),
       weather: { summary: weatherSummary, worst, points: weather },
       roads,
+      stops,
       sources,
     };
   }

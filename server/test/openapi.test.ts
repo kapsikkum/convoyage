@@ -43,7 +43,7 @@ test('the live server serves the same document at /v1/openapi.json', async () =>
 
 test('migrations are idempotent', async () => {
   const db = await createPgliteDatabase();
-  assert.deepEqual(await migrate(db), ['001_init.sql', '002_wave_a.sql', '003_photoscout.sql', '004_saved_routes.sql', '005_conditions.sql']);
+  assert.deepEqual(await migrate(db), ['001_init.sql', '002_wave_a.sql', '003_photoscout.sql', '004_saved_routes.sql', '005_conditions.sql', '006_geo_cache.sql']);
   assert.deepEqual(await migrate(db), []);
   const tables = await db.db.selectFrom('information_schema.tables' as never).select('table_name' as never).where('table_schema' as never, '=', 'public' as never).execute();
   const names = (tables as unknown as { table_name: string }[]).map((r) => r.table_name);

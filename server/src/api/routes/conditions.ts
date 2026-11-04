@@ -72,9 +72,28 @@ export async function conditionsRoutes(app: FastifyInstance, ctx: ApiContext, se
     if (row.distance_m && row.distance_m > MAX_ROUTE_M) throw badRequest('That route is too long to check');
     const fresh = await compute(lineFrom(row.geometry, row.waypoints), row.duration_s);
     // While road quality is still loading the snapshot is saved as already stale, so the next ask fills it in.
-    const at = fresh.sources.roads === 'pending' ? new Date(Date.now() - SNAPSHOT_FRESH_MS) : new Date();
+    const at = fresh.sources.roads === 'pending' || fresh.sources.stops === 'pending' ? new Date(Date.now() - SNAPSHOT_FRESH_MS) : new Date();
     await ctx.db.updateTable('saved_routes').set({ conditions: JSON.stringify(fresh), conditions_at: at }).where('id', '=', id).execute();
     return { ...fresh, cached: false };
+  });
+
+  app.get('/v1/stops', {
+    ...auth,
+    schema: {
+      ...security, summary: 'Stops on the map',
+      description: 'Servos (with NSW FuelCheck prices when set up), fast food and cafes, toilets, rest areas and EV chargers in a box, up to 0.15 degrees a side. From OpenStreetMap, cached a week.',
+      querystring: { type: 'object', properties: { bbox: { type: 'string', description: 'south,west,north,east' } }, required: ['bbox'], additionalProperties: false },
+      response: { 200: arrayOf(ref('Stop')), ...errorResponses },
+    },
+  }, async (req, reply) => {
+    const b = parseBbox((req.query as { bbox: string }).bbox);
+    if (b.north - b.south > 0.15 || b.east - b.west > 0.15) throw badRequest('Zoom in: stops cover up to 0.15 degrees at a time');
+    try {
+      return await service.stops.area({ minLat: b.south, minLng: b.west, maxLat: b.north, maxLng: b.east });
+    } catch (err) {
+      req.log.warn({ err }, 'stops failed');
+      return reply.code(503).send({ statusCode: 503, error: 'Service Unavailable', message: 'Map data is not answering, try again soon' });
+    }
   });
 
   app.get('/v1/roads', {

@@ -55,6 +55,7 @@ export interface SavedRoutesTable {
 }
 
 export interface RouteRoadsTable { hash: string; fetched_at: Date | string; result: ColumnType<unknown, string, string> }
+export interface GeoCacheTable { key: string; fetched_at: Date | string; value: ColumnType<unknown, string, string> }
 export interface RoadCellsTable { cell: string; fetched_at: Date | string; ways: ColumnType<unknown, string, string> }
 
 export interface RidesTable {
@@ -121,6 +122,7 @@ export interface DB {
   saved_routes: SavedRoutesTable;
   route_roads: RouteRoadsTable;
   road_cells: RoadCellsTable;
+  geo_cache: GeoCacheTable;
   ride_photos: RidePhotosTable;
   posts: PostsTable;
   post_media: PostMediaTable;

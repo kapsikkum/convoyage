@@ -96,6 +96,13 @@ const models: Record<string, object> = {
     worst: arrayOf(obj({ name: string, km: num, surface: string })),
     fetchedAt: dateTime,
   }),
+  Stop: obj({
+    id: string, kind: { type: 'string', enum: ['fuel', 'food', 'cafe', 'toilets', 'rest', 'ev'] }, name: string, brand: string, lat: num, lng: num,
+    open24: bool,
+    prices: { type: 'object', additionalProperties: num, description: 'Cents per litre by FuelCheck fuel code (U91, E10, P95, P98, DL, PDL, LPG).' },
+    pricesAt: nString,
+    km: { type: 'number', description: 'Along the route (route stops only).' }, offM: { type: 'number', description: 'From the route, metres (route stops only).' },
+  }, ['id', 'kind', 'name', 'brand', 'lat', 'lng', 'open24', 'prices', 'pricesAt']),
   RouteConditions: obj({
     computedAt: dateTime,
     traffic: obj({ level: { type: 'string', enum: ['clear', 'light', 'moderate', 'heavy'] }, delayMin: num, summary: string, items: arrayOf(ref('ConditionItem')) }),
@@ -103,9 +110,10 @@ const models: Record<string, object> = {
     hazards: arrayOf(ref('ConditionItem')),
     weather: obj({ summary: string, worst: { type: 'integer', minimum: 0, maximum: 3, description: '0 nothing to 3 take care.' }, points: arrayOf(ref('WeatherPoint')) }),
     roads: nullableRef('RoadSummary'),
-    sources: obj(Object.fromEntries(['tfnsw', 'waze', 'weather', 'roads'].map((k) => [k, { type: 'string', enum: ['ok', 'off', 'error', 'partial', 'pending'] }]))),
+    stops: arrayOf(ref('Stop')),
+    sources: obj(Object.fromEntries(['tfnsw', 'waze', 'weather', 'roads', 'stops', 'fuel'].map((k) => [k, { type: 'string', enum: ['ok', 'off', 'error', 'partial', 'pending'] }]))),
     cached: { type: 'boolean', description: 'A saved snapshot, not computed for this request.' },
-  }, ['computedAt', 'traffic', 'police', 'hazards', 'weather', 'roads', 'sources']),
+  }, ['computedAt', 'traffic', 'police', 'hazards', 'weather', 'roads', 'stops', 'sources']),
   Vehicle: obj({
     id: uuid, ownerId: uuid, kind: { type: 'string', enum: [...VEHICLE_KINDS] }, make: string, model: string, year: nInt, nickname: string,
     build: ref('Build'), isPrimary: bool, soldAt: nDate, createdAt: dateTime, updatedAt: dateTime,
