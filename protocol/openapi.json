@@ -10669,6 +10669,17 @@
             "in": "query",
             "name": "profile",
             "required": false
+          },
+          {
+            "schema": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 360
+            },
+            "in": "query",
+            "name": "heading",
+            "required": false,
+            "description": "Direction of travel at `from`, degrees: the route starts that way instead of turning around."
           }
         ],
         "security": [

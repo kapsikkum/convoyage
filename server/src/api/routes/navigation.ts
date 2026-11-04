@@ -82,6 +82,7 @@ export async function navigationRoutes(app: FastifyInstance, ctx: ApiContext): P
       querystring: bodyObj({
         from: { type: 'string', maxLength: 40 }, to: { type: 'string', maxLength: 40 },
         via: { type: 'string', maxLength: 800 }, profile: { type: 'string', enum: ['car', 'motorcycle'], default: 'car' },
+        heading: { type: 'number', minimum: 0, maximum: 360, description: 'Direction of travel at `from`, degrees: the route starts that way instead of turning around.' },
       }, ['from', 'to']),
       response: {
         200: bodyObj({
@@ -98,7 +99,7 @@ export async function navigationRoutes(app: FastifyInstance, ctx: ApiContext): P
       },
     },
   }, async (req, reply) => {
-    const q = req.query as { from: string; to: string; via?: string; profile?: 'car' | 'motorcycle' };
+    const q = req.query as { from: string; to: string; via?: string; profile?: 'car' | 'motorcycle'; heading?: number };
     const profile = q.profile ?? 'car';
     const points = [coord(q.from, 'from'), ...(q.via ? q.via.split(';').filter((s) => s.trim()).map((s) => coord(s, 'via')) : []), coord(q.to, 'to')];
     if (points.length > MAX_VIA + 2) throw badRequest(`At most ${MAX_VIA} via points`);
@@ -107,20 +108,28 @@ export async function navigationRoutes(app: FastifyInstance, ctx: ApiContext): P
     if (wait) { reply.header('retry-after', String(wait)); throw new HttpError(429, 'Too many route requests'); }
 
     const osrmProfile = ctx.config.osrmProfiles[profile];
-    const url = `${ctx.config.osrmUrl}/route/v1/${encodeURIComponent(osrmProfile)}/${points.map((p) => `${p[0]},${p[1]}`).join(';')}?overview=full&geometries=polyline6&steps=true&alternatives=false`;
-    const key = `${profile}|${url}`;
+    const base = `${ctx.config.osrmUrl}/route/v1/${encodeURIComponent(osrmProfile)}/${points.map((p) => `${p[0]},${p[1]}`).join(';')}?overview=full&geometries=polyline6&steps=true&alternatives=false`;
+    // Moving: start the way the car is already heading (OSRM snaps the first point to a road segment within 60 degrees
+    // of it), so the route goes on and comes round rather than saying "make a U-turn".
+    const withHeading = q.heading !== undefined ? `${base}&bearings=${Math.round(q.heading) % 360},60${';'.repeat(points.length - 1)}` : null;
+    const key = `${profile}|${withHeading ?? base}`;
     const hit = cache.get(key);
     if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.body;
 
-    let data: any;
-    try {
-      const res = await ctx.fetch(url, { signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS), headers: { accept: 'application/json', 'user-agent': 'convoyage-server' } });
-      data = await res.json().catch(() => null);
-      if (!res.ok && !data?.code) throw new Error(`OSRM answered ${res.status}`);
-    } catch (err) {
-      req.log.warn({ err }, 'routing upstream failed');
-      throw new HttpError(502, 'The routing server is unavailable');
-    }
+    const ask = async (url: string): Promise<any> => {
+      try {
+        const res = await ctx.fetch(url, { signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS), headers: { accept: 'application/json', 'user-agent': 'convoyage-server' } });
+        const body = await res.json().catch(() => null);
+        if (!res.ok && !body?.code) throw new Error(`OSRM answered ${res.status}`);
+        return body;
+      } catch (err) {
+        req.log.warn({ err }, 'routing upstream failed');
+        throw new HttpError(502, 'The routing server is unavailable');
+      }
+    };
+    let data: any = await ask(withHeading ?? base);
+    // No road that way near the start (a car park, a wrong heading): route without it.
+    if (withHeading && (data?.code === 'NoSegment' || data?.code === 'NoRoute' || data?.code === 'InvalidValue')) data = await ask(base);
     if (data?.code === 'NoRoute' || data?.code === 'NoSegment') throw notFound('No route found between those points');
     if (data?.code === 'InvalidQuery' || data?.code === 'InvalidValue') throw badRequest(data.message ?? 'The routing server rejected the request');
     const route = data?.code === 'Ok' ? data.routes?.[0] : null;

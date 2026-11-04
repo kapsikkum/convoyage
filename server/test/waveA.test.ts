@@ -185,6 +185,10 @@ test('route: proxies OSRM, builds instructions, caches, validates, maps upstream
   const via = await t.req('GET', '/v1/route?from=149.5,-33.4&to=149.6,-33.5&via=149.55,-33.45;149.56,-33.46', { token: b.token });
   assert.equal(via.status, 200);
   assert.match(osrmCalls[1], /149\.5,-33\.4;149\.55,-33\.45;149\.56,-33\.46;149\.6,-33\.5/);
+  // Moving: the start is snapped to a road going the way the car heads.
+  const heading = await t.req('GET', '/v1/route?from=149.51,-33.41&to=149.6,-33.5&via=149.55,-33.45&heading=271.6', { token: b.token });
+  assert.equal(heading.status, 200);
+  assert.match(osrmCalls.at(-1)!, /&bearings=272,60;;$/);
 
   assert.equal((await t.req('GET', '/v1/route?from=oops&to=1,2', { token: c.token })).status, 400);
   assert.equal((await t.req('GET', '/v1/route?from=500,2&to=1,2', { token: c.token })).status, 400);
