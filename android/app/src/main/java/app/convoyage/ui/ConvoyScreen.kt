@@ -187,6 +187,11 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
             me = myFix?.let { LatLng(it.lat, it.lng) },
             route = room?.route?.stops.orEmpty(),
             routeLine = ui.routeLine,
+            // Off the convoy's route (shared line or guidance): a pulsing hint of which way back.
+            rejoinTo = myFix?.let { f ->
+                val guide = navState.route?.points?.takeIf { navState.phase.guiding() }
+                app.convoyage.nav.Rejoin.target(guide ?: ui.routeLine, app.convoyage.data.LatLngD(f.lat, f.lng), if (guide != null) navState.progress?.snap?.seg ?: 0 else 0)
+            },
             buildings3d = local.buildings3d,
             follow = local.follow,
             recenterTick = local.recenterTick,

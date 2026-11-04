@@ -160,6 +160,9 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
 
     val active = nav.phase == NavPhase.Active || nav.phase == NavPhase.Arrived
     val line = remember(nav.route) { nav.route?.points.orEmpty() }
+    // Off track while following: which way back to the route (from the part ahead of where we left it).
+    val rejoin = if (nav.phase == NavPhase.Active && fix != null)
+        app.convoyage.nav.Rejoin.target(line, app.convoyage.data.LatLngD(fix.lat, fix.lng), nav.progress?.snap?.seg ?: 0) else null
     val fit = remember(nav.route, nav.phase) {
         if (nav.phase == NavPhase.Preview) nav.route?.points.orEmpty().let { p -> p.filterIndexed { i, _ -> i % maxOf(1, p.size / 150) == 0 }.map { LatLng(it.lat, it.lng) } } else emptyList()
     }
@@ -183,6 +186,7 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
             me = fix?.let { LatLng(it.lat, it.lng) },
             route = emptyList(),
             routeLine = line,
+            rejoinTo = rejoin,
             buildings3d = local.buildings3d,
             follow = if (nav.phase == NavPhase.Preview || nav.phase == NavPhase.Routing) false else local.follow,
             recenterTick = local.recenterTick,

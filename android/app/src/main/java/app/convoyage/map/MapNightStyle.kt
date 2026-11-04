@@ -70,6 +70,10 @@ object MapNightStyle {
 
     /** Route line: signal, 4 wide, with a 14 wide 16% halo. */
     const val ROUTE_COLOR = "#2de2e6"
+    const val REJOIN_SOURCE = "rejoin"
+    const val REJOIN_LAYER = "rejoin"
+    /** The way back to the route when off track: a purple outside the HUD's cyan/magenta/amber, so it never reads as the route or an alert. */
+    const val REJOIN_COLOR = "#a66bff"
     const val ROADQ_SOURCE = "road-quality"
     const val ROADQ_LAYER = "road-quality"
     /** Road quality grades (OpenStreetMap surface/smoothness): go green, hazard amber, pulse magenta, muted grey. */
@@ -313,6 +317,28 @@ object MapNightStyle {
             ),
             ROUTE_HALO_LAYER,
         )
+    }
+
+    /** The rejoin hint from [from] to [to] on the route, or cleared when either is null. */
+    fun setRejoin(style: Style, from: app.convoyage.data.LatLngD?, to: app.convoyage.data.LatLngD?) {
+        if (style.getSource(REJOIN_SOURCE) == null) {
+            style.addSource(GeoJsonSource(REJOIN_SOURCE, FeatureCollection.fromFeatures(emptyList<Feature>())))
+            style.addLayer(
+                LineLayer(REJOIN_LAYER, REJOIN_SOURCE).withProperties(
+                    lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND),
+                    lineColor(REJOIN_COLOR), lineWidth(4f), lineOpacity(0.9f),
+                    org.maplibre.android.style.layers.PropertyFactory.lineDasharray(arrayOf(1.5f, 1.5f)),
+                ),
+            )
+        }
+        val source = style.getSourceAs<GeoJsonSource>(REJOIN_SOURCE) ?: return
+        if (from == null || to == null) source.setGeoJson(FeatureCollection.fromFeatures(emptyList<Feature>()))
+        else source.setGeoJson(Feature.fromGeometry(LineString.fromLngLats(listOf(Point.fromLngLat(from.lng, from.lat), Point.fromLngLat(to.lng, to.lat)))))
+    }
+
+    /** Pulse: the rejoin line's opacity, set every frame while it shows. */
+    fun setRejoinOpacity(style: Style, opacity: Float) {
+        style.getLayerAs<LineLayer>(REJOIN_LAYER)?.setProperties(lineOpacity(opacity))
     }
 
     /** The graded-roads layer: GeoJSON from GET /v1/roads, or null to clear it. */

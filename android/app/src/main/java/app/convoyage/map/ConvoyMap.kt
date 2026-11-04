@@ -87,6 +87,8 @@ fun ConvoyMap(
     routeSegments: List<Pair<List<LatLngD>, String>> = emptyList(),
     /** Graded roads (GeoJSON from GET /v1/roads) drawn under the route, or null for none. */
     roadQuality: String? = null,
+    /** Off track: the point on the route to head for. A pulsing purple line runs to it from [me]. */
+    rejoinTo: LatLngD? = null,
     /** Navigation: while following, point the camera this way (degrees clockwise from north) and tilt it. Null = keep the bearing. */
     followBearing: Double? = null,
     /** Navigation: zoom level while following. Null = keep the current zoom (at least 14). */
@@ -202,6 +204,23 @@ fun ConvoyMap(
     LaunchedEffect(style, pins) {
         val s = style ?: return@LaunchedEffect
         MapNightStyle.setColliders(s, pins.map { it.lat to it.lng })
+    }
+
+    LaunchedEffect(style, me, rejoinTo) {
+        val s = style ?: return@LaunchedEffect
+        MapNightStyle.setRejoin(s, me?.let { LatLngD(it.latitude, it.longitude) }.takeIf { rejoinTo != null }, rejoinTo)
+    }
+    val pulsing = rejoinTo != null
+    LaunchedEffect(style, pulsing) {
+        val s = style ?: return@LaunchedEffect
+        if (!pulsing) return@LaunchedEffect
+        val start = System.nanoTime()
+        while (true) {
+            androidx.compose.runtime.withFrameMillis { }
+            val t = (System.nanoTime() - start) / 1e9
+            // About one breath a second and a half, never fully gone.
+            MapNightStyle.setRejoinOpacity(s, (0.6 + 0.4 * kotlin.math.sin(t * 2 * Math.PI / 1.4)).toFloat())
+        }
     }
 
     LaunchedEffect(style, roadQuality) {
