@@ -44,8 +44,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 /** How much the floating tab bar covers above the navigation bar, on the Drive tab. */
 val DriveTabBarChrome = 92.dp
 
-/** The Drive dock at rest: the Open Cruise row and Start / Join. */
-val DriveDockPeek = 144.dp
+/** The Drive dock at rest: Start / Join. (Open Cruise is a toggle on the map rail.) */
+val DriveDockPeek = 92.dp
 
 /** Open Cruise as the dock shows it: [wanted] is the setting, [live] what the server confirmed. */
 data class CruiseUi(
@@ -206,13 +206,6 @@ internal fun ColumnScope.DriveDock(
     onInvite: (String) -> Unit,
 ) {
     val c = Cv.colors
-    Row(Modifier.fillMaxWidth().padding(bottom = Space.s2), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.s3)) {
-        Column(Modifier.weight(1f)) {
-            Eyebrow(if (cruise.wanted) "OPEN CRUISE · ON" else "OPEN CRUISE · OFF", color = if (cruise.wanted) c.go else c.inkMuted)
-            CvText(cruise.summary, Cv.type.bodyS, c.inkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        app.convoyage.design.CvChipToggle(if (cruise.wanted) "On" else "Off", cruise.wanted, { onCruise(!cruise.wanted) })
-    }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.s2)) {
         CvButton("Start convoy", drive.onStartConvoy, Modifier.weight(1f), icon = CvIcons.Convoy, compact = true)
         CvButton("Join with code", drive.onJoinConvoy, Modifier.weight(1f), CvButtonKind.Ghost, compact = true)
@@ -222,6 +215,14 @@ internal fun ColumnScope.DriveDock(
         Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(top = Space.s3, bottom = Space.s3),
         verticalArrangement = Arrangement.spacedBy(Space.s2),
     ) {
+        // Open Cruise: switched on the map rail; here, what it found and a way to turn it off.
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.s3)) {
+            Column(Modifier.weight(1f)) {
+                Eyebrow(if (cruise.wanted) "OPEN CRUISE · ON" else "OPEN CRUISE · OFF", color = if (cruise.wanted) c.go else c.inkMuted)
+                CvText(cruise.summary, Cv.type.bodyS, c.inkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            app.convoyage.design.CvChipToggle(if (cruise.wanted) "On" else "Off", cruise.wanted, { onCruise(!cruise.wanted) })
+        }
         if (cruise.wanted && cruise.convoys.isNotEmpty()) {
             Eyebrow("OPEN CONVOYS NEARBY")
             cruise.convoys.forEach { cv ->

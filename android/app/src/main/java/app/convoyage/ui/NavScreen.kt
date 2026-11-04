@@ -299,6 +299,21 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
                 verticalArrangement = Arrangement.spacedBy(Space.s2),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
+                // Open Cruise: show me to drivers nearby and them to me. Lit when on, with how many it found.
+                val found = convoy.nearbyDrivers.size + convoy.nearbyConvoys.size
+                Box {
+                    CvIconButton(
+                        CvIcons.Car, if (openCruiseOn) "Open cruise on, turn off" else "Open cruise: see drivers nearby",
+                        { container.setOpenCruise(!openCruiseOn) },
+                        tint = if (openCruiseOn) c.go else c.ink, edge = if (openCruiseOn) c.go else c.lineStrong,
+                    )
+                    if (openCruiseOn && convoy.openCruise && found > 0) {
+                        Box(
+                            Modifier.align(Alignment.TopEnd).size(18.dp).cutPanel(c.go, c.go, CutSShape),
+                            contentAlignment = Alignment.Center,
+                        ) { CvText(found.coerceAtMost(9).toString(), Cv.type.label.copy(fontSize = 9.sp, lineHeight = 10.sp), c.surface100) }
+                    }
+                }
                 CvChipToggle("3D", local.buildings3d, vm::toggle3d)
                 CvIconButton(CvIcons.Alert, "Report hazard", onReport, tint = c.hazard, edge = c.hazard)
                 CvIconButton(CvIcons.Locate, "Recentre", vm::recenter, tint = if (local.follow) c.signal else c.ink)
