@@ -151,7 +151,7 @@ export async function relationship(db: Kysely<DB>, viewer: string, target: strin
 /** What an avatar badge needs of a user's primary vehicle: its kind and the build fields that change how it looks. */
 export interface VehicleBadge {
   kind: 'car' | 'motorcycle' | 'ute' | '4wd';
-  build: { paint?: string; finish?: string; wheel?: string; rideHeightMm?: number; body?: string };
+  build: { paint?: string; finish?: string; wheel?: string; rideHeightMm?: number; body?: string; shape?: string };
 }
 
 export function badgeOf(kind: VehicleBadge['kind'], build: unknown): VehicleBadge {
@@ -162,6 +162,7 @@ export function badgeOf(kind: VehicleBadge['kind'], build: unknown): VehicleBadg
   if (typeof b.wheel === 'string') out.wheel = b.wheel;
   if (typeof b.rideHeightMm === 'number') out.rideHeightMm = b.rideHeightMm;
   if (typeof b.body === 'string') out.body = b.body;
+  if (typeof b.shape === 'string') out.shape = b.shape;
   return { kind, build: out };
 }
 

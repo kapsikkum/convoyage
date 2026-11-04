@@ -49,7 +49,7 @@ export function newCode(): string {
 export const normalizeCode = (raw: string): string => raw.replace(/[\s-]/g, '').toUpperCase();
 
 /** Avatar-badge data from a member's primary vehicle (see VehicleBadge in api/common.ts). */
-export interface MemberVehicle { kind: 'car' | 'motorcycle' | 'ute' | '4wd'; build: { paint?: string; finish?: string; wheel?: string; rideHeightMm?: number; body?: string } }
+export interface MemberVehicle { kind: 'car' | 'motorcycle' | 'ute' | '4wd'; build: { paint?: string; finish?: string; wheel?: string; rideHeightMm?: number; body?: string; shape?: string } }
 export interface Who { id: string; username: string; avatar: string; vehicle?: MemberVehicle | null }
 export interface Position { lat: number; lng: number; heading: number | null; speed: number | null; ts: number }
 export interface Destination { lat: number; lng: number; label: string }

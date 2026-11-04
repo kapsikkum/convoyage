@@ -24,8 +24,8 @@ export const VISIBILITIES = ['public', 'followers', 'private'] as const;
 export const VEHICLE_KINDS = ['car', 'motorcycle', 'ute', '4wd'] as const;
 export const HAZARD_KINDS = ['police', 'hazard', 'works', 'fuel', 'rest', 'crash'] as const;
 export const FINISHES = ['gloss', 'satin', 'matte', 'metallic', 'pearl'] as const;
-/** Body styles the garage renders. Cars: sedan..hot_hatch; utes: single_cab, dual_cab; 4WD: 4wd_*; bikes: the rest. */
-export const BODIES = ['sedan', 'hatch', 'coupe', 'wagon', 'suv', 'van', 'muscle', 'roadster', 'hot_hatch', 'single_cab', 'dual_cab', '4wd_wagon', '4wd_ute', 'sport_bike', 'naked', 'cruiser', 'adventure'] as const;
+/** Body styles the garage renders, grouped by kind: cars, then utes, then 4WDs (4wd_*), then bikes. */
+export const BODIES = ['sedan', 'hatch', 'hot_hatch', 'wagon', 'liftback', 'coupe', 'convertible', 'roadster', 'muscle', 'suv', 'people_mover', 'van', 'single_cab', 'extra_cab', 'dual_cab', 'cab_chassis', '4wd_wagon', '4wd_ute', '4wd_cab_chassis', 'naked', 'sport_bike', 'cruiser', 'tourer', 'adventure', 'dirt', 'scooter'] as const;
 
 export const BuildSchema = obj({
   paint: { type: 'string', pattern: '^#[0-9a-fA-F]{6}$', description: 'Body colour as #RRGGBB.' },
@@ -33,6 +33,7 @@ export const BuildSchema = obj({
   wheel: { type: 'string', minLength: 1, maxLength: 64, description: 'Wheel model id from the garage catalogue.' },
   rideHeightMm: { type: 'integer', minimum: -200, maximum: 200, description: 'Offset from stock ride height, millimetres.' },
   body: { type: 'string', enum: [...BODIES], description: 'Body style; absent means the default for the kind.' },
+  shape: { type: 'string', pattern: '^[a-z0-9-]{1,48}$', description: 'Model id from the app\'s vehicle catalogue (its real proportions), or `generic` for a body picked by hand; absent means match make and model.' },
   decals: {
     type: 'array', maxItems: 24,
     items: obj({
@@ -54,7 +55,7 @@ const models: Record<string, object> = {
   Build: BuildSchema,
   VehicleBadge: obj({
     kind: { type: 'string', enum: [...VEHICLE_KINDS] },
-    build: obj({ paint: BuildSchema.properties.paint, finish: BuildSchema.properties.finish, wheel: BuildSchema.properties.wheel, rideHeightMm: BuildSchema.properties.rideHeightMm, body: BuildSchema.properties.body }, []),
+    build: obj({ paint: BuildSchema.properties.paint, finish: BuildSchema.properties.finish, wheel: BuildSchema.properties.wheel, rideHeightMm: BuildSchema.properties.rideHeightMm, body: BuildSchema.properties.body, shape: BuildSchema.properties.shape }, []),
   }),
   UserRef: obj({
     id: uuid, handle: string, displayName: string, avatarMediaId: nUuid,

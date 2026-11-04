@@ -73,7 +73,8 @@
             "finish": { "enum": ["gloss", "satin", "matte", "metallic", "pearl"] },
             "wheel": { "type": "string" },
             "rideHeightMm": { "type": "integer" },
-            "body": { "enum": ["sedan", "hatch", "coupe", "wagon", "suv", "van", "muscle", "roadster", "hot_hatch", "single_cab", "dual_cab", "4wd_wagon", "4wd_ute", "sport_bike", "naked", "cruiser", "adventure"] }
+            "body": { "enum": ["sedan", "hatch", "hot_hatch", "wagon", "liftback", "coupe", "convertible", "roadster", "muscle", "suv", "people_mover", "van", "single_cab", "extra_cab", "dual_cab", "cab_chassis", "4wd_wagon", "4wd_ute", "4wd_cab_chassis", "naked", "sport_bike", "cruiser", "tourer", "adventure", "dirt", "scooter"] },
+            "shape": { "type": "string", "pattern": "^[a-z0-9-]{1,48}$" }
           },
           "additionalProperties": false
         }
