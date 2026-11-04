@@ -33,6 +33,8 @@ data class NavState(
     val etaMs: Long? = null,
     /** Hazard and camera alerts are not spoken (the banner still shows). */
     val alertsMuted: Boolean = false,
+    /** On a detour: where to carry on to afterwards (the convoy's destination or the drive we left). */
+    val resumeTo: Place? = null,
 ) {
     val isOn: Boolean get() = phase == NavPhase.Active || phase == NavPhase.Arrived
 
@@ -74,6 +76,29 @@ class NavigationController(
     /** Hazards closed from the banner for this drive. */
     private val dismissed = mutableSetOf<String>()
     private var spokenHazard: String? = null
+    /** The way we are actually moving, from the device or from the last few metres travelled. */
+    private var travelHeading: Double? = null
+    private var headingFrom: Fix? = null
+
+    /** Device heading while moving; otherwise the bearing over the last 8 m or more. Stale after 5 minutes. */
+    private fun trackHeading(fix: Fix) {
+        val h = fix.headingDeg
+        if (h != null && h != 0.0 && (fix.speedMps ?: 0.0) >= 3.0) {
+            travelHeading = h
+            headingFrom = fix
+            return
+        }
+        val a = headingFrom ?: run { headingFrom = fix; return }
+        if (Geo.distanceM(a.lat, a.lng, fix.lat, fix.lng) >= 8.0) {
+            travelHeading = Geo.bearingDeg(a.lat, a.lng, fix.lat, fix.lng)
+            headingFrom = fix
+        } else if (fix.timeMs - a.timeMs > 5 * 60_000) {
+            travelHeading = null
+        }
+    }
+
+    /** The heading to route with, when we are moving or have just been. */
+    fun heading(): Double? = travelHeading
 
     private fun ahead(onRoute: List<RouteHazard>, along: Double): HazardAhead? =
         RouteHazards.nextAhead(onRoute.filterNot { it.hazard.id in dismissed }, along)
@@ -105,8 +130,11 @@ class NavigationController(
         }
     }
 
-    /** Asks for a route from [from] to [place] and shows it as a preview (nothing is spoken until [start]). */
-    fun navigateTo(place: Place, from: Fix?) {
+    /**
+     * Asks for a route from [from] to [place] and shows it as a preview (nothing is spoken until [start]), or goes
+     * straight into guidance with [autoStart]. [resumeTo] marks this as a detour that carries on there afterwards.
+     */
+    fun navigateTo(place: Place, from: Fix?, autoStart: Boolean = false, resumeTo: Place? = null) {
         fetch?.cancel()
         dismissed.clear()
         spokenHazard = null
@@ -114,10 +142,13 @@ class NavigationController(
             _state.update { it.copy(error = "Waiting for your location") }
             return
         }
-        _state.value = NavState(phase = NavPhase.Routing, destination = place)
+        val muted = _state.value.alertsMuted
+        _state.value = NavState(phase = NavPhase.Routing, destination = place, resumeTo = resumeTo, alertsMuted = muted)
         resetProgress()
+        trackHeading(from)
+        if (prev == null) prev = from
         fetch = scope.launch {
-            when (val r = api.route(LatLngD(from.lat, from.lng), LatLngD(place.lat, place.lng), profile())) {
+            when (val r = api.route(LatLngD(from.lat, from.lng), LatLngD(place.lat, place.lng), profile(), headingDeg = travelHeading)) {
                 is ApiResult.Ok -> {
                     val route = NavRoute.from(r.value)
                     if (route == null) {
@@ -125,6 +156,7 @@ class NavigationController(
                     } else {
                         _state.update { it.copy(phase = NavPhase.Preview, route = route, etaMs = nowMs() + (route.durationS * 1000).toLong()) }
                         refreshHazards()
+                        if (autoStart) start()
                     }
                 }
                 is ApiResult.Err -> _state.update {
@@ -135,6 +167,22 @@ class NavigationController(
                 }
             }
         }
+    }
+
+    /**
+     * A stop on the way: guide to [place] now, then offer to carry on to [resume] (or to wherever we were already
+     * going). Starts at once, no preview.
+     */
+    fun detour(place: Place, from: Fix?, resume: Place? = null) {
+        val s = _state.value
+        val back = resume ?: s.resumeTo ?: s.destination?.takeIf { s.phase != NavPhase.Idle }
+        navigateTo(place, from, autoStart = true, resumeTo = back)
+    }
+
+    /** After a detour: back on to where we were going. */
+    fun resume(from: Fix?) {
+        val to = _state.value.resumeTo ?: return
+        navigateTo(to, from ?: prev, autoStart = true)
     }
 
     /** Preview to active guidance. */
@@ -173,6 +221,7 @@ class NavigationController(
     fun onFix(fix: Fix) {
         val before = prev
         prev = fix
+        trackHeading(fix)
         val s = _state.value
         if (s.phase != NavPhase.Active) return
         val route = s.route ?: return
@@ -218,7 +267,7 @@ class NavigationController(
         speaker.speak("Rerouting")
         _state.update { it.copy(rerouting = true) }
         fetch = scope.launch {
-            when (val r = api.route(LatLngD(from.lat, from.lng), LatLngD(dest.lat, dest.lng), profile())) {
+            when (val r = api.route(LatLngD(from.lat, from.lng), LatLngD(dest.lat, dest.lng), profile(), headingDeg = travelHeading)) {
                 is ApiResult.Ok -> {
                     val route = NavRoute.from(r.value)
                     if (route == null) {

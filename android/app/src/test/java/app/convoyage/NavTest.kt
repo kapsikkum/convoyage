@@ -429,8 +429,10 @@ class RouteLineTest {
 class NavigationControllerTest {
     private class FakeApi(var responses: ArrayDeque<ApiResult<RouteResponse>>) : RouteApi {
         val calls = ArrayList<Pair<LatLngD, LatLngD>>()
-        override suspend fun route(from: LatLngD, to: LatLngD, profile: String, via: List<LatLngD>): ApiResult<RouteResponse> {
+        val headings = ArrayList<Double?>()
+        override suspend fun route(from: LatLngD, to: LatLngD, profile: String, via: List<LatLngD>, headingDeg: Double?): ApiResult<RouteResponse> {
             calls += from to to
+            headings += headingDeg
             return responses.removeFirstOrNull() ?: ApiResult.Err(404, "none")
         }
     }
@@ -499,6 +501,46 @@ class NavigationControllerTest {
         assertTrue(said.lines.contains("Rerouting"))
         assertFalse(nav.state.value.rerouting)
         assertEquals(NavPhase.Active, nav.state.value.phase)
+    }
+
+    @Test
+    fun aDetourStartsAtOnceThenResumesToTheDestination() = runTest(UnconfinedTestDispatcher()) {
+        val scope = backgroundScope
+        val fixes = MutableStateFlow<Fix?>(null)
+        val api = FakeApi(ArrayDeque(List(3) { ApiResult.Ok(Fixture.response()) }))
+        val nav = NavigationController(scope, api, fixes, MutableStateFlow(emptyList()), Said(), { "car" })
+        nav.navigateTo(dest, fix(Fixture.at(route, 0.0), 0))
+        nav.start()
+        val servo = Place("Servo", "", -33.45, 149.56)
+        nav.detour(servo, fix(Fixture.at(route, 0.0), 1_000))
+        assertEquals(NavPhase.Active, nav.state.value.phase)
+        assertEquals(servo, nav.state.value.destination)
+        assertEquals(dest, nav.state.value.resumeTo)
+        nav.resume(null)
+        assertEquals(dest, nav.state.value.destination)
+        assertEquals(null, nav.state.value.resumeTo)
+        assertEquals(NavPhase.Active, nav.state.value.phase)
+    }
+
+    @Test
+    fun routesFromTheWayWeAreMoving() = runTest(UnconfinedTestDispatcher()) {
+        val scope = backgroundScope
+        val fixes = MutableStateFlow<Fix?>(null)
+        val api = FakeApi(ArrayDeque(listOf(ApiResult.Ok(Fixture.response()))))
+        val nav = NavigationController(scope, api, fixes, MutableStateFlow(emptyList()), Said(), { "car" })
+        // No heading from the device: two fixes 20 m apart heading due north.
+        fixes.value = Fix(-33.4000, 149.5000, null, 0.0, 5f, 0)
+        fixes.value = Fix(-33.3998, 149.5000, null, 0.0, 5f, 2_000)
+        nav.navigateTo(dest, fixes.value)
+        val h = api.headings.single()!!
+        assertTrue("north, got $h", h < 2.0 || h > 358.0)
+    }
+
+    @Test
+    fun theDrivenPartOfTheLineGoes() {
+        val line = listOf(LatLngD(0.0, 0.0), LatLngD(0.0, 1.0), LatLngD(0.0, 2.0), LatLngD(0.0, 3.0))
+        val left = app.convoyage.ui.remainingLine(line, app.convoyage.nav.Snap(1, 0.0, 0.0, 0.0, 1.5))
+        assertEquals(listOf(LatLngD(0.0, 1.5), LatLngD(0.0, 2.0), LatLngD(0.0, 3.0)), left)
     }
 
     @Test

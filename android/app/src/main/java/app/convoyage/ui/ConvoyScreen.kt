@@ -105,6 +105,11 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
     LaunchedEffect(local.follow) { if (local.follow) fitAll = emptyList() }
     val sharedRoute by container.convoy.sharedRoute.collectAsStateWithLifecycle()
     val navState by container.nav.state.collectAsStateWithLifecycle()
+    // Search is always on in the convoy view: a stop for you on the way, or (leader, nowhere set) where everyone goes.
+    val navVm: NavViewModel = viewModel(factory = viewModelFactory { initializer { NavViewModel(container) } })
+    val navSearch by navVm.search.collectAsStateWithLifecycle()
+    val navQuery by navVm.query.collectAsStateWithLifecycle()
+    val navLocal by navVm.local.collectAsStateWithLifecycle()
     val navVoiceOn by container.session.navVoice.collectAsStateWithLifecycle()
 
     // Sheet state: peek while in a convoy; a pre-start sheet opens to half when Start or Join is chosen.
@@ -189,7 +194,9 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
             pins = pins,
             me = myFix?.let { LatLng(it.lat, it.lng) },
             route = room?.route?.stops.orEmpty(),
-            routeLine = ui.routeLine,
+            // Guiding (a detour or our own navigation): the part of that route still ahead. Else the convoy's line.
+            routeLine = if (navState.phase.guiding()) remainingLine(navState.route?.points.orEmpty(), navState.progress?.snap.takeIf { navState.phase == app.convoyage.nav.NavPhase.Active })
+                else ui.routeLine,
             // Off the convoy's route (shared line or guidance): a pulsing hint of which way back.
             rejoinTo = myFix?.let { f ->
                 val guide = navState.route?.points?.takeIf { navState.phase.guiding() }
@@ -229,6 +236,9 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
                     )
                 }
             }
+            DetourBanner(navState, onResume = navVm::resume, onEnd = navVm::end)
+            ExpandingSearch(navQuery, { navVm.query.value = it }, navSearch, navVm::pickInConvoy, if (navState.phase.guiding() || room?.destination != null) "Add a stop" else "Where to?")
+            navLocal.hint?.let { Banner(BannerTone.Hazard, it, icon = CvIcons.Flag) }
             if (room != null) MemberChips(ui.roster.filter { !it.isMe })
             if (!permission.granted) {
                 Banner(

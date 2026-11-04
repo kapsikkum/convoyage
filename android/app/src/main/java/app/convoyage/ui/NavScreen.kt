@@ -1,5 +1,8 @@
 package app.convoyage.ui
 
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.focus.focusRequester
 import app.convoyage.design.CvCard
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.clickable
@@ -162,6 +165,7 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
 
     val active = nav.phase == NavPhase.Active || nav.phase == NavPhase.Arrived
     val line = remember(nav.route) { nav.route?.points.orEmpty() }
+    val ahead = remember(line, nav.progress?.snap, nav.phase) { if (nav.phase == NavPhase.Active) remainingLine(line, nav.progress?.snap) else line }
     // Traffic, police, weather, road surface and stops for the route being previewed or driven.
     val routeGeo = remember(nav.route) { nav.route?.let { app.convoyage.data.Polyline.encode(it.points, 6) } }
     val navCond = rememberLineConditions(routeGeo, nav.route?.durationS)
@@ -196,7 +200,7 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
             pins = pins,
             me = fix?.let { LatLng(it.lat, it.lng) },
             route = emptyList(),
-            routeLine = line,
+            routeLine = ahead,
             rejoinTo = rejoin,
             buildings3d = local.buildings3d,
             follow = if (nav.phase == NavPhase.Preview || nav.phase == NavPhase.Routing) false else local.follow,
@@ -261,6 +265,9 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
                             arrivedLine = nav.destination?.name?.let { "Arrived at $it" } ?: "You have arrived",
                         )
                     }
+                    DetourBanner(nav, onResume = vm::resume, onEnd = vm::end)
+                    // Search stays on while driving: a pick is a stop on the way.
+                    ExpandingSearch(query, { vm.query.value = it }, search, vm::select, "Add a stop")
                     if (nav.rerouting) Banner(BannerTone.Hazard, "Rerouting", icon = CvIcons.Route)
                     nav.error?.let { Banner(BannerTone.Pulse, it, icon = CvIcons.Alert, actionLabel = "OK", onAction = vm::clearError) }
                     nav.hazardAhead?.let { h ->
@@ -381,8 +388,63 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
     }
 }
 
+/** The part of the route still ahead: from where we are on it to the end. */
+internal fun remainingLine(line: List<app.convoyage.data.LatLngD>, snap: app.convoyage.nav.Snap?): List<app.convoyage.data.LatLngD> {
+    if (snap == null || line.size < 2) return line
+    val rest = line.drop((snap.seg + 1).coerceAtMost(line.size - 1))
+    return listOf(app.convoyage.data.LatLngD(snap.lat, snap.lng)) + rest
+}
+
+/** On a detour: where we carry on to afterwards, and the button to do it (now, or once we have arrived). */
 @Composable
-private fun SearchPanel(
+internal fun DetourBanner(nav: app.convoyage.nav.NavState, onResume: () -> Unit, onEnd: () -> Unit) {
+    val back = nav.resumeTo ?: return
+    val name = back.name.ifBlank { "the route" }
+    if (nav.phase == NavPhase.Arrived) {
+        Banner(BannerTone.Hazard, "Continue with the route?", sub = "On to $name", icon = CvIcons.Route, actionLabel = "Continue", onAction = onResume, secondaryLabel = "End", onSecondary = onEnd)
+    } else if (nav.phase == NavPhase.Active) {
+        Banner(BannerTone.Hazard, "Stop on the way", sub = "Then on to $name", icon = CvIcons.Route, actionLabel = "Skip", onAction = onResume)
+    }
+}
+
+/** A search button that opens into the full search bar and its results; closes again after a pick or Back. */
+@Composable
+internal fun ExpandingSearch(
+    query: String,
+    onQuery: (String) -> Unit,
+    search: SearchUi,
+    onPick: (Place) -> Unit,
+    label: String = "Search",
+    modifier: Modifier = Modifier,
+) {
+    val c = Cv.colors
+    var open by rememberSaveable { mutableStateOf(false) }
+    androidx.compose.animation.AnimatedContent(open, modifier, label = "search") { isOpen ->
+        if (isOpen) {
+            SearchPanel(
+                query = query, onQuery = onQuery, search = search,
+                onPick = { p -> open = false; onPick(p) },
+                onBack = { open = false; onQuery("") },
+                error = null, onDismissError = {}, autoFocus = true,
+            )
+        } else {
+            Row(
+                Modifier
+                    .cutPanel(c.surface100, c.lineStrong, CutMShape)
+                    .clickable(role = Role.Button) { open = true }
+                    .semantics { contentDescription = label }
+                    .padding(horizontal = Space.s3, vertical = Space.s2),
+                horizontalArrangement = Arrangement.spacedBy(Space.s2), verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CvIcon(CvIcons.Search, c.signal)
+                CvText(label.uppercase(), Cv.type.label, c.ink, maxLines = 1)
+            }
+        }
+    }
+}
+
+@Composable
+internal fun SearchPanel(
     query: String,
     onQuery: (String) -> Unit,
     search: SearchUi,
@@ -390,8 +452,11 @@ private fun SearchPanel(
     onBack: (() -> Unit)?,
     error: String?,
     onDismissError: () -> Unit,
+    autoFocus: Boolean = false,
 ) {
     val c = Cv.colors
+    val focus = remember { androidx.compose.ui.focus.FocusRequester() }
+    if (autoFocus) LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
     // Say where to go: the phone's speech recogniser fills the search.
     val speak = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { r ->
         r.data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.let(onQuery)
@@ -405,7 +470,7 @@ private fun SearchPanel(
             if (onBack != null) CvIconButton(CvIcons.Back, "Back", onBack, fill = c.surface200)
             else CvIcon(CvIcons.Search, c.signal, Modifier.padding(start = Space.s1))
             CvTextField(
-                query, onQuery, "", Modifier.weight(1f), placeholder = "Where to?",
+                query, onQuery, "", Modifier.weight(1f).focusRequester(focus), placeholder = "Where to?",
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             )
             CvIconButton(CvIcons.Mic, "Say where to", {

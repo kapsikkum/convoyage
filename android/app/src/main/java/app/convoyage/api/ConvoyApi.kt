@@ -39,8 +39,14 @@ interface HazardApi {
 
 /** The routing endpoint, an interface so [app.convoyage.nav.NavigationController] can be tested. */
 interface RouteApi {
-    /** `GET /v1/route`. [profile] is "car" or "motorcycle". */
-    suspend fun route(from: app.convoyage.data.LatLngD, to: app.convoyage.data.LatLngD, profile: String, via: List<app.convoyage.data.LatLngD> = emptyList()): ApiResult<RouteResponse>
+    /**
+     * `GET /v1/route`. [profile] is "car" or "motorcycle". [headingDeg] is the way we are moving, so the route sets off
+     * that way instead of asking for a U-turn.
+     */
+    suspend fun route(
+        from: app.convoyage.data.LatLngD, to: app.convoyage.data.LatLngD, profile: String,
+        via: List<app.convoyage.data.LatLngD> = emptyList(), headingDeg: Double? = null,
+    ): ApiResult<RouteResponse>
 }
 
 /** What the ride recorder needs from the server; an interface so [app.convoyage.data.RideRecorder] can be tested. */
@@ -117,6 +123,7 @@ class ConvoyApi(
 
     override suspend fun route(
         from: app.convoyage.data.LatLngD, to: app.convoyage.data.LatLngD, profile: String, via: List<app.convoyage.data.LatLngD>,
+        headingDeg: Double?,
     ): ApiResult<RouteResponse> {
         fun p(l: app.convoyage.data.LatLngD) = String.format(java.util.Locale.US, "%.6f,%.6f", l.lng, l.lat)
         val q = buildMap {
@@ -124,6 +131,7 @@ class ConvoyApi(
             put("to", p(to))
             if (via.isNotEmpty()) put("via", via.joinToString(";") { p(it) })
             put("profile", if (profile == "motorcycle") "motorcycle" else "car")
+            headingDeg?.let { put("heading", String.format(java.util.Locale.US, "%.0f", ((it % 360) + 360) % 360)) }
         }
         return send("GET", "v1/route", null, RouteResponse.serializer(), query = q)
     }

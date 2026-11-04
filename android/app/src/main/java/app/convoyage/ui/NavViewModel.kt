@@ -75,7 +75,48 @@ class NavViewModel(private val container: AppContainer) : ViewModel() {
         _search.value = SearchUi()
         _local.update { it.copy(follow = true) }
         if (place.name != "Dropped pin") container.savedPlaces.remember(place)
-        nav.navigateTo(place, container.tracker.lastKnown())
+        // Already driving somewhere: a search pick is a stop on the way, not a new trip.
+        if (nav.state.value.phase == NavPhase.Active) nav.detour(place, container.tracker.lastKnown())
+        else nav.navigateTo(place, container.tracker.lastKnown())
+    }
+
+    /**
+     * A search pick from the convoy view. The convoy has somewhere to go: a personal detour, then carry on to it.
+     * Nowhere set and we lead: it becomes the convoy's destination (everyone navigates). Otherwise just us.
+     */
+    fun pickInConvoy(place: Place) {
+        query.value = ""
+        _search.value = SearchUi()
+        _local.update { it.copy(follow = true) }
+        if (place.name != "Dropped pin") container.savedPlaces.remember(place)
+        val fix = container.tracker.lastKnown()
+        val s = container.convoy.state.value
+        val room = s.active
+        val dest = room?.destination
+        val lastStop = room?.route?.stops?.lastOrNull()?.takeIf { it.size >= 2 }
+        val convoyGoal = dest?.let { Place(it.label.ifBlank { "Convoy destination" }, "Convoy", it.lat, it.lng) }
+            ?: lastStop?.let { Place(room.route?.name?.ifBlank { null } ?: "Convoy route", "Convoy", it[1], it[0]) }
+        when {
+            room != null && convoyGoal != null -> {
+                nav.detour(place, fix, convoyGoal)
+                hint("A stop for you only. Continue with the route when you are done.")
+            }
+            room != null && s.meId == room.leader -> {
+                container.convoy.setDestination(Destination(place.lat, place.lng, place.name.take(80)), fix)
+                nav.navigateTo(place, fix, autoStart = true)
+                hint("Everyone is navigating to ${place.name}")
+            }
+            else -> {
+                nav.navigateTo(place, fix, autoStart = true)
+                if (room != null) hint("Navigating just you. The leader sets where the convoy goes.")
+            }
+        }
+    }
+
+    /** After a detour: back on to the route. */
+    fun resume() {
+        _local.update { it.copy(follow = true) }
+        nav.resume(container.tracker.lastKnown())
     }
 
     /** A long press on the map: route there now, and look up the address in the background to name it. */
