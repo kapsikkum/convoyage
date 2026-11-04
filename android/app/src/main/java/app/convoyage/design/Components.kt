@@ -633,7 +633,7 @@ fun CvTextField(
     val c = Cv.colors
     var focused by remember { mutableStateOf(false) }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(Space.s1)) {
-        Eyebrow(label)
+        if (label.isNotEmpty()) Eyebrow(label)
         BasicTextField(
             value = value,
             onValueChange = onValueChange,

@@ -392,16 +392,28 @@ private fun SearchPanel(
     onDismissError: () -> Unit,
 ) {
     val c = Cv.colors
+    // Say where to go: the phone's speech recogniser fills the search.
+    val speak = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { r ->
+        r.data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.let(onQuery)
+    }
     Column(
-        Modifier.fillMaxWidth().imePadding().cutPanel(c.surface100, c.signal, CutMShape).padding(Space.s3),
+        Modifier.fillMaxWidth().imePadding().cutPanel(c.surface100, c.signal, CutMShape).padding(Space.s2),
         verticalArrangement = Arrangement.spacedBy(Space.s2),
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(Space.s2), verticalAlignment = Alignment.Bottom) {
+        // One compact bar: back (when searching from somewhere), the field, and the mic.
+        Row(horizontalArrangement = Arrangement.spacedBy(Space.s2), verticalAlignment = Alignment.CenterVertically) {
             if (onBack != null) CvIconButton(CvIcons.Back, "Back", onBack, fill = c.surface200)
+            else CvIcon(CvIcons.Search, c.signal, Modifier.padding(start = Space.s1))
             CvTextField(
-                query, onQuery, "Where to?", Modifier.weight(1f), placeholder = "Search a place or address",
+                query, onQuery, "", Modifier.weight(1f), placeholder = "Where to?",
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             )
+            CvIconButton(CvIcons.Mic, "Say where to", {
+                val intent = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                    .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                    .putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Where to?")
+                try { speak.launch(intent) } catch (_: android.content.ActivityNotFoundException) { /* no speech app on this phone */ }
+            }, fill = c.surface200)
         }
         error?.let { Banner(BannerTone.Pulse, it, icon = CvIcons.Alert, actionLabel = "OK", onAction = onDismissError) }
         when {
