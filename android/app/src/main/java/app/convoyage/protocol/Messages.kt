@@ -256,6 +256,10 @@ sealed interface ServerMessage {
     data class Status(val room: String, val id: String, val status: String, val note: String? = null, val position: Position? = null) : ServerMessage
 
     /** A member reported a hazard (POST /v1/hazards) while in this convoy. Sent to every member, the reporter included. */
+    /** A notification (follow, comment, like, SOS, hazard) sent down the socket instead of a push. [data] "type" names it. */
+    @Serializable @SerialName("notify")
+    data class Notify(val title: String, val body: String, val data: Map<String, String> = emptyMap()) : ServerMessage
+
     @Serializable @SerialName("hazard")
     data class HazardReported(val room: String, val hazard: Hazard) : ServerMessage
 

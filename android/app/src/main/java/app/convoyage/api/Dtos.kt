@@ -111,3 +111,10 @@ object HazardKinds {
     const val CRASH = "crash"
     val ALL = listOf(POLICE, HAZARD, WORKS, FUEL, REST, CRASH)
 }
+
+/** POST /v1/me/devices. For "unifiedpush" the token is the distributor endpoint; [p256dh] and [auth] are base64url. */
+@Serializable
+data class PushDevice(val platform: String, val token: String, val p256dh: String? = null, val auth: String? = null)
+
+@Serializable
+data class PushDeviceToken(val token: String)

@@ -9,6 +9,10 @@
     <!-- Convoy and ride recording keep running with the screen off: a foreground service of type location.
          ACCESS_BACKGROUND_LOCATION is only requested at runtime, after a rationale screen, once a convoy or ride is on. -->
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <!-- Notifications without Google services: "Stay connected" keeps our socket up in a foreground service. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -79,6 +83,29 @@
                 <data android:scheme="convoyage" android:host="auth" android:pathPrefix="/magic" />
             </intent-filter>
         </activity>
+
+        <!-- UnifiedPush: events from the distributor app (ntfy, NextPush, ...). -->
+        <service
+            android:name=".push.ConvoyPushService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="org.unifiedpush.android.connector.PUSH_EVENT" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".push.KeepAliveService"
+            android:exported="false"
+            android:foregroundServiceType="remoteMessaging" />
+
+        <receiver
+            android:name=".push.PushBootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <service
             android:name=".service.ConvoyService"

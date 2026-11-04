@@ -80,6 +80,10 @@ dependencies {
     implementation(libs.maplibre)
     implementation(libs.zxing.core)
     implementation(libs.livekit)
+    // Push without Google services (F-Droid): UnifiedPush distributors such as ntfy.
+    // Its Web Push decryption uses Tink; the Android flavour avoids full protobuf, which clashes with LiveKit's protobuf-lite.
+    implementation(libs.unifiedpush.connector) { exclude(group = "com.google.crypto.tink", module = "tink") }
+    implementation(libs.tink.android)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

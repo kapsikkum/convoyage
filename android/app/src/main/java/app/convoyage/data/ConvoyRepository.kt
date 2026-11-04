@@ -69,6 +69,11 @@ class ConvoyRepository(
     /** Every `hazard` frame from the socket (fed to [HazardRepository]). */
     val hazardMessages: SharedFlow<ServerMessage.HazardReported> = _hazards.asSharedFlow()
 
+    private val _notifications = MutableSharedFlow<ServerMessage.Notify>(extraBufferCapacity = 32)
+
+    /** `notify` frames: what would have been a push, delivered because this socket was open. */
+    val notifications: SharedFlow<ServerMessage.Notify> = _notifications.asSharedFlow()
+
     private val _localRoute = MutableStateFlow<LocalRoute?>(null)
 
     /** The road route the leader fetched itself for the current destination (used when the room carries no `routeGeometry`). */
@@ -112,6 +117,7 @@ class ConvoyRepository(
                         is SocketEvent.Received -> {
                             val m = event.message
                             if (m is ServerMessage.HazardReported) _hazards.tryEmit(m)
+                            if (m is ServerMessage.Notify) _notifications.tryEmit(m)
                             // The server forgets Open Cruise when the socket drops: say it again on every hello.
                             if (m is ServerMessage.Hello && wantOpenCruise) socket.send(ClientMessage.CruiseOpen(true))
                             _state.update { it.apply(m) }
@@ -148,6 +154,9 @@ class ConvoyRepository(
             }
         }
     }
+
+    /** A connection loop is running (connected, or retrying with backoff). */
+    val isConnecting: Boolean get() = connection?.isActive == true
 
     fun disconnect() {
         connection?.cancel()
@@ -366,6 +375,9 @@ class ConvoyRepository(
     }
 
     // ---- position publishing --------------------------------------------------------------------
+
+    /** At least one app screen is showing (so in-app banners cover SOS and hazards). */
+    val isOnScreen: Boolean get() = visibleCount > 0
 
     /** Screens call this when they become visible/hidden; positions are only sent while visible. */
     fun setVisible(visible: Boolean) {

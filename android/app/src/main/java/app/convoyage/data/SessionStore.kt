@@ -84,6 +84,18 @@ class SessionStore(context: Context) {
     /** Read other members' convoy messages aloud. */
     val convoyReadChat: StateFlow<Boolean> = _readChat.asStateFlow()
 
+    private val _pushMode = MutableStateFlow(
+        runCatching { app.convoyage.push.PushMode.valueOf(prefs.getString("pushMode", null)!!) }.getOrDefault(app.convoyage.push.PushMode.UnifiedPush),
+    )
+
+    /** How notifications reach this phone (no Google push on F-Droid). */
+    val pushMode: StateFlow<app.convoyage.push.PushMode> = _pushMode.asStateFlow()
+
+    fun setPushMode(mode: app.convoyage.push.PushMode) {
+        prefs.edit().putString("pushMode", mode.name).apply()
+        _pushMode.value = mode
+    }
+
     private val _openCruise = MutableStateFlow(prefs.getBoolean("openCruise", false))
     /** Open Cruise: show me to drivers nearby who have it on too. Off unless chosen. */
     val openCruise: StateFlow<Boolean> = _openCruise.asStateFlow()

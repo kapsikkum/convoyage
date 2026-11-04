@@ -39,6 +39,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import java.io.File
@@ -118,6 +119,13 @@ class AppContainer(private val context: Context) {
         preparePhoto = { ImageLoader.prepareForUpload(it, context.cacheDir) },
     )
 
+    /** Notifications without Google services: UnifiedPush, or our own socket kept alive. */
+    val push = app.convoyage.push.PushManager(
+        context, appScope, api,
+        mode = { session.pushMode.value },
+        signedIn = { session.kind.value == AuthKind.Account && tokenStore.tokens != null },
+    )
+
     /** The "Are you OK?" countdown after a detected (or, in debug builds, simulated) crash. */
     val crash = CrashAlertController(context, appScope, convoy, tracker, session)
 
@@ -134,6 +142,14 @@ class AppContainer(private val context: Context) {
 
     init {
         Notifications.ensureChannels(context)
+        appScope.launch {
+            convoy.notifications.collect { n ->
+                val type = n.data["type"]
+                if ((type == "sos" || type == "hazard") && convoy.isOnScreen) return@collect
+                Notifications.notice(context, n.title, n.body, n.data)
+            }
+        }
+        appScope.launch { session.pushMode.drop(1).collect { push.apply() } }
         appScope.launch {
             combine(convoy.state.map { it.activeCode != null }, recorder.state.map { it.isActive }, nav.state.map { it.isOn }) { a, b, c -> a || b || c }
                 .distinctUntilChanged()
@@ -177,9 +193,11 @@ class AppContainer(private val context: Context) {
         recorder.dismiss()
     }
 
-    /** (Re)connects the socket with the stored identity and server URL, if signed in. */
-    fun connectIfSignedIn() {
+    /** (Re)connects the socket with the stored identity and server URL, if signed in. [onlyIfDown]: leave a live connection be. */
+    fun connectIfSignedIn(onlyIfDown: Boolean = false) {
+        if (onlyIfDown && convoy.isConnecting) return
         val name = session.name.value ?: return
+        if (!onlyIfDown) push.apply()
         when (session.kind.value) {
             AuthKind.Account -> if (tokenStore.tokens != null) {
                 convoy.connect(session.serverUrl.value, SocketAuth.Account)
@@ -199,6 +217,7 @@ class AppContainer(private val context: Context) {
 
     /** Signs out on this device now; the server hears about it in the background. */
     fun signOut() {
+        push.signOut()
         convoy.disconnect()
         hazards.clear()
         clearAccountData()

@@ -82,6 +82,7 @@ data class ConvoyState(
 
         // Hazards are kept by HazardRepository, which is fed the same frames.
         is ServerMessage.HazardReported -> this
+        is ServerMessage.Notify -> this
 
         is ServerMessage.Status -> copy(
             statuses = statuses + (message.room to (statuses[message.room].orEmpty() +

@@ -179,6 +179,8 @@ fun SettingsScreen(onBack: () -> Unit) {
             CvChipToggle(if (auto) "On" else "Off", auto, { session.setAutoRecordConvoy(!auto) })
         }
 
+        PushSettings()
+
         Eyebrow("SAFETY")
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f).padding(end = Space.s3)) {

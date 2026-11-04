@@ -302,6 +302,16 @@ class ConvoyApi(
         refresher.refresh(current.access) ?: current.access.takeIf { !force && !Jwt.expiresWithin(it, 0) }
     }
 
+    // ---- push devices ----------------------------------------------------------------------------
+
+    /** Registers this device for notifications: a UnifiedPush endpoint and its Web Push keys. Idempotent. */
+    suspend fun registerPushDevice(device: PushDevice): ApiResult<OkBody> =
+        send("POST", "v1/me/devices", ApiJson.encodeToString(PushDevice.serializer(), device), OkBody.serializer())
+
+    /** Stops notifications to [token] (signed out, or notifications turned off). */
+    suspend fun forgetPushDevice(token: String): ApiResult<OkBody> =
+        send("DELETE", "v1/me/devices", ApiJson.encodeToString(PushDeviceToken.serializer(), PushDeviceToken(token)), OkBody.serializer())
+
     // ---- plumbing --------------------------------------------------------------------------------
 
     private fun url(path: String, query: Map<String, String>): HttpUrl? =
