@@ -1,5 +1,8 @@
 package app.convoyage.ui
 
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -226,6 +229,7 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
                     )
                 }
             }
+            if (room != null) MemberChips(ui.roster.filter { !it.isMe })
             if (!permission.granted) {
                 Banner(
                     BannerTone.Hazard, "Location is off", sub = "Allow location so the convoy can see you.",
@@ -272,7 +276,6 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
             local.pendingDest?.let { p -> PendingDestinationCard(p, onConfirm = vm::confirmDestination, onCancel = vm::cancelPendingDestination) }
             Row(horizontalArrangement = Arrangement.spacedBy(Space.s2)) {
                 CvChipToggle("3D", local.buildings3d, vm::toggle3d)
-                if (room != null) CvChipToggle("Ride HUD", false, onRide)
                 if (rec.isActive) CvChipToggle("REC ${Fmt.clock(rec.elapsedS)}${if (rec.isPaused) " II" else ""}", true, { showRecord = true })
                 // TODO(layers): SPOTS / EVENTS / WAZE overlays are not in this version.
             }
@@ -286,18 +289,18 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
             modifier = Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = peekPad + Space.s3),
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(Space.s2), horizontalAlignment = Alignment.CenterHorizontally) {
-                RailButton(CvIcons.Locate, "Recentre on me", "ME", vm::recenter, tint = if (local.follow) c.signal else c.ink)
                 val everyone = ui.roster.mapNotNull { e -> if (!e.isMe && e.lat != null && e.lng != null) LatLng(e.lat, e.lng) else null } +
                     listOfNotNull(ui.fix?.let { LatLng(it.lat, it.lng) }, room?.destination?.let { LatLng(it.lat, it.lng) })
                 if (room != null && everyone.size >= 2) {
-                    RailButton(CvIcons.Convoy, "Show everyone", "ALL", { vm.userMovedMap(); fitAll = everyone.toList() }, tint = if (fitAll.isNotEmpty()) c.signal else c.ink)
+                    CvIconButton(CvIcons.Convoy, "Show everyone", { vm.userMovedMap(); fitAll = everyone.toList() }, tint = if (fitAll.isNotEmpty()) c.signal else c.ink)
                 }
-                RailButton(CvIcons.Alert, "Report hazard", "REPORT", onReport, tint = c.hazard, edge = c.hazard)
-                RailButton(
-                    CvIcons.Rec, if (rec.isActive) "Recording controls" else "Record a ride", if (rec.isActive) "REC" else "RECORD", { showRecord = true },
-                    tint = if (rec.isActive) c.pulse else c.ink, edge = if (rec.isActive) c.pulse else c.lineStrong,
-                )
-                RailButton(CvIcons.Camera, "Take a photo", "PHOTO", { capture.shoot(rec.isActive) }, tint = c.signal, edge = c.signal)
+                CvIconButton(CvIcons.Alert, "Report hazard", onReport, tint = c.hazard, edge = c.hazard)
+                if (room == null) CvIconButton(CvIcons.Locate, "Recentre on me", vm::recenter, tint = if (local.follow) c.signal else c.ink)
+                // Hold to talk: big and round, where a thumb rests while driving.
+                if (room != null) {
+                    val ptt = rememberPtt()
+                    PushToTalk(state = ptt.state, size = 88.dp, caption = ptt.caption, onPress = ptt.onPress, onRelease = ptt.onRelease)
+                }
             }
         }
 
@@ -328,7 +331,10 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
                 val tabs = buildList { add(SheetTab.Roster); add(SheetTab.Chat); if (ui.isLeader) add(SheetTab.Lead) }
                 val tab = tabs.getOrElse(tabIndex) { SheetTab.Roster }
                 ConvoyHeader(
-                    ui = ui, copied = copied, ptt = rememberPtt(),
+                    ui = ui, copied = copied, expanded = expanded,
+                    etaMs = navState.etaMs.takeIf { navState.phase.guiding() },
+                    recActive = rec.isActive,
+                    onRecord = { showRecord = true }, onPhoto = { capture.shoot(rec.isActive) }, onRide = onRide,
                     onCopy = { copyInvite(context, room.code); copied = true },
                     onShare = { shareInvite(context, room.code, room.name) },
                     onQr = { showQr = true },
@@ -436,45 +442,92 @@ private fun PendingDestinationCard(p: PendingDest, onConfirm: (String) -> Unit, 
     }
 }
 
-/** The always-visible top of the in-convoy sheet: name, online count, code and actions, and the push-to-talk button. */
+/**
+ * The always-visible top of the in-convoy sheet, one compact line: name, ETA, who is online, the code, and chat with
+ * its unread count. Pulled up, it adds sharing, QR, recording, a photo and the Ride HUD.
+ */
 @Composable
 private fun ConvoyHeader(
     ui: ConvoyUi,
     copied: Boolean,
-    ptt: PttControl,
+    expanded: Boolean,
+    etaMs: Long?,
+    recActive: Boolean,
     onCopy: () -> Unit,
     onShare: () -> Unit,
     onQr: () -> Unit,
     onChat: () -> Unit,
+    onRecord: () -> Unit,
+    onPhoto: () -> Unit,
+    onRide: () -> Unit,
 ) {
     val c = Cv.colors
     val room = ui.room ?: return
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.s3), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            CvText(room.name.ifBlank { "Convoy" }, Cv.type.title, c.ink, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-            Eyebrow("${ui.onlineCount} ONLINE · ${ui.roster.size} IN CONVOY · SPREAD ${Geo.formatDistance(ui.spreadM).uppercase()}")
-            Row(horizontalArrangement = Arrangement.spacedBy(Space.s2), verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier
-                        .cutPanel(c.surface200, if (copied) c.go else c.lineStrong, CutSShape)
-                        .clickable(role = Role.Button, onClick = onCopy)
-                        .semantics { contentDescription = "Copy invite code ${room.code}" }
-                        .padding(horizontal = Space.s2, vertical = 6.dp),
-                ) { CvText(if (copied) "COPIED" else room.code, Cv.type.telemetry, if (copied) c.go else c.signal, maxLines = 1) }
-                CvIconButton(CvIcons.Share, "Share invite", onShare, size = 40.dp)
-                CvIconButton(CvIcons.Qr, "Show QR code", onQr, size = 40.dp)
-                Box {
-                    CvIconButton(CvIcons.Comment, "Open chat", onChat, size = 40.dp, tint = if (ui.unread > 0) c.signal else c.ink, edge = if (ui.unread > 0) c.signal else c.lineStrong)
-                    if (ui.unread > 0) {
-                        Box(
-                            Modifier.align(Alignment.TopEnd).size(18.dp).cutPanel(c.pulse, c.pulse, CutSShape),
-                            contentAlignment = Alignment.Center,
-                        ) { CvText(ui.unread.coerceAtMost(9).toString() + if (ui.unread > 9) "+" else "", Cv.type.label.copy(fontSize = 9.sp, lineHeight = 10.sp), c.pulseInk) }
-                    }
+    Column(verticalArrangement = Arrangement.spacedBy(Space.s2)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.s3), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                CvText(room.name.ifBlank { "Convoy" }, Cv.type.title, c.ink, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                Row(horizontalArrangement = Arrangement.spacedBy(Space.s2), verticalAlignment = Alignment.CenterVertically) {
+                    Eyebrow(listOfNotNull(etaMs?.let { "ETA ${Fmt.clockOfDay(it)}" }, "${ui.onlineCount} ONLINE").joinToString(" · "))
+                    Box(
+                        Modifier
+                            .cutPanel(c.surface200, if (copied) c.go else c.lineStrong, CutSShape)
+                            .clickable(role = Role.Button, onClick = onCopy)
+                            .semantics { contentDescription = "Copy invite code ${room.code}" }
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                    ) { CvText(if (copied) "COPIED" else room.code, Cv.type.telemetry, if (copied) c.go else c.signal, maxLines = 1) }
+                }
+            }
+            Box {
+                CvIconButton(CvIcons.Comment, "Open chat", onChat, tint = if (ui.unread > 0) c.signal else c.ink, edge = if (ui.unread > 0) c.signal else c.lineStrong)
+                if (ui.unread > 0) {
+                    Box(
+                        Modifier.align(Alignment.TopEnd).size(18.dp).cutPanel(c.pulse, c.pulse, CutSShape),
+                        contentAlignment = Alignment.Center,
+                    ) { CvText(ui.unread.coerceAtMost(9).toString() + if (ui.unread > 9) "+" else "", Cv.type.label.copy(fontSize = 9.sp, lineHeight = 10.sp), c.pulseInk) }
                 }
             }
         }
-        PushToTalk(state = ptt.state, size = 64.dp, caption = ptt.caption, onPress = ptt.onPress, onRelease = ptt.onRelease)
+        if (expanded) {
+            Row(horizontalArrangement = Arrangement.spacedBy(Space.s2), verticalAlignment = Alignment.CenterVertically) {
+                CvIconButton(CvIcons.Share, "Share invite", onShare, size = 40.dp)
+                CvIconButton(CvIcons.Qr, "Show QR code", onQr, size = 40.dp)
+                CvIconButton(CvIcons.Rec, if (recActive) "Recording controls" else "Record a ride", onRecord, size = 40.dp, tint = if (recActive) c.pulse else c.ink, edge = if (recActive) c.pulse else c.lineStrong)
+                CvIconButton(CvIcons.Camera, "Take a photo", onPhoto, size = 40.dp)
+                Spacer(Modifier.weight(1f))
+                CvChipToggle("Ride HUD", false, onRide)
+            }
+        }
+    }
+}
+
+/** Everyone else at a glance under the turn card: initials and how far, STOP when they have stopped. */
+@Composable
+private fun MemberChips(others: List<app.convoyage.data.RosterEntry>) {
+    if (others.isEmpty()) return
+    val c = Cv.colors
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Space.s2)) {
+        others.forEach { e ->
+            val tone = when (e.state) {
+                MemberState.Stopped -> c.pulse
+                MemberState.Offline -> c.inkMuted
+                MemberState.Lead -> c.lead
+                MemberState.Online -> c.go
+            }
+            val what = when {
+                e.state == MemberState.Stopped -> "STOP"
+                e.state == MemberState.Offline -> "OFF"
+                e.distanceM != null -> Geo.formatDistance(e.distanceM).uppercase()
+                else -> "--"
+            }
+            Row(
+                Modifier.cutPanel(c.surface100, tone, CutSShape).padding(horizontal = Space.s2, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CvText(e.initials, Cv.type.label, tone, maxLines = 1)
+                CvText(what, Cv.type.telemetry, c.ink, maxLines = 1)
+            }
+        }
     }
 }
 
