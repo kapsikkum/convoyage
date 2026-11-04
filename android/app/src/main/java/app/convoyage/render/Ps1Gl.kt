@@ -96,8 +96,8 @@ object Ps1Camera {
     const val ELEVATION = 0.3f
 
     /** Distance at which ps1.html frames its car (12.2) scaled to the vehicle's size, and backed off for tall, narrow views. */
-    fun distance(kind: Ps1Kind, aspect: Float, zoom: Float = 1f): Float =
-        12.2f * Ps1Models.frame(kind).fitRadius / 3.6f * max(1f, 1.43f / aspect) / zoom
+    fun distance(body: Ps1Body, aspect: Float, zoom: Float = 1f): Float =
+        12.2f * Ps1Models.frame(body).fitRadius / 3.6f * max(1f, 1.43f / aspect) / zoom
 
     /** Eye height above the look-at point (ps1.html: sin(elevation) * distance + 0.4 against a target at 0.35). */
     fun eyeY(distance: Float, lookY: Float): Float = kotlin.math.sin(ELEVATION) * distance + lookY + 0.05f
@@ -148,7 +148,7 @@ class Ps1Gl {
     private var meshKey: String? = null
     private var rimId: String? = null
     private var look = Ps1Look.of(Ps1Finish.Gloss, 0)
-    private var kind = Ps1Kind.Car
+    private var body = Ps1Body.Sedan
 
     private val proj = FloatArray(16)
     private val view = FloatArray(16)
@@ -187,7 +187,7 @@ class Ps1Gl {
     fun setSpec(spec: Ps1Spec) {
         val key = spec.key()
         look = Ps1Look.of(spec.finish, spec.paint)
-        kind = spec.kind
+        body = spec.body
         if (key == meshKey) return
         meshKey = key
         val m = Ps1Models.build(spec)
@@ -218,9 +218,9 @@ class Ps1Gl {
         GLES30.glDisable(GLES30.GL_CULL_FACE)
         GLES30.glDisable(GLES30.GL_BLEND)
 
-        val frame = Ps1Models.frame(kind)
+        val frame = Ps1Models.frame(body)
         val aspect = w / h.toFloat()
-        val dist = Ps1Camera.distance(kind, aspect, zoom)
+        val dist = Ps1Camera.distance(body, aspect, zoom)
         if (topDown) {
             // Straight down with the nose (+x) at the top of the image, orthographic so it reads as a plan view.
             val halfH = frame.fitRadius * 1.02f
@@ -269,7 +269,7 @@ class Ps1Gl {
         GLES30.glEnable(GLES30.GL_DEPTH_TEST)
         GLES30.glDisable(GLES30.GL_CULL_FACE)
         GLES30.glDisable(GLES30.GL_BLEND)
-        val frame = Ps1Models.frame(kind)
+        val frame = Ps1Models.frame(body)
         val half = frame.fitRadius * 1.0f
         Matrix.orthoM(proj, 0, -half, half, -half, half, 1f, 80f)
         val e = Math.toRadians(elevationDeg.toDouble())

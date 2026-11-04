@@ -1,5 +1,7 @@
 package app.convoyage.ui
 
+import app.convoyage.design.CutMShape
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -187,6 +189,7 @@ fun GarageDetailScreen(vehicleId: String, onBack: () -> Unit, onEdit: (String) -
             Column(Modifier.padding(Space.s4), verticalArrangement = Arrangement.spacedBy(Space.s3)) {
                 BuildLine("Paint", VehicleOptions.paintName(v.build.paint) + (v.build.paint?.let { "  $it" } ?: ""))
                 BuildLine("Finish", v.build.finish?.replaceFirstChar { it.uppercase() } ?: "Stock")
+                BuildLine("Body", app.convoyage.render.Ps1Body.of(v.build.body, app.convoyage.render.Ps1Kind.of(v.kind)).label)
                 BuildLine("Wheels", VehicleOptions.wheelLabel(v.build.wheel))
                 BuildLine("Ride height", v.build.rideHeightMm?.let { (if (it > 0) "+" else "") + "$it mm" } ?: "Stock")
                 BuildLine("Decals", BuildText.textOf(v.build).ifBlank { "None" })
@@ -264,17 +267,36 @@ private fun VehicleForm(existing: Vehicle?, onDone: () -> Unit) {
     var finish by rememberSaveable { mutableStateOf(existing?.build?.finish ?: "gloss") }
     var wheel by rememberSaveable { mutableStateOf(existing?.build?.wheel ?: "stock") }
     var height by rememberSaveable { mutableIntStateOf(existing?.build?.rideHeightMm ?: 0) }
+    var body by rememberSaveable { mutableStateOf(existing?.build?.body) }
+    val bodyNow = app.convoyage.render.Ps1Body.of(body, app.convoyage.render.Ps1Kind.of(kind))
     var decals by rememberSaveable { mutableStateOf(existing?.build?.let(BuildText::textOf) ?: "") }
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
-    VehicleViewport(Ps1Spec.of(kind, paint, finish, wheel, height), Modifier.fillMaxWidth().height(220.dp), live = true, caption = finish.uppercase())
+    VehicleViewport(Ps1Spec.of(kind, paint, finish, wheel, height, bodyNow.wire), Modifier.fillMaxWidth().height(220.dp), live = true, caption = finish.uppercase())
 
     Eyebrow("TYPE")
     Segmented(
         listOf(SegOption("Car", CvIcons.Car), SegOption("Bike", CvIcons.Bike), SegOption("Ute", CvIcons.Ute), SegOption("4WD", CvIcons.Fourwd)),
         VehicleOptions.KINDS.indexOf(kind).coerceAtLeast(0), { kind = VehicleOptions.KINDS[it] }, Modifier.fillMaxWidth(),
     )
+
+    Eyebrow("BODY · ${bodyNow.label.uppercase()}")
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Space.s2)) {
+        app.convoyage.render.Ps1Body.forKind(app.convoyage.render.Ps1Kind.of(kind)).forEach { b ->
+            val on = b == bodyNow
+            Column(
+                Modifier.width(112.dp).cutPanel(if (on) c.surface300 else c.surface200, if (on) c.signal else c.line, CutMShape)
+                    .clickable(role = androidx.compose.ui.semantics.Role.RadioButton) { body = b.wire }
+                    .semantics { contentDescription = b.label }
+                    .padding(Space.s1),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Ps1Thumb(Ps1Spec.of(kind, paint, finish, wheel, height, b.wire), app.convoyage.render.ThumbSize.Card, Modifier.fillMaxWidth().height(70.dp))
+                CvText(b.label, Cv.type.label, if (on) c.signal else c.ink, maxLines = 1)
+            }
+        }
+    }
 
     CvTextField(make, { make = it.take(60) }, "Make", placeholder = "Toyota")
     CvTextField(model, { model = it.take(60) }, "Model", placeholder = "GR Yaris")
@@ -327,7 +349,7 @@ private fun VehicleForm(existing: Vehicle?, onDone: () -> Unit) {
         {
             saving = true
             error = null
-            val build = Build(paint = paint, finish = finish, wheel = wheel, rideHeightMm = height, decals = BuildText.decalsOf(decals))
+            val build = Build(paint = paint, finish = finish, wheel = wheel, rideHeightMm = height, decals = BuildText.decalsOf(decals), body = bodyNow.wire)
             val yearInt = year.toIntOrNull()?.takeIf { it in 1885..2028 }
             scope.launch {
                 val r = if (existing == null) {

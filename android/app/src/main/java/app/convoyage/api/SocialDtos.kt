@@ -22,6 +22,8 @@ data class Build(
     val wheel: String? = null,
     val rideHeightMm: Int? = null,
     val decals: List<Decal>? = null,
+    /** Body style (see Ps1Body); null = the kind's default. */
+    val body: String? = null,
 )
 
 @Serializable

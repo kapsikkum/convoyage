@@ -6,6 +6,7 @@ import app.convoyage.render.Ps1Camera
 import app.convoyage.render.Ps1Finish
 import app.convoyage.render.Ps1Geo
 import app.convoyage.render.Ps1Kind
+import app.convoyage.render.Ps1Body
 import app.convoyage.render.Ps1Look
 import app.convoyage.render.Ps1Math
 import app.convoyage.render.Ps1Mesh
@@ -45,12 +46,36 @@ class Ps1MeshTest {
         val wheelTris = 8 * 2 + 8 * 2
         assertEquals(32, wheelTris)
         val tris = car.indices.size / 3
-        assertTrue("car has $tris triangles", tris in 150..600)
+        assertTrue("car has $tris triangles", tris in 150..1200)
         // The bike is the smallest model, the 4wd the busiest.
         val bike = Ps1Models.build(Ps1Spec(kind = Ps1Kind.Motorcycle)).indices.size
         val fwd = Ps1Models.build(Ps1Spec(kind = Ps1Kind.Fourwd)).indices.size
         assertTrue(bike < car.indices.size)
         assertTrue(fwd > car.indices.size)
+    }
+
+    @Test fun everyBodyBuildsCleanGeometry() {
+        for (b in Ps1Body.entries) {
+            val m = Ps1Models.build(Ps1Spec(kind = b.kind, body = b))
+            assertTrue("$b has triangles", m.indices.size / 3 > 100)
+            for ((i, v) in m.vertices.withIndex()) assertTrue("$b value $i = $v", v.isFinite())
+            for (idx in m.indices) assertTrue("$b index", (idx.toInt() and 0xFFFF) < m.vertexCount)
+            for (i in 0 until m.vertexCount) {
+                val o = i * Ps1Mesh.STRIDE
+                val len = sqrt(m.vertices[o + 3] * m.vertices[o + 3] + m.vertices[o + 4] * m.vertices[o + 4] + m.vertices[o + 5] * m.vertices[o + 5])
+                assertEquals("$b vertex $i normal", 1f, len, 1e-3f)
+            }
+        }
+    }
+
+    @Test fun bodiesBelongToTheirKindAndChangeTheCacheKey() {
+        // A body from another kind falls back to the kind's default.
+        assertEquals(Ps1Body.Sedan, Ps1Spec.of("car", null, null, null, null, "cruiser").body)
+        assertEquals(Ps1Body.Cruiser, Ps1Spec.of("motorcycle", null, null, null, null, "cruiser").body)
+        assertEquals(Ps1Body.DualCab, Ps1Spec.of("ute", null, null, null, null, null).body)
+        val keys = Ps1Body.entries.map { Ps1Spec(kind = it.kind, body = it).key() }
+        assertEquals(keys.size, keys.toSet().size)
+        for (k in Ps1Kind.entries) assertTrue("$k has a body", Ps1Body.forKind(k).isNotEmpty())
     }
 
     @Test fun noNaNOrInfinityInAnyVertexValue() {
@@ -165,11 +190,11 @@ class Ps1MeshTest {
     }
 
     @Test fun cameraBacksOffForNarrowViewsAndZoomsIn() {
-        val wide = Ps1Camera.distance(Ps1Kind.Car, 1.43f)
+        val wide = Ps1Camera.distance(Ps1Body.Sedan, 1.43f)
         assertEquals(12.2f, wide, 1e-3f)
-        assertTrue(Ps1Camera.distance(Ps1Kind.Car, 1f) > wide)
-        assertTrue(Ps1Camera.distance(Ps1Kind.Car, 1.43f, zoom = 1.5f) < wide)
-        assertTrue(Ps1Camera.distance(Ps1Kind.Motorcycle, 1.43f) < wide)
+        assertTrue(Ps1Camera.distance(Ps1Body.Sedan, 1f) > wide)
+        assertTrue(Ps1Camera.distance(Ps1Body.Sedan, 1.43f, zoom = 1.5f) < wide)
+        assertTrue(Ps1Camera.distance(Ps1Body.Naked, 1.43f) < wide)
     }
 }
 

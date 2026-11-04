@@ -24,7 +24,7 @@ import app.convoyage.render.Ps1SurfaceView
 import app.convoyage.render.ThumbSize
 
 fun Ps1Spec.Companion.of(kind: String?, build: Build?): Ps1Spec =
-    of(kind, build?.paint, build?.finish, build?.wheel, build?.rideHeightMm)
+    of(kind, build?.paint, build?.finish, build?.wheel, build?.rideHeightMm, build?.body)
 
 fun Vehicle.ps1() = Ps1Spec.of(kind, build)
 
