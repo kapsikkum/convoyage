@@ -71,6 +71,8 @@ class ConvoyApi(
 ) : HazardApi, RideApi, FeedApi, RouteApi {
     val refresher = TokenRefresher(tokens, client, baseUrl, onSessionLost)
     private val http: OkHttpClient = client.newBuilder().authenticator(TokenAuthenticator(refresher)).build()
+    /** Route conditions wait on Waze scans and Overpass: up to ~30 s. */
+    private val slowHttp: OkHttpClient = http.newBuilder().readTimeout(70, TimeUnit.SECONDS).build()
     private val jsonType = "application/json".toMediaType()
 
     // ---- auth (no bearer) ----------------------------------------------------------------------
@@ -168,6 +170,26 @@ class ConvoyApi(
 
     suspend fun discoverRoutes(lat: Double, lng: Double, radiusKm: Int = 50): ApiResult<List<DiscoveredRoute>> =
         send("GET", "v1/routes/discover", null, ListSerializer(DiscoveredRoute.serializer()), query = mapOf("lat" to lat.toString(), "lng" to lng.toString(), "radiusKm" to radiusKm.toString()))
+
+    /** Traffic, weather, road quality and police along a saved route. [cachedOnly]: the saved snapshot, however old. */
+    suspend fun routeConditions(id: String, refresh: Boolean = false, cachedOnly: Boolean = false): ApiResult<RouteConditions> =
+        send(
+            "GET", "v1/routes/$id/conditions", null, RouteConditions.serializer(), slow = true,
+            query = buildMap { if (refresh) put("refresh", "true"); if (cachedOnly) put("cachedOnly", "true") },
+        )
+
+    /** The same for a line that is not saved (polyline precision 6). */
+    suspend fun conditions(geometry: String, durationS: Double?): ApiResult<RouteConditions> =
+        send("POST", "v1/conditions", ApiJson.encodeToString(ConditionsBody.serializer(), ConditionsBody(geometry, durationS)), RouteConditions.serializer(), slow = true)
+
+    /** Graded roads in a box as GeoJSON text (s, w, n, e; up to 0.15 degrees a side). */
+    suspend fun roads(south: Double, west: Double, north: Double, east: Double): ApiResult<String> {
+        val bbox = "%.5f,%.5f,%.5f,%.5f".format(java.util.Locale.ROOT, south, west, north, east)
+        return when (val r = send("GET", "v1/roads", null, kotlinx.serialization.json.JsonElement.serializer(), slow = true, query = mapOf("bbox" to bbox))) {
+            is ApiResult.Ok -> ApiResult.Ok(r.value.toString())
+            is ApiResult.Err -> r
+        }
+    }
 
     suspend fun photoscoutRoutes(): ApiResult<List<PsRoute>> =
         send("GET", "v1/photoscout/routes", null, ListSerializer(PsRoute.serializer()))
@@ -289,6 +311,7 @@ class ConvoyApi(
         query: Map<String, String> = emptyMap(),
         /** Replaces [payload] (a multipart upload). */
         body: RequestBody? = null,
+        slow: Boolean = false,
     ): ApiResult<R> = withContext(Dispatchers.IO) {
         val target = url(path, query) ?: return@withContext ApiResult.Err(0, "Server URL is not valid")
         val builder = Request.Builder().url(target).header("Accept", "application/json")
@@ -300,7 +323,7 @@ class ConvoyApi(
             builder.header("Authorization", "Bearer ${t.access}")
         }
         try {
-            http.newCall(builder.build()).execute().use { res ->
+            (if (slow) slowHttp else http).newCall(builder.build()).execute().use { res ->
                 val text = res.body.string()
                 if (!res.isSuccessful) {
                     ApiResult.Err(res.code, errorMessage(text, res.code))

@@ -83,6 +83,10 @@ fun ConvoyMap(
     onTap: ((LatLng) -> Unit)? = null,
     /** A road-following route; drawn instead of [route] when it has two or more points. */
     routeLine: List<LatLngD> = emptyList(),
+    /** The route in coloured pieces (road quality); wins over [routeLine] when not empty. */
+    routeSegments: List<Pair<List<LatLngD>, String>> = emptyList(),
+    /** Graded roads (GeoJSON from GET /v1/roads) drawn under the route, or null for none. */
+    roadQuality: String? = null,
     /** Navigation: while following, point the camera this way (degrees clockwise from north) and tilt it. Null = keep the bearing. */
     followBearing: Double? = null,
     /** Navigation: zoom level while following. Null = keep the current zoom (at least 14). */
@@ -200,9 +204,15 @@ fun ConvoyMap(
         MapNightStyle.setColliders(s, pins.map { it.lat to it.lng })
     }
 
-    LaunchedEffect(style, route, routeLine) {
+    LaunchedEffect(style, roadQuality) {
         val s = style ?: return@LaunchedEffect
-        if (routeLine.size >= 2) MapNightStyle.setRouteLine(s, routeLine) else MapNightStyle.setRoute(s, route)
+        MapNightStyle.setRoadQuality(s, roadQuality)
+    }
+
+    LaunchedEffect(style, route, routeLine, routeSegments) {
+        val s = style ?: return@LaunchedEffect
+        if (routeSegments.isNotEmpty()) MapNightStyle.setRouteSegments(s, routeSegments)
+        else if (routeLine.size >= 2) MapNightStyle.setRouteLine(s, routeLine) else MapNightStyle.setRoute(s, route)
     }
 
     LaunchedEffect(style, extrusions, buildings3d) {

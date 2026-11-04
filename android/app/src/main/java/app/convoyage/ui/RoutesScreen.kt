@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -231,10 +232,14 @@ private fun RouteDetailSheet(r: SavedRoute, onDismiss: () -> Unit, onDrive: () -
     var confirmDelete by remember { mutableStateOf(false) }
     val line = remember(r.id, r.updatedAt) { routeLineOf(r) }
     val inConvoy = convoy.active != null
+    val conditions = rememberRouteConditions(r.id)
 
     Box(Modifier.fillMaxSize().background(c.void.copy(alpha = 0.6f)).clickableNoRipple(onDismiss), contentAlignment = Alignment.BottomCenter) {
         CvSheet(Modifier.clickableNoRipple {}) {
-            Column(Modifier.padding(bottom = Space.s4), verticalArrangement = Arrangement.spacedBy(Space.s3)) {
+            Column(
+                Modifier.heightIn(max = 640.dp).verticalScroll(rememberScrollState()).padding(bottom = Space.s4),
+                verticalArrangement = Arrangement.spacedBy(Space.s3),
+            ) {
                 CvText(r.name, Cv.type.title, c.ink, maxLines = 2)
                 if (found != null) Eyebrow("BY @${found.owner.handle.uppercase()} · ${found.character.uppercase()}", color = characterColor(found.character))
                 CvText(routeStats(r), Cv.type.bodyS, c.inkMuted)
@@ -245,11 +250,13 @@ private fun RouteDetailSheet(r: SavedRoute, onDismiss: () -> Unit, onDrive: () -
                         line.firstOrNull()?.let { MapPinData("start", PinKind.Start, "Start", it.lat, it.lng) },
                         line.lastOrNull()?.takeIf { !r.isCircuit }?.let { MapPinData("end", PinKind.End, "Finish", it.lat, it.lng) },
                         r.staging?.let { MapPinData("staging", PinKind.Destination, "Staging", it.lat, it.lng) },
-                    ),
-                    me = null, route = emptyList(), routeLine = line, buildings3d = false, follow = false, recenterTick = 0,
+                    ) + conditionPins(conditions.value),
+                    me = null, route = emptyList(), routeLine = line, routeSegments = roadSegments(conditions.value),
+                    buildings3d = false, follow = false, recenterTick = 0,
                     onUserMoved = {}, fitTo = line.map { LatLng(it.lat, it.lng) } + listOfNotNull(r.staging?.let { LatLng(it.lat, it.lng) }),
                     interactive = false,
                 )
+                ConditionsCard(conditions)
                 error?.let { CvText(it, Cv.type.bodyS, c.pulse) }
                 CvButton(
                     if (inConvoy) "Share with the convoy" else "Drive as a convoy",
@@ -383,6 +390,25 @@ fun RouteBuilderScreen(onBack: () -> Unit, onSaved: () -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
     val me = remember { fix?.let { LatLng(it.lat, it.lng) } }
+    var showRoads by remember { mutableStateOf(false) }
+    var roadsGeo by remember { mutableStateOf<String?>(null) }
+    var roadsNote by remember { mutableStateOf<String?>(null) }
+    var viewport by remember { mutableStateOf<app.convoyage.data.Bbox?>(null) }
+
+    // Road quality under the map: graded OpenStreetMap roads for the view, once zoomed in far enough.
+    LaunchedEffect(showRoads, viewport) {
+        if (!showRoads) { roadsGeo = null; roadsNote = null; return@LaunchedEffect }
+        val v = viewport ?: return@LaunchedEffect
+        delay(600)
+        val h = v.north - v.south
+        val w = v.east - v.west
+        if (h > 0.15 || w > 0.15) { roadsNote = "Zoom in to see road surfaces."; return@LaunchedEffect }
+        roadsNote = "Loading road surfaces..."
+        when (val r = container.api.roads(v.south, v.west, v.north, v.east)) {
+            is ApiResult.Ok -> { roadsGeo = r.value; roadsNote = null }
+            is ApiResult.Err -> roadsNote = r.message
+        }
+    }
 
     // Snap to roads a moment after the last change.
     val key = waypoints.toList() to circuit
@@ -412,6 +438,8 @@ fun RouteBuilderScreen(onBack: () -> Unit, onSaved: () -> Unit) {
             } + listOfNotNull(staging?.let { MapPinData("staging", PinKind.Destination, "Staging", it.lat, it.lng) }),
             me = me, route = emptyList(), routeLine = line, buildings3d = false, follow = false, recenterTick = 0, onUserMoved = {},
             bottomPadding = 320.dp,
+            roadQuality = roadsGeo,
+            onViewport = { viewport = it },
             onTap = { ll ->
                 error = null
                 val p = LatLngD(ll.latitude, ll.longitude)
@@ -445,11 +473,26 @@ fun RouteBuilderScreen(onBack: () -> Unit, onSaved: () -> Unit) {
                     CvChipToggle(if (staging != null) "Staging set" else "Staging point", placingStaging || staging != null, {
                         if (staging != null && !placingStaging) staging = null else placingStaging = !placingStaging
                     })
+                    CvChipToggle("Road surface", showRoads, { showRoads = !showRoads })
                 }
+                roadsNote?.let { CvText(it, Cv.type.bodyS, c.inkMuted) }
+                val built = rememberLineConditions(road?.first, road?.second?.durationS)
+                built.value?.let { v ->
+                    CvText(
+                        listOfNotNull(
+                            "Traffic " + v.traffic.level,
+                            if (v.police.isEmpty()) "no police" else "${v.police.size} police",
+                            v.weather.points.firstOrNull()?.let { p -> p.label + (p.tempC?.let { t -> " ${Math.round(t)}°" } ?: "") },
+                            v.roads?.let { rq -> if (rq.unpavedKm > 0) "${rq.unpavedKm} km unsealed" else "sealed" },
+                        ).joinToString(" · "),
+                        Cv.type.bodyS, c.inkMuted,
+                    )
+                } ?: if (built.loading) CvText("Checking traffic, police and weather on this route...", Cv.type.bodyS, c.inkMuted) else Unit
                 if (followRoads && waypoints.size > MAX_SNAPPED) CvText("Over $MAX_SNAPPED points: the line is drawn straight between them.", Cv.type.bodyS, c.inkMuted)
                 error?.let { CvText(it, Cv.type.bodyS, c.pulse) }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.s2)) {
                     CvButton("Undo", { if (waypoints.isNotEmpty()) waypoints.removeAt(waypoints.size - 1) }, Modifier.weight(1f), CvButtonKind.Ghost, enabled = waypoints.isNotEmpty(), compact = true)
+                    CvButton("Reverse", { val rev = waypoints.toList().asReversed(); waypoints.clear(); waypoints.addAll(rev) }, Modifier.weight(1f), CvButtonKind.Ghost, enabled = waypoints.size >= 2, compact = true)
                     CvButton("Clear", { waypoints.clear(); staging = null }, Modifier.weight(1f), CvButtonKind.Ghost, enabled = waypoints.isNotEmpty() || staging != null, compact = true)
                     CvButton(if (saving) "Saving..." else "Save", {
                         saving = true

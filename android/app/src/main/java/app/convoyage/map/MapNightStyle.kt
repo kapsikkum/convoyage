@@ -70,6 +70,10 @@ object MapNightStyle {
 
     /** Route line: signal, 4 wide, with a 14 wide 16% halo. */
     const val ROUTE_COLOR = "#2de2e6"
+    const val ROADQ_SOURCE = "road-quality"
+    const val ROADQ_LAYER = "road-quality"
+    /** Road quality grades (OpenStreetMap surface/smoothness): go green, hazard amber, pulse magenta, muted grey. */
+    val GRADE_COLORS = mapOf("good" to "#46e08c", "fair" to "#ffb020", "poor" to "#ff3d8b", "unknown" to "#5d6b7c")
 
     const val MOOD_SOURCE = "mood"
     const val MOOD_LAYER = "mood"
@@ -285,9 +289,45 @@ object MapNightStyle {
         style.addLayer(
             LineLayer(ROUTE_LAYER, ROUTE_SOURCE).withProperties(
                 lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND),
-                lineColor(ROUTE_COLOR), lineWidth(4f),
+                // A segment can carry its own colour (road quality along a saved route); otherwise route cyan.
+                lineColor(org.maplibre.android.style.expressions.Expression.coalesce(
+                    org.maplibre.android.style.expressions.Expression.get("color"),
+                    org.maplibre.android.style.expressions.Expression.literal(ROUTE_COLOR),
+                )),
+                lineWidth(4f),
             ),
         )
+        // Road quality overlay sits under the route halo.
+        style.addSource(GeoJsonSource(ROADQ_SOURCE, FeatureCollection.fromFeatures(emptyList<Feature>())))
+        val grade = org.maplibre.android.style.expressions.Expression.match(
+            org.maplibre.android.style.expressions.Expression.get("grade"),
+            org.maplibre.android.style.expressions.Expression.literal(GRADE_COLORS.getValue("unknown")),
+            *GRADE_COLORS.filterKeys { it != "unknown" }.flatMap { (k, v) ->
+                listOf(org.maplibre.android.style.expressions.Expression.literal(k), org.maplibre.android.style.expressions.Expression.literal(v))
+            }.toTypedArray(),
+        )
+        style.addLayerBelow(
+            LineLayer(ROADQ_LAYER, ROADQ_SOURCE).withProperties(
+                lineCap(Property.LINE_CAP_ROUND), lineJoin(Property.LINE_JOIN_ROUND),
+                lineColor(grade), lineWidth(3f), lineOpacity(0.85f),
+            ),
+            ROUTE_HALO_LAYER,
+        )
+    }
+
+    /** The graded-roads layer: GeoJSON from GET /v1/roads, or null to clear it. */
+    fun setRoadQuality(style: Style, geojson: String?) {
+        val source = style.getSourceAs<GeoJsonSource>(ROADQ_SOURCE) ?: return
+        if (geojson.isNullOrBlank()) source.setGeoJson(FeatureCollection.fromFeatures(emptyList<Feature>()))
+        else runCatching { source.setGeoJson(FeatureCollection.fromJson(geojson)) }
+    }
+
+    /** The route drawn in coloured pieces (each [colorHex] like "#46e08c"). */
+    fun setRouteSegments(style: Style, segments: List<Pair<List<app.convoyage.data.LatLngD>, String>>) {
+        val source = style.getSourceAs<GeoJsonSource>(ROUTE_SOURCE) ?: return
+        source.setGeoJson(FeatureCollection.fromFeatures(segments.filter { it.first.size >= 2 }.map { (pts, color) ->
+            Feature.fromGeometry(LineString.fromLngLats(pts.map { Point.fromLngLat(it.lng, it.lat) })).also { it.addStringProperty("color", color) }
+        }))
     }
 
     /** Replaces the route polyline. [stops] are [lng, lat] pairs as in the protocol. */
