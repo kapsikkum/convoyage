@@ -1,6 +1,13 @@
 package app.convoyage.map
 
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.foundation.clickable
 import android.graphics.PointF
 import android.view.Gravity
@@ -116,6 +123,8 @@ fun ConvoyMap(
     var camTilt by remember { mutableStateOf(0f) }
     // The last view reported, so the follow camera's constant small moves do not re-run every layer's loading.
     var lastViewport by remember { mutableStateOf<Bbox?>(null) }
+    // Pin images already added to the style (a pin shows once its artwork is in).
+    var pinReady by remember(style) { mutableStateOf<Set<String>>(emptySet()) }
     // A pinch in progress: following pauses so the camera does not fight the fingers.
     var scaling by remember { mutableStateOf(false) }
     // The zoom the person pinched to while following; it wins over [followZoom] until they recentre.
@@ -126,6 +135,10 @@ fun ConvoyMap(
     val onLongPressNow by rememberUpdatedState(onLongPress)
     val onTapNow by rememberUpdatedState(onTap)
     val onPinTapNow by rememberUpdatedState(onPinTap)
+    val pinsNow by rememberUpdatedState(pins)
+    // When a pin last took a tap, so the map's own click for the same touch is ignored.
+    val pinTapAt = remember { java.util.concurrent.atomic.AtomicLong(0L) }
+    val tappableNow by rememberUpdatedState(tappable)
     val initial3d = remember { buildings3d }
     val buildings3dNow by rememberUpdatedState(buildings3d)
     val groundScope = androidx.compose.runtime.rememberCoroutineScope()
@@ -213,6 +226,8 @@ fun ConvoyMap(
                 handler != null
             }
             m.addOnMapClickListener { latLng ->
+                // A pin took this tap (see the pointer handler on the map box).
+                if (System.currentTimeMillis() - pinTapAt.get() < 600) return@addOnMapClickListener true
                 val handler = onTapNow
                 if (handler != null) handler(latLng)
                 handler != null
@@ -369,45 +384,76 @@ fun ConvoyMap(
         }
     }
 
-    Box(modifier.onSizeChanged { size = it }) {
+    LaunchedEffect(style, pins, pinReady) { style?.let { MapPins.set(it, pins, pinReady) } }
+
+    Box(
+        modifier.onSizeChanged { size = it }.pointerInput(Unit) {
+            // Taps on pins, hit-tested at the touched pixel by the map (the map's own click gives a lat/lng, and turning
+            // that back into a pixel misses over 3D terrain). Watches without consuming, so the map still pans.
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                val up = waitForUpOrCancellation(pass = PointerEventPass.Initial) ?: return@awaitEachGesture
+                if ((up.position - down.position).getDistance() > viewConfiguration.touchSlop) return@awaitEachGesture
+                val m = map ?: return@awaitEachGesture
+                val r = 16.dp.toPx()
+                val at = up.position
+                val hit = runCatching { m.queryRenderedFeatures(android.graphics.RectF(at.x - r, at.y - r, at.x + r, at.y + r), MapPins.LAYER) }.getOrNull()
+                    // A pin's image box is bigger than what is drawn: skip ones that do not take taps (your own marker).
+                    ?.mapNotNull { f -> f.getStringProperty(MapPins.ID)?.let { id -> pinsNow.firstOrNull { it.id == id } } }
+                    ?.firstOrNull { it.kind in tappableNow }
+                if (hit != null) { pinTapAt.set(System.currentTimeMillis()); onPinTapNow(hit) }
+            }
+        },
+    ) {
         AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
 
-        val m = map
-        if (m != null) {
-            val half = with(density) { 28.dp.toPx() }
-            val frame = remember { PinFrame() }
+        // Each pin's artwork is composed (never shown) and captured into the map style; the map draws it as a symbol,
+        // anchored to the ground in the same frame as the roads.
+        val s = style
+        if (s != null) {
             pins.forEach { pin ->
                 androidx.compose.runtime.key(pin.id) {
-                    MapPin(
-                        kind = pin.kind,
-                        label = pin.label,
-                        heading = pin.headingDeg?.let { (it - camBearing).toFloat() },
-                        tag = pin.tag,
-                        vehicle = pin.vehicle,
-                        tiltDeg = camTilt,
-                        modifier = Modifier.offset {
-                            // Read in layout: a camera frame re-places the pins without recomposing them.
-                            val t = tick
-                            if (frame.tick != t) { frame.tick = t; frame.nadir = if (buildings3d) TerrainCamera.nadir(m) else null }
-                            val ground = if (!buildings3d) null
-                                else if (pin.kind == PinKind.Me && ease.groundM > 0) ease.groundM
-                                else TerrainHeight.cached(pin.lat, pin.lng)
-                            val p: PointF = TerrainCamera.screen(m, LatLng(pin.lat, pin.lng), buildings3d, ground?.times(MapNightStyle.TERRAIN_EXAGGERATION), frame.nadir)
-                            // Well off screen: park it out of the way (still composed, never drawn in view).
-                            if (p.x < -200 || p.y < -200 || p.x > size.width + 200 || p.y > size.height + 200) IntOffset(-10_000, -10_000)
-                            else IntOffset((p.x - half).toInt(), (p.y - half).toInt())
-                        }.then(if (pin.kind in tappable) Modifier.clickable { onPinTapNow(pin) } else Modifier),
-                    )
+                    PinSprite(pin, camBearing, camTilt) { id, bmp ->
+                        if (s.isFullyLoaded) { s.addImage(id, bmp); if (id !in pinReady) pinReady = pinReady + id }
+                    }
                 }
             }
         }
     }
 }
 
-/** The nadir worked out once per camera frame for all the pins (plain fields: written during layout). */
-internal class PinFrame {
-    var tick = -1
-    var nadir: PointF? = null
+/**
+ * One pin's artwork, composed but not drawn on screen: whenever it draws, it is captured and handed to [onImage]
+ * as a bitmap for the map style (a vehicle sprite that loads later, a new heading, a new tag).
+ */
+@Composable
+private fun PinSprite(pin: MapPinData, bearing: Double, tilt: Float, onImage: (String, android.graphics.Bitmap) -> Unit) {
+    val layer = androidx.compose.ui.graphics.rememberGraphicsLayer()
+    val drawn = remember { kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED) }
+    val onImageNow by rememberUpdatedState(onImage)
+    LaunchedEffect(Unit) {
+        for (x in drawn) {
+            kotlinx.coroutines.delay(16)
+            runCatching { layer.toImageBitmap().asAndroidBitmap() }.getOrNull()?.let { onImageNow(MapPins.imageId(pin.id), it) }
+        }
+    }
+    // Children with their own layers (the sprite, the heading wedge) can change without this draw running: look again
+    // shortly after anything that changes the picture.
+    LaunchedEffect(pin.kind, pin.label, pin.tag, pin.vehicle, pin.headingDeg?.let { Math.round((it - bearing) / 3.0) }, Math.round(tilt / 5f)) {
+        repeat(4) { kotlinx.coroutines.delay(200L * (it + 1)); drawn.trySend(Unit) }
+    }
+    MapPin(
+        kind = pin.kind,
+        label = pin.label,
+        heading = pin.headingDeg?.let { (it - bearing).toFloat() },
+        tag = pin.tag,
+        vehicle = pin.vehicle,
+        tiltDeg = tilt,
+        modifier = Modifier.drawWithContent {
+            layer.record { this@drawWithContent.drawContent() }
+            drawn.trySend(Unit)
+        },
+    )
 }
 
 /** Camera easing state kept across follow updates (plain fields: writing it must not recompose the map). */
