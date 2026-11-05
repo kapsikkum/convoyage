@@ -2,7 +2,7 @@ import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { testServer, type Session, type TestServer } from './apiHelpers.js';
 import { encodePolyline } from '../src/api/polyline.js';
-import { gradeRoad, summariseRoads, waysFrom } from '../src/conditions/roads.js';
+import { gradeRoad, parseMaxspeed, summariseRoads, waysFrom } from '../src/conditions/roads.js';
 import { parseTfnsw } from '../src/conditions/tfnsw.js';
 import { parseWaze, snapBox, WazeHarvester } from '../src/conditions/waze.js';
 import { trafficLevel, trafficSummary, type ConditionItem } from '../src/conditions/conditions.js';
@@ -82,6 +82,18 @@ test('Waze: alerts outside the box or of unknown types are dropped; boxes snap t
   assert.equal(calls, 2, 'the second ask is served from the minute cache');
 });
 
+test('speed limits from maxspeed tags', () => {
+  assert.equal(parseMaxspeed('60'), 60);
+  assert.equal(parseMaxspeed('30 mph'), 48);
+  assert.equal(parseMaxspeed('80 km/h'), 80);
+  assert.equal(parseMaxspeed('AU:urban'), 50);
+  assert.equal(parseMaxspeed('AU:rural'), 100);
+  assert.equal(parseMaxspeed('signals'), null);
+  assert.equal(parseMaxspeed('none'), null);
+  assert.equal(parseMaxspeed(undefined), null);
+  assert.equal(parseMaxspeed('900'), null);
+});
+
 test('traffic level and summary', () => {
   assert.equal(trafficLevel([], 0), 'clear');
   assert.equal(trafficLevel([item('roadwork')], 0), 'light');
@@ -145,7 +157,7 @@ async function fakeFetch(url: string, init?: RequestInit): Promise<Response> {
     });
   }
   if (url.includes('overpass')) {
-    return Response.json({ elements: [{ type: 'way', id: 1, tags: { name: 'Mountain Straight', surface: 'asphalt', smoothness: 'good', highway: 'tertiary' }, geometry: lap.map(([lon, lat]) => ({ lat, lon })) }] });
+    return Response.json({ elements: [{ type: 'way', id: 1, tags: { name: 'Mountain Straight', surface: 'asphalt', smoothness: 'good', highway: 'tertiary', maxspeed: '60' }, geometry: lap.map(([lon, lat]) => ({ lat, lon })) }] });
   }
   return new Response('not faked', { status: 500 });
 }
@@ -201,11 +213,30 @@ test('road quality layer: GeoJSON per cell, cached; big boxes refused', async ()
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.equal(r.body.type, 'FeatureCollection');
   assert.equal(r.body.features[0].properties.grade, 'good');
+  assert.equal(r.body.features[0].properties.maxspeed, 60, 'the signed limit rides along');
   const before = asked.length;
   await t.req('GET', '/v1/roads?bbox=-33.45,149.55,-33.44,149.58', { token: a.token });
   assert.equal(asked.length, before, 'second ask is from the database');
   const big = await t.req('GET', '/v1/roads?bbox=-34,149,-33,150', { token: a.token });
   assert.equal(big.status, 400);
+});
+
+test('police and traffic on the map: Waze, TfNSW and reports in the box only; big boxes refused', async () => {
+  const rep = await t.req('POST', '/v1/hazards', { token: b.token, body: { kind: 'police', lat: -33.4450, lng: 149.5650 } });
+  assert.ok(rep.status === 201 || rep.status === 200, JSON.stringify(rep.body));
+  const r = await t.req('GET', '/v1/conditions/area?bbox=-33.46,149.55,-33.43,149.58', { token: a.token });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(r.body.sources, { tfnsw: 'ok', waze: 'ok' });
+  const ids = r.body.items.map((i: any) => i.id);
+  assert.ok(ids.includes('waze:p1') && ids.includes('waze:j1'), 'Waze police and jam');
+  assert.ok(!ids.includes('waze:far'), 'outside the box');
+  assert.ok(ids.includes('tfnsw:roadwork:1'), 'TfNSW roadworks');
+  assert.ok(r.body.items.some((i: any) => i.source === 'convoyage' && i.kind === 'police'), 'our own report');
+  assert.equal(r.body.items.find((i: any) => i.id === 'waze:p1').kind, 'camera');
+  const big = await t.req('GET', '/v1/conditions/area?bbox=-34,149,-33,150', { token: a.token });
+  assert.equal(big.status, 400);
+  const bad = await t.req('GET', '/v1/conditions/area?bbox=nope', { token: a.token });
+  assert.equal(bad.status, 400);
 });
 
 test('sources that are not configured say off', async () => {

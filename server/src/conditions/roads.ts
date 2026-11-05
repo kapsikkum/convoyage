@@ -34,7 +34,22 @@ export function gradeRoad(tags: Record<string, string>): Grade {
 }
 
 /** A graded way, stored compactly: grade, name, highway, surface, [lng, lat] line. */
-export interface Way { g: Grade; n: string; h: string; s: string; c: Pt[] }
+/** `m`: the signed speed limit in km/h, null when the way has none (missing on cells cached before limits). */
+export interface Way { g: Grade; n: string; h: string; s: string; m?: number | null; c: Pt[] }
+
+/** Pure. OSM `maxspeed` to km/h: "60", "60 mph", "AU:urban" (50), "AU:rural" (100); null for anything else. */
+export function parseMaxspeed(raw: string | undefined): number | null {
+  if (!raw) return null;
+  const v = raw.trim();
+  const n = /^(\d+(?:\.\d+)?)\s*(mph|km\/h|kmh)?$/i.exec(v);
+  if (n) {
+    const kmh = Number(n[1]) * (n[2]?.toLowerCase() === 'mph' ? 1.609344 : 1);
+    return kmh > 0 && kmh <= 160 ? Math.round(kmh) : null;
+  }
+  if (/^AU:urban$/i.test(v)) return 50;
+  if (/^AU:rural$/i.test(v)) return 100;
+  return null;
+}
 
 interface Element { type: string; id: number; geometry?: { lat: number; lon: number }[]; tags?: Record<string, string> }
 
@@ -43,7 +58,7 @@ export function waysFrom(elements: Element[]): Way[] {
   for (const e of elements) {
     if (e.type !== 'way' || !e.geometry || e.geometry.length < 2) continue;
     const t = e.tags ?? {};
-    out.push({ g: gradeRoad(t), n: t.name ?? t.ref ?? '', h: t.highway ?? '', s: t.surface ?? '', c: e.geometry.map((p): Pt => [p.lon, p.lat]) });
+    out.push({ g: gradeRoad(t), n: t.name ?? t.ref ?? '', h: t.highway ?? '', s: t.surface ?? '', m: parseMaxspeed(t.maxspeed), c: e.geometry.map((p): Pt => [p.lon, p.lat]) });
   }
   return out;
 }
@@ -203,14 +218,16 @@ export class RoadQuality {
       const key = `${c.minLat},${c.minLng}`;
       const hit = await this.db.selectFrom('road_cells').select(['ways', 'fetched_at']).where('cell', '=', key).executeTakeFirst();
       let ways: Way[];
-      if (hit && this.now() - new Date(hit.fetched_at).getTime() < ROADS_TTL_MS) ways = hit.ways as Way[];
+      // Cells cached before speed limits were kept have no `m` at all: fetch those again.
+      const cached = hit && this.now() - new Date(hit.fetched_at).getTime() < ROADS_TTL_MS ? (hit.ways as Way[]) : null;
+      if (cached && (cached.length === 0 || 'm' in cached[0])) ways = cached;
       else {
         ways = waysFrom(await this.overpass(`[out:json][timeout:60];way["highway"~"^(${HIGHWAYS})$"](${c.minLat},${c.minLng},${c.maxLat},${c.maxLng});out tags geom;`));
         const at = new Date(this.now()).toISOString();
         await this.db.insertInto('road_cells').values({ cell: key, fetched_at: at, ways: JSON.stringify(ways) })
           .onConflict((oc) => oc.column('cell').doUpdateSet({ fetched_at: at, ways: JSON.stringify(ways) })).execute();
       }
-      for (const w of ways) features.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: w.c }, properties: { grade: w.g, name: w.n, surface: w.s, highway: w.h } });
+      for (const w of ways) features.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: w.c }, properties: { grade: w.g, name: w.n, surface: w.s, highway: w.h, maxspeed: w.m ?? null } });
     }
     return { type: 'FeatureCollection', features };
   }

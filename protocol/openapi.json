@@ -7086,6 +7086,178 @@
         }
       }
     },
+    "/v1/conditions/area": {
+      "get": {
+        "summary": "Police, hazards and traffic on the map",
+        "tags": [
+          "routes"
+        ],
+        "description": "Police, speed cameras, hazards, crashes, jams, closures and roadworks in a box: TfNSW, Waze (self-hosted harvester, when set up) and Convoyage reports. Up to 0.3 degrees a side. A box Waze has not scanned yet answers with `sources.waze` = `pending`: ask again in a few seconds.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "bbox",
+            "required": true,
+            "description": "south,west,north,east"
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "items",
+                    "sources"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "id",
+                          "source",
+                          "kind",
+                          "title",
+                          "detail",
+                          "lat",
+                          "lng",
+                          "reportedAt"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "source": {
+                            "type": "string",
+                            "enum": [
+                              "tfnsw",
+                              "waze",
+                              "convoyage"
+                            ]
+                          },
+                          "kind": {
+                            "type": "string"
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "detail": {
+                            "type": "string"
+                          },
+                          "lat": {
+                            "type": "number"
+                          },
+                          "lng": {
+                            "type": "number"
+                          },
+                          "reportedAt": {
+                            "type": [
+                              "null",
+                              "string"
+                            ],
+                            "format": "date-time"
+                          }
+                        }
+                      }
+                    },
+                    "sources": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "tfnsw",
+                        "waze"
+                      ],
+                      "properties": {
+                        "tfnsw": {
+                          "type": "string"
+                        },
+                        "waze": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (also used when the viewer may not see the thing)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict with the current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/roads": {
       "get": {
         "summary": "Road quality on the map",

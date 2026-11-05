@@ -7,7 +7,7 @@ import type { Kysely } from 'kysely';
 import type { DB } from '../db/types.js';
 import type { Config } from '../config.js';
 import type { Fetch } from '../http.js';
-import { boxOf, inBox, RouteIndex, type Pt } from './line.js';
+import { boxOf, inBox, RouteIndex, type Box, type Pt } from './line.js';
 import { RoadQuality, type RoadSummary } from './roads.js';
 import { TfnswFeed, type TrafficItem } from './tfnsw.js';
 import { WazeHarvester, type WazeAlert } from './waze.js';
@@ -32,6 +32,18 @@ export interface ConditionItem {
   /** When it was reported, if known (ISO). */
   reportedAt: string | null;
 }
+
+/** Something on the map around you (not tied to a route). */
+export type AreaItem = Omit<ConditionItem, 'km'>;
+
+export interface AreaConditions {
+  items: AreaItem[];
+  /** `pending`: Waze is still scanning this area; ask again in a few seconds. */
+  sources: { tfnsw: SourceState; waze: SourceState };
+}
+
+/** Largest box (degrees a side) the area lookup covers. */
+export const AREA_MAX_DEG = 0.3;
 
 export interface RouteConditions {
   computedAt: string;
@@ -127,6 +139,57 @@ export class ConditionsService {
     this.tfnsw = config.tfnswApiKey ? new TfnswFeed(config.tfnswApiKey, fetcher, now) : null;
     this.waze = config.waze ? new WazeHarvester(config.waze.url, config.waze.key, fetcher, now) : null;
     this.weather = new RouteWeather(fetcher, now);
+  }
+
+  /**
+   * Police, cameras, hazards and traffic in a map box (the free-roaming map): TfNSW, Waze and our own reports. Waze
+   * gets [wazeBudgetMs]; a box it has not scanned yet comes back `pending` and fills in on a later ask.
+   */
+  async area(box: Box, opts: { wazeBudgetMs?: number } = {}): Promise<AreaConditions> {
+    const sources: AreaConditions['sources'] = { tfnsw: this.tfnsw ? 'ok' : 'off', waze: this.waze ? 'ok' : 'off' };
+    const tfnswP = (async (): Promise<AreaItem[]> => {
+      if (!this.tfnsw) return [];
+      try {
+        return (await this.tfnsw.all())
+          .filter((t) => inBox(box, [t.lng, t.lat]) || t.lines.some((l) => l.some((p) => inBox(box, p))))
+          .map((t) => {
+            const kind = t.closure && t.category !== 'roadwork' && t.category !== 'majorevent' ? 'closure' : TFNSW_KIND[t.category];
+            return {
+              id: `tfnsw:${t.id}`, source: 'tfnsw' as const, kind, title: t.title, lat: t.lat, lng: t.lng, reportedAt: null,
+              detail: [t.closure && kind !== 'closure' ? 'Road closed at times' : '', t.road, t.delayMin ? `Expect ${t.delayMin} min delays` : '', t.advice].filter(Boolean).join(' · '),
+            };
+          });
+      } catch (err) { sources.tfnsw = 'error'; this.onError('tfnsw', err); return []; }
+    })();
+    const wazeP = (async (): Promise<AreaItem[]> => {
+      if (!this.waze) return [];
+      const alerts = await this.waze.alerts(box, this.now() + (opts.wazeBudgetMs ?? 6_000));
+      if (!alerts) { sources.waze = 'pending'; return []; }
+      // The harvester answers for whole grid cells: keep what is in the asked box.
+      return alerts.filter((a) => inBox(box, [a.lng, a.lat])).map((a) => {
+        const kind = wazeKind(a);
+        return {
+          id: `waze:${a.id}`, source: 'waze' as const, kind, title: wazeTitle(a, kind), lat: a.lat, lng: a.lng,
+          detail: [a.street, a.city].filter(Boolean).join(', ') + (a.thumbsUp ? ` · ${a.thumbsUp} confirmed` : ''),
+          reportedAt: a.reportTime ? new Date(a.reportTime).toISOString() : null,
+        };
+      });
+    })();
+    const reportsP = (async (): Promise<AreaItem[]> => {
+      const rows = await this.db.selectFrom('hazard_reports').selectAll()
+        .where('removed_at', 'is', null).where('expires_at', '>', new Date(this.now()))
+        .where('lat', '>=', box.minLat).where('lat', '<=', box.maxLat).where('lng', '>=', box.minLng).where('lng', '<=', box.maxLng)
+        .limit(300).execute();
+      return rows.filter((r) => r.kind !== 'fuel' && r.kind !== 'rest').map((r) => {
+        const kind = r.kind === 'works' ? 'roadwork' : r.kind === 'police' && /camera/.test(r.subkind ?? '') ? 'camera' : r.kind;
+        return {
+          id: `convoyage:${r.id}`, source: 'convoyage' as const, kind, title: WAZE_TITLE[kind] ?? 'Hazard', lat: r.lat, lng: r.lng,
+          detail: (r.subkind ?? '').replace(/_/g, ' '), reportedAt: new Date(r.created_at).toISOString(),
+        };
+      });
+    })();
+    const [t, w, r] = await Promise.all([tfnswP, wazeP, reportsP]);
+    return { items: [...r, ...w, ...t], sources };
   }
 
   /** Everything at once. `durationS` spreads the weather over the drive; `withRoads` false skips road quality. */

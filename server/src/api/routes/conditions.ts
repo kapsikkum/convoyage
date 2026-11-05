@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { badRequest, notFound } from '../../errors.js';
 import { parseBbox } from '../../convoy/geo.js';
-import { ConditionsService, type RouteConditions } from '../../conditions/conditions.js';
+import { AREA_MAX_DEG, ConditionsService, type RouteConditions } from '../../conditions/conditions.js';
 import type { Pt } from '../../conditions/line.js';
 import { authenticate, visibleTo, type ApiContext } from '../common.js';
 import { limits } from '../limits.js';
@@ -94,6 +94,43 @@ export async function conditionsRoutes(app: FastifyInstance, ctx: ApiContext, se
       req.log.warn({ err }, 'stops failed');
       return reply.code(503).send({ statusCode: 503, error: 'Service Unavailable', message: 'Map data is not answering, try again soon' });
     }
+  });
+
+  app.get('/v1/conditions/area', {
+    ...auth,
+    schema: {
+      ...security, summary: 'Police, hazards and traffic on the map',
+      description: 'Police, speed cameras, hazards, crashes, jams, closures and roadworks in a box: TfNSW, Waze (self-hosted harvester, when set up) and Convoyage reports. Up to 0.3 degrees a side. A box Waze has not scanned yet answers with `sources.waze` = `pending`: ask again in a few seconds.',
+      querystring: { type: 'object', properties: { bbox: { type: 'string', description: 'south,west,north,east' } }, required: ['bbox'], additionalProperties: false },
+      response: {
+        200: {
+          type: 'object', additionalProperties: false, required: ['items', 'sources'],
+          properties: {
+            items: arrayOf({
+              type: 'object', additionalProperties: false, required: ['id', 'source', 'kind', 'title', 'detail', 'lat', 'lng', 'reportedAt'],
+              properties: {
+                id: { type: 'string' }, source: { type: 'string', enum: ['tfnsw', 'waze', 'convoyage'] }, kind: { type: 'string' },
+                title: { type: 'string' }, detail: { type: 'string' }, lat: { type: 'number' }, lng: { type: 'number' },
+                reportedAt: nullable({ type: 'string', format: 'date-time' }),
+              },
+            }),
+            sources: {
+              type: 'object', additionalProperties: false, required: ['tfnsw', 'waze'],
+              properties: { tfnsw: { type: 'string' }, waze: { type: 'string' } },
+            },
+          },
+        },
+        ...errorResponses,
+      },
+    },
+  }, async (req, reply) => {
+    let b;
+    try { b = parseBbox((req.query as { bbox: string }).bbox); } catch (err) { throw badRequest((err as Error).message); }
+    if (b.north <= b.south || b.east <= b.west) throw badRequest('bbox must be "south,west,north,east"');
+    if (b.north - b.south > AREA_MAX_DEG || b.east - b.west > AREA_MAX_DEG) throw badRequest('Zoom in: police and traffic cover up to 0.3 degrees at a time');
+    const out = await service.area({ minLat: b.south, minLng: b.west, maxLat: b.north, maxLng: b.east });
+    reply.header('cache-control', 'private, max-age=30');
+    return out;
   });
 
   app.get('/v1/roads', {
