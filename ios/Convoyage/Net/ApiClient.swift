@@ -297,6 +297,42 @@ final class ApiClient: @unchecked Sendable {
         return await send("POST", "/v1/reports", json: body, as: Empty.self)
     }
 
+    // MARK: PhotoScout
+
+    func photoscoutStatus() async -> ApiResult<PhotoScoutStatusDto> {
+        return await send("GET", "/v1/photoscout/status", as: PhotoScoutStatusDto.self)
+    }
+
+    /// The PhotoScout consent page to open in the browser; it comes back to `convoyage://photoscout/linked`.
+    func photoscoutConnect() async -> ApiResult<PhotoScoutAuthorizeDto> {
+        return await send("GET", "/v1/photoscout/connect", as: PhotoScoutAuthorizeDto.self)
+    }
+
+    func photoscoutUnlink() async -> ApiResult<OkDto> {
+        return await send("DELETE", "/v1/photoscout/link", as: OkDto.self)
+    }
+
+    func photoscoutSpots(box: GeoBox) async -> ApiResult<[PsSpot]> {
+        return await send("GET", "/v1/photoscout/spots", query: [URLQueryItem(name: "bbox", value: box.param())], as: [PsSpot].self)
+    }
+
+    /// Upcoming events within `radiusKm` of a point, soonest first.
+    func photoscoutEvents(lat: Double, lng: Double, radiusKm: Double) async -> ApiResult<[PsEvent]> {
+        let q: [URLQueryItem] = [
+            URLQueryItem(name: "near", value: String(format: "%.5f,%.5f", lat, lng)),
+            URLQueryItem(name: "radiusKm", value: String(format: "%.0f", radiusKm))
+        ]
+        return await send("GET", "/v1/photoscout/events", query: q, as: [PsEvent].self)
+    }
+
+    /// `status` "going" or "interested" (community events: going only); nil takes the RSVP back.
+    func photoscoutRsvp(eventId: String, status: String?) async -> ApiResult<PsRsvpDto> {
+        var body: [String: Any] = ["going": false]
+        if let st = status { body = ["status": st] }
+        let id: String = eventId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? eventId
+        return await send("POST", "/v1/photoscout/events/\(id)/rsvp", json: body, as: PsRsvpDto.self)
+    }
+
     // MARK: Conditions around the map
 
     /// `GET /v1/conditions/area`: police, cameras, hazards and traffic in a box (up to 0.3 degrees a side).

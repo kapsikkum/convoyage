@@ -217,6 +217,11 @@ final class ConvoyViewModel {
                             regroup: AutomaticRegroup(enabled: regroupEnabled, separationM: sep)))
     }
 
+    /// Joins the convoy of a PhotoScout cruise event (the server opens it if nobody has yet).
+    func joinCruise(eventId: String) {
+        socket.send(.cruise(eventId: eventId))
+    }
+
     func joinConvoy(code: String) {
         socket.send(.join(code: Self.normalizeCode(code)))
     }

@@ -71,6 +71,8 @@ struct ProfileView: View {
                 Text("User id  \(app.userId)").font(CvFont.mono(11, weight: .medium)).foregroundStyle(theme.inkMuted)
             }
 
+            PhotoScoutSettings()
+
             CvButton(title: "Sign out", kind: .ghost) { app.signOut() }
         }
         .task {

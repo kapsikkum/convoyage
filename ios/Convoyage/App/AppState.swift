@@ -61,6 +61,15 @@ final class AppState {
     var layerTraffic: Bool = UserDefaults.standard.object(forKey: "layerTraffic") as? Bool ?? true {
         didSet { UserDefaults.standard.set(layerTraffic, forKey: "layerTraffic") }
     }
+    /// PhotoScout photo spots and events on the Drive map (once linked).
+    var layerSpots: Bool = UserDefaults.standard.bool(forKey: "layerSpots") {
+        didSet { UserDefaults.standard.set(layerSpots, forKey: "layerSpots") }
+    }
+    var layerEvents: Bool = UserDefaults.standard.bool(forKey: "layerEvents") {
+        didSet { UserDefaults.standard.set(layerEvents, forKey: "layerEvents") }
+    }
+    /// A short note after linking PhotoScout (shown as a banner on the map).
+    var photoscoutNote: String?
 
     let userId: String
     let tokens: TokenStore
@@ -78,6 +87,8 @@ final class AppState {
     let area: AreaConditionsStore
     /// The signed limit of the road you are on.
     let speedLimits: SpeedLimits
+    /// PhotoScout spots and events.
+    let photoscout: PhotoScoutLayers
 
     @ObservationIgnored private let defaults: UserDefaults = UserDefaults.standard
 
@@ -104,6 +115,7 @@ final class AppState {
         hazards = hazardStore
         area = AreaConditionsStore(api: client)
         speedLimits = SpeedLimits(api: client)
+        photoscout = PhotoScoutLayers(api: client)
         nav = NavigationSession(api: client, location: convoyModel.location, hazards: hazardStore)
         voice = VoiceChannel(api: client)
         recorder = recorderModel
@@ -221,10 +233,34 @@ final class AppState {
         }
     }
 
+    /// Back from PhotoScout's consent page: `convoyage://photoscout/linked` (or `?error=`). Linking means "show me",
+    /// so both layers go on, which is also what the note says.
+    private func handlePhotoScoutLinked(_ url: URL) {
+        let error: String? = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+            .first { (q: URLQueryItem) -> Bool in return q.name == "error" }?.value
+        tab = .convoy
+        Task {
+            await photoscout.refreshStatus()
+            if error == nil && photoscout.linked {
+                layerSpots = true
+                layerEvents = true
+                photoscoutNote = "PhotoScout linked: spots and events are on the map"
+            } else if error == "access_denied" {
+                photoscoutNote = "PhotoScout was not linked"
+            } else {
+                photoscoutNote = "Could not link PhotoScout" + (error.map { " (\($0))" } ?? "")
+            }
+        }
+    }
+
     /// The `convoyage://auth/magic?token=...` and `convoyage://join/<CODE>` deep links.
     func handleURL(_ url: URL) {
         if let code = AppState.joinCode(from: url) {
             handleJoinLink(code)
+            return
+        }
+        if url.scheme == "convoyage", url.host == "photoscout" {
+            handlePhotoScoutLinked(url)
             return
         }
         guard url.scheme == "convoyage", url.host == "auth" else { return }
@@ -433,6 +469,7 @@ final class AppState {
         hazards.clear()
         area.clear()
         speedLimits.clear()
+        photoscout.clear()
         garage.clear()
         feed.clear()
         me = nil

@@ -13,6 +13,10 @@ struct MapPin: Identifiable, Equatable {
         case police
         case destination
         case rest
+        /// A PhotoScout photo spot.
+        case spot
+        /// A PhotoScout event or cruise.
+        case event
     }
 
     let id: String
@@ -609,6 +613,12 @@ struct ConvoyMapView: UIViewRepresentable {
                 edge = theme.hazard
                 fill = theme.hazard
                 text = Color(hex: 0x05080d)
+            case .spot:
+                edge = theme.signal
+                text = theme.signal
+            case .event:
+                edge = theme.lead
+                text = theme.lead
             }
             view.apply(initials: ann.initials,
                        symbol: ann.symbol,

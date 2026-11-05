@@ -75,9 +75,9 @@ struct LayersSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             SectionLabel(text: "Map layers")
             let from: String = app.area.waze ? "Waze and Live Traffic NSW" : "Live Traffic NSW"
-            layerRow(title: "Police and traffic",
-                     sub: "Police, speed cameras, crashes, closures, roadworks and jams around you, from \(from). Tap one for details.",
-                     on: app.layerTraffic) {
+            LayerSwitchRow(title: "Police and traffic",
+                           sub: "Police, speed cameras, crashes, closures, roadworks and jams around you, from \(from). Tap one for details.",
+                           on: app.layerTraffic) {
                 app.layerTraffic.toggle()
             }
             if app.layerTraffic && app.area.scanning {
@@ -86,32 +86,12 @@ struct LayersSheet: View {
                     .tracking(1.0)
                     .foregroundStyle(theme.inkMuted)
             }
+            PhotoScoutLayerRows()
             Spacer(minLength: 0)
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(theme.surface100.ignoresSafeArea())
-    }
-
-    private func layerRow(title: String, sub: String, on: Bool, toggle: @escaping () -> Void) -> some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(CvFont.text(16, weight: .bold))
-                Text(sub).font(CvFont.text(13)).foregroundStyle(theme.inkMuted)
-            }
-            Spacer(minLength: 8)
-            Button(action: toggle) {
-                Text(on ? "ON" : "OFF")
-                    .font(CvFont.label(12))
-                    .tracking(1.2)
-                    .foregroundStyle(on ? theme.signalInk : theme.ink)
-                    .padding(.horizontal, 14)
-                    .frame(minHeight: 36)
-                    .cvPanel(fill: on ? theme.signal : theme.glass, edge: on ? theme.signal : theme.lineStrong, cut: Cut.s)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("\(title): \(on ? "on" : "off")")
-        }
     }
 }
 

@@ -207,6 +207,8 @@ enum ClientMessage {
     case pos(lat: Double, lng: Double, heading: Double?, speed: Double?)
     case create(name: String, regroup: AutomaticRegroup)
     case join(code: String)
+    /// Opens (or joins) the convoy of a PhotoScout cruise event.
+    case cruise(eventId: String)
     case leave(room: String)
     case destination(room: String, destination: Destination?)
     case rest(room: String, action: String)
@@ -233,6 +235,8 @@ enum ClientMessage {
             return ["t": "convoy.create", "name": name, "automaticRegroup": ["enabled": regroup.enabled, "separationM": regroup.separationM] as [String: Any]]
         case let .join(code):
             return ["t": "convoy.join", "code": code]
+        case let .cruise(eventId):
+            return ["t": "convoy.cruise", "eventId": eventId]
         case let .leave(room):
             return ["t": "convoy.leave", "room": room]
         case let .destination(room, destination):

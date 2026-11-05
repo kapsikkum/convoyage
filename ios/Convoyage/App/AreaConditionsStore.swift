@@ -101,7 +101,7 @@ final class AreaConditionsStore {
     }
 
     /// "POL", "CAM", "JAM"... the short word on the pin.
-    static func word(_ kind: String) -> String {
+    nonisolated static func word(_ kind: String) -> String {
         switch kind {
         case "police": return "POL"
         case "camera": return "CAM"

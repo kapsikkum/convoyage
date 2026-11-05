@@ -20,6 +20,8 @@ struct ConvoyView: View {
     @State private var follow: Bool = true
     @State private var showLayers: Bool = false
     @State private var openItem: ConditionItemDto?
+    @State private var openSpot: PsSpot?
+    @State private var openEvent: PsEvent?
 
     private static let headerHeight: CGFloat = 96
     private static let noConvoyHeight: CGFloat = 176
@@ -37,6 +39,15 @@ struct ConvoyView: View {
     private var areaPins: [MapPin] {
         guard app.layerTraffic else { return [] }
         return app.area.items.map { (i: ConditionItemDto) -> MapPin in return i.pin }
+    }
+
+    /// PhotoScout spots and events, when linked and switched on.
+    private var photoscoutPins: [MapPin] {
+        let ps: PhotoScoutLayers = app.photoscout
+        guard ps.available else { return [] }
+        let spots: [MapPin] = app.layerSpots ? ps.spots.map { (s: PsSpot) -> MapPin in return s.pin } : []
+        let events: [MapPin] = app.layerEvents ? ps.events.compactMap { (e: PsEvent) -> MapPin? in return e.pin } : []
+        return spots + events
     }
 
     /// Sheet detents for a screen this tall. The bottom `reserve` is where the floating tab bar sits.
@@ -67,12 +78,13 @@ struct ConvoyView: View {
             let railVisible: Bool = sheetH <= m.half + 30
 
             ZStack(alignment: .bottom) {
-                ConvoyMapView(pins: areaPins + hazardPins + vm.mapPins, is3D: is3D, recenterToken: recenter, theme: theme,
+                ConvoyMapView(pins: photoscoutPins + areaPins + hazardPins + vm.mapPins, is3D: is3D, recenterToken: recenter, theme: theme,
                               userCoordinate: vm.location.latest?.coordinate,
                               route: vm.mapRoute,
                               onViewport: { (box: GeoBox) in
                                   Task { await app.hazards.refresh(box: box) }
                                   app.area.onViewport(box, on: app.layerTraffic)
+                                  app.photoscout.onViewport(box, spots: app.layerSpots, events: app.layerEvents)
                               },
                               onLongPress: { (c: CLLocationCoordinate2D) in
                                   longPressed(c)
@@ -130,6 +142,15 @@ struct ConvoyView: View {
             ConditionSheet(item: i)
                 .presentationDetents([.height(220)])
         }
+        .sheet(item: $openSpot) { (s: PsSpot) in
+            SpotSheet(spot: s)
+                .presentationDetents([.medium, .large])
+        }
+        .sheet(item: $openEvent) { (e: PsEvent) in
+            EventSheet(event: e)
+                .presentationDetents([.medium, .large])
+        }
+        .task { await app.photoscout.refreshStatus() }
         .onChange(of: vm.location.latest) { (_: CLLocation?, l: CLLocation?) in
             // The signed limit of the road you are on, matched from each fix.
             guard let l = l else { return }
@@ -172,6 +193,12 @@ struct ConvoyView: View {
         if id.hasPrefix("area-") {
             let key: String = String(id.dropFirst(5))
             openItem = app.area.items.first { (i: ConditionItemDto) -> Bool in return i.id == key }
+        } else if id.hasPrefix("spot-") {
+            let key: String = String(id.dropFirst(5))
+            openSpot = app.photoscout.spots.first { (s: PsSpot) -> Bool in return s.id == key }
+        } else if id.hasPrefix("event-") {
+            let key: String = String(id.dropFirst(6))
+            openEvent = app.photoscout.events.first { (e: PsEvent) -> Bool in return e.id == key }
         }
     }
 
@@ -225,6 +252,9 @@ struct ConvoyView: View {
             HazardAlertBanner()
             StatusBanners()
             VoiceBanner()
+            if let n = app.photoscoutNote {
+                Banner(title: n, kind: .info, icon: "camera.aperture", actionTitle: "OK", action: { app.photoscoutNote = nil })
+            }
             if let m = app.photos.message {
                 Banner(title: m, kind: .info, icon: "camera.fill", actionTitle: "OK", action: { app.photos.message = nil })
             }
