@@ -459,6 +459,10 @@ struct SharePanel: View {
     @Environment(AppState.self) private var app
     @Environment(\.theme) private var theme
     @State private var copied: Bool = false
+    @State private var liveURL: String?
+    @State private var liveError: String?
+    @State private var liveBusy: Bool = false
+    @State private var liveCopied: Bool = false
 
     var body: some View {
         let vm: ConvoyViewModel = app.convoy
@@ -503,10 +507,62 @@ struct SharePanel: View {
                     Text(InviteLinks.deepLink(room.code))
                         .font(CvFont.mono(11, weight: .medium))
                         .foregroundStyle(theme.inkMuted)
+                    liveSection(room)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.bottom, 8)
             }
+        }
+    }
+}
+
+extension SharePanel {
+    /// A live link: people without the app watch the convoy on a map in their browser.
+    @ViewBuilder
+    fileprivate func liveSection(_ room: Room) -> some View {
+        VStack(spacing: 8) {
+            SectionLabel(text: "Live link")
+            if let url = liveURL {
+                let name: String = room.name.isEmpty ? "our convoy" : room.name
+                let text: String = "Follow \(name) live on the map (no app needed): \(url)"
+                HStack(spacing: 10) {
+                    ShareLink(item: text, subject: Text("Follow \(name) live")) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "dot.radiowaves.left.and.right")
+                            Text("SHARE LIVE").tracking(1.2)
+                        }
+                    }
+                    .buttonStyle(CvButtonStyle(kind: .primary))
+                    CvButton(title: liveCopied ? "Copied" : "Copy", icon: "doc.on.doc", kind: .ghost) {
+                        UIPasteboard.general.string = url
+                        liveCopied = true
+                    }
+                }
+                Text(url).font(CvFont.mono(11, weight: .medium)).foregroundStyle(theme.inkMuted).lineLimit(1)
+            } else {
+                CvButton(title: liveBusy ? "Getting link..." : "Live link for people without the app",
+                         icon: "dot.radiowaves.left.and.right", kind: .ghost) {
+                    liveBusy = true
+                    Task {
+                        switch await app.api.liveLink(code: room.code) {
+                        case .ok(let l):
+                            liveURL = l.url
+                            liveError = nil
+                        case .failure(let f):
+                            liveError = f.message
+                        }
+                        liveBusy = false
+                    }
+                }
+                .disabled(liveBusy)
+            }
+            if let e = liveError {
+                Text(e).font(CvFont.text(12)).foregroundStyle(theme.pulse)
+            }
+        }
+        .onChange(of: room.code) { (_: String, _: String) in
+            liveURL = nil
+            liveError = nil
         }
     }
 }

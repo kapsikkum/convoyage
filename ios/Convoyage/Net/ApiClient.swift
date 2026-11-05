@@ -297,6 +297,13 @@ final class ApiClient: @unchecked Sendable {
         return await send("POST", "/v1/reports", json: body, as: Empty.self)
     }
 
+    // MARK: Live share link
+
+    func liveLink(code: String) async -> ApiResult<LiveLinkDto> {
+        let c: String = code.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? code
+        return await send("POST", "/v1/convoys/\(c)/live", as: LiveLinkDto.self)
+    }
+
     // MARK: PhotoScout
 
     func photoscoutStatus() async -> ApiResult<PhotoScoutStatusDto> {

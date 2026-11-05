@@ -399,6 +399,13 @@ struct AreaConditionsDto: Decodable {
 }
 
 /// The road layer (`GET /v1/roads`): GeoJSON lines with each road's signed limit.
+/// POST /v1/convoys/{code}/live: a link anyone can open in a browser to watch the convoy.
+struct LiveLinkDto: Decodable {
+    var token: String
+    var url: String
+    var expiresAt: String?
+}
+
 struct RoadsDto: Decodable {
     struct Geometry: Decodable { var coordinates: [[Double]] }
     struct Properties: Decodable {
