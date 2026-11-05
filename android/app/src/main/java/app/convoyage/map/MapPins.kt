@@ -38,7 +38,15 @@ object MapPins {
         else -> 50
     }
 
+    private var checkedStyle = java.lang.ref.WeakReference<Style>(null)
+    private var checkedAt = 0L
+
     private fun ensure(style: Style) {
+        // Listing the style's layers is costly and this runs every frame while your marker glides: check at most
+        // every couple of seconds (layers added later, like a route, are moved under the pins then).
+        val now = android.os.SystemClock.uptimeMillis()
+        if (style === checkedStyle.get() && now - checkedAt < 2000 && style.getLayer(LAYER) != null) return
+        checkedStyle = java.lang.ref.WeakReference(style); checkedAt = now
         if (style.getSource(SOURCE) == null) style.addSource(GeoJsonSource(SOURCE))
         val layers = style.layers
         // Always the top layer: route and other layers added later must not cover the pins.

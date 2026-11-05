@@ -423,36 +423,32 @@ fun ConvoyMap(
 }
 
 /**
- * One pin's artwork, composed but not drawn on screen: whenever it draws, it is captured and handed to [onImage]
- * as a bitmap for the map style (a vehicle sprite that loads later, a new heading, a new tag).
+ * One pin's artwork, composed but not drawn on screen, captured and handed to [onImage] as a bitmap for the map
+ * style when it changes (a vehicle sprite that loads later, a new heading step, a new tag).
  */
 @Composable
 private fun PinSprite(pin: MapPinData, bearing: Double, tilt: Float, onImage: (String, android.graphics.Bitmap) -> Unit) {
     val layer = androidx.compose.ui.graphics.rememberGraphicsLayer()
-    val drawn = remember { kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED) }
     val onImageNow by rememberUpdatedState(onImage)
-    LaunchedEffect(Unit) {
-        for (x in drawn) {
-            kotlinx.coroutines.delay(16)
+    // The picture only changes in steps: heading in 6 degree steps relative to the camera, tilt in 5 degree steps.
+    // Reading a picture back from the GPU stalls it, so it is captured only when one of these changes (and a few
+    // times after, for a vehicle sprite that loads late), never on every frame.
+    val headingStep = pin.headingDeg?.let { Math.floorMod(Math.round((it - bearing) / 6.0).toInt(), 60) }
+    val tiltStep = Math.round(tilt / 5f)
+    LaunchedEffect(pin.kind, pin.label, pin.tag, pin.vehicle, headingStep, tiltStep) {
+        for (wait in longArrayOf(32, 250, 700, 1500)) {
+            kotlinx.coroutines.delay(wait)
             runCatching { layer.toImageBitmap().asAndroidBitmap() }.getOrNull()?.let { onImageNow(MapPins.imageId(pin.id), it) }
         }
-    }
-    // Children with their own layers (the sprite, the heading wedge) can change without this draw running: look again
-    // shortly after anything that changes the picture.
-    LaunchedEffect(pin.kind, pin.label, pin.tag, pin.vehicle, pin.headingDeg?.let { Math.round((it - bearing) / 3.0) }, Math.round(tilt / 5f)) {
-        repeat(4) { kotlinx.coroutines.delay(200L * (it + 1)); drawn.trySend(Unit) }
     }
     MapPin(
         kind = pin.kind,
         label = pin.label,
-        heading = pin.headingDeg?.let { (it - bearing).toFloat() },
+        heading = headingStep?.let { it * 6f },
         tag = pin.tag,
         vehicle = pin.vehicle,
-        tiltDeg = tilt,
-        modifier = Modifier.drawWithContent {
-            layer.record { this@drawWithContent.drawContent() }
-            drawn.trySend(Unit)
-        },
+        tiltDeg = tiltStep * 5f,
+        modifier = Modifier.drawWithContent { layer.record { this@drawWithContent.drawContent() } },
     )
 }
 
