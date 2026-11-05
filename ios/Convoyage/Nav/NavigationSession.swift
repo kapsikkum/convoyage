@@ -53,6 +53,11 @@ final class NavigationSession {
         self.hazards = hazards
     }
 
+    /// A convoy event, through the navigation voice (so it ducks music the same way and respects mute).
+    func announce(_ text: String) {
+        voice.speak(text)
+    }
+
     func setMuted(_ on: Bool) {
         muted = on
         voice.muted = on

@@ -22,9 +22,11 @@ struct ConvoyView: View {
     @State private var openItem: ConditionItemDto?
     @State private var openSpot: PsSpot?
     @State private var openEvent: PsEvent?
+    @State private var openNearbyConvoy: NearbyConvoy?
+    @State private var openNearbyDriver: NearbyDriver?
 
     private static let headerHeight: CGFloat = 96
-    private static let noConvoyHeight: CGFloat = 176
+    private static let noConvoyHeight: CGFloat = 228
 
     private var hazardPins: [MapPin] {
         return app.hazards.active.map { (h: HazardDto) -> MapPin in
@@ -48,6 +50,14 @@ struct ConvoyView: View {
         let spots: [MapPin] = app.layerSpots ? ps.spots.map { (s: PsSpot) -> MapPin in return s.pin } : []
         let events: [MapPin] = app.layerEvents ? ps.events.compactMap { (e: PsEvent) -> MapPin? in return e.pin } : []
         return spots + events
+    }
+
+    /// Open Cruise: drivers and open convoys nearby, while not in a convoy.
+    private var cruisePins: [MapPin] {
+        let vm: ConvoyViewModel = app.convoy
+        guard vm.room == nil, vm.openCruise else { return [] }
+        return vm.nearbyConvoys.map { (c: NearbyConvoy) -> MapPin in return c.pin }
+            + vm.nearbyDrivers.map { (d: NearbyDriver) -> MapPin in return d.pin }
     }
 
     /// Sheet detents for a screen this tall. The bottom `reserve` is where the floating tab bar sits.
@@ -78,7 +88,7 @@ struct ConvoyView: View {
             let railVisible: Bool = sheetH <= m.half + 30
 
             ZStack(alignment: .bottom) {
-                ConvoyMapView(pins: photoscoutPins + areaPins + hazardPins + vm.mapPins, is3D: is3D, recenterToken: recenter, theme: theme,
+                ConvoyMapView(pins: photoscoutPins + areaPins + hazardPins + cruisePins + vm.mapPins, is3D: is3D, recenterToken: recenter, theme: theme,
                               userCoordinate: vm.location.latest?.coordinate,
                               route: vm.mapRoute,
                               onViewport: { (box: GeoBox) in
@@ -150,6 +160,14 @@ struct ConvoyView: View {
             EventSheet(event: e)
                 .presentationDetents([.medium, .large])
         }
+        .sheet(item: $openNearbyConvoy) { (c: NearbyConvoy) in
+            NearbyConvoySheet(convoy: c)
+                .presentationDetents([.height(230)])
+        }
+        .sheet(item: $openNearbyDriver) { (d: NearbyDriver) in
+            NearbyDriverSheet(driver: d)
+                .presentationDetents([.height(230)])
+        }
         .task { await app.photoscout.refreshStatus() }
         .onChange(of: vm.location.latest) { (_: CLLocation?, l: CLLocation?) in
             // The signed limit of the road you are on, matched from each fix.
@@ -196,6 +214,12 @@ struct ConvoyView: View {
         } else if id.hasPrefix("spot-") {
             let key: String = String(id.dropFirst(5))
             openSpot = app.photoscout.spots.first { (s: PsSpot) -> Bool in return s.id == key }
+        } else if id.hasPrefix("cruise-c-") {
+            let key: String = String(id.dropFirst(9))
+            openNearbyConvoy = app.convoy.nearbyConvoys.first { (c: NearbyConvoy) -> Bool in return c.code == key }
+        } else if id.hasPrefix("cruise-d-") {
+            let key: String = String(id.dropFirst(9))
+            openNearbyDriver = app.convoy.nearbyDrivers.first { (d: NearbyDriver) -> Bool in return d.id == key }
         } else if id.hasPrefix("event-") {
             let key: String = String(id.dropFirst(6))
             openEvent = app.photoscout.events.first { (e: PsEvent) -> Bool in return e.id == key }
@@ -252,6 +276,13 @@ struct ConvoyView: View {
             HazardAlertBanner()
             StatusBanners()
             VoiceBanner()
+            if let inv = vm.invite, vm.room == nil {
+                Banner(title: (inv.fromName.map { Formatters.shownName($0) } ?? "A driver") + " invited you",
+                       subtitle: "Join " + ((inv.name ?? "").isEmpty ? "their convoy" : inv.name!) + "?",
+                       kind: .pulse, icon: "person.3.fill",
+                       actionTitle: "Join", action: { vm.joinOpen(code: inv.code) },
+                       secondaryTitle: "No", secondaryAction: { vm.invite = nil })
+            }
             if let n = app.photoscoutNote {
                 Banner(title: n, kind: .info, icon: "camera.aperture", actionTitle: "OK", action: { app.photoscoutNote = nil })
             }
@@ -374,6 +405,7 @@ struct ConvoyView: View {
                 CvButton(title: "Start") { showCreate = true }
                 CvButton(title: "Join", kind: .ghost) { showJoin = true }
             }
+            OpenCruiseRow()
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 16)

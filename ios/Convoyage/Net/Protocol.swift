@@ -64,6 +64,8 @@ struct Room: Codable, Equatable, Identifiable {
     var routeGeometry: String?
     var automaticRegroup: AutomaticRegroup
     var members: [Member]
+    /// Open to Open Cruise drivers nearby (they can join without the code).
+    var open: Bool
 
     var id: String { return code }
 
@@ -79,6 +81,7 @@ struct Room: Codable, Equatable, Identifiable {
         case routeGeometry
         case automaticRegroup
         case members
+        case open
     }
 
     init(from decoder: Decoder) throws {
@@ -95,7 +98,40 @@ struct Room: Codable, Equatable, Identifiable {
         routeGeometry = (geometry?.isEmpty ?? true) ? nil : geometry
         automaticRegroup = try c.decode(AutomaticRegroup.self, forKey: .automaticRegroup)
         members = try c.decode([Member].self, forKey: .members)
+        open = (try? c.decodeIfPresent(Bool.self, forKey: .open)) ?? false
     }
+}
+
+/// An Open Cruise driver nearby (`cruise.nearby`). `canInvite` once within 500 m.
+struct NearbyDriver: Decodable, Equatable, Identifiable {
+    var id: String
+    var username: String?
+    var lat: Double
+    var lng: Double
+    var distanceM: Double?
+    var canInvite: Bool?
+}
+
+/// An open convoy nearby (`cruise.nearby`): join it without the code.
+struct NearbyConvoy: Decodable, Equatable, Identifiable {
+    var code: String
+    var name: String?
+    var members: Int?
+    var lat: Double
+    var lng: Double
+    var distanceM: Double?
+    var destination: String?
+
+    var id: String { return code }
+}
+
+/// Somebody nearby invited us (`cruise.invite`). Answer with `cruise.join` before `expiresAt` (ms).
+struct CruiseInvite: Decodable, Equatable {
+    var from: String
+    var fromName: String?
+    var code: String
+    var name: String?
+    var expiresAt: Int64?
 }
 
 /// A live position update for one member (server "pos").
@@ -121,6 +157,10 @@ enum ServerMessage: Decodable {
     case hazard(room: String, hazard: HazardDto)
     /// A member's `convoy.status` (stopping / moving / sos), broadcast by the server. Decoded tolerantly.
     case status(room: String?, id: String, status: String, note: String?)
+    case cruiseState(on: Bool)
+    case cruiseNearby(drivers: [NearbyDriver], convoys: [NearbyConvoy])
+    case cruiseInvite(CruiseInvite)
+    case cruiseInvited(to: String)
     case unknown(String)
 
     private enum Keys: String, CodingKey {
@@ -142,6 +182,10 @@ enum ServerMessage: Decodable {
         case userId
         case status
         case note
+        case on
+        case drivers
+        case convoys
+        case to
     }
 
     init(from decoder: Decoder) throws {
@@ -194,6 +238,16 @@ enum ServerMessage: Decodable {
                 let note: String? = try? c.decodeIfPresent(String.self, forKey: .note)
                 self = .status(room: room, id: who, status: st, note: note)
             }
+        case "cruise.state":
+            self = .cruiseState(on: try c.decodeIfPresent(Bool.self, forKey: .on) ?? false)
+        case "cruise.nearby":
+            let drivers: [NearbyDriver] = (try? c.decodeIfPresent([NearbyDriver].self, forKey: .drivers)) ?? []
+            let convoys: [NearbyConvoy] = (try? c.decodeIfPresent([NearbyConvoy].self, forKey: .convoys)) ?? []
+            self = .cruiseNearby(drivers: drivers, convoys: convoys)
+        case "cruise.invite":
+            self = .cruiseInvite(try CruiseInvite(from: decoder))
+        case "cruise.invited":
+            self = .cruiseInvited(to: try c.decodeIfPresent(String.self, forKey: .to) ?? "")
         default:
             self = .unknown(t)
         }
@@ -219,6 +273,14 @@ enum ClientMessage {
     case route(room: String, name: String, stops: [[Double]])
     case rename(room: String, name: String)
     case regroup(room: String, enabled: Bool, separationM: Double)
+    /// Leader: open the convoy to Open Cruise drivers nearby, or close it.
+    case convoyOpen(room: String, open: Bool)
+    /// Open Cruise on or off.
+    case cruiseOpen(on: Bool)
+    /// Invite an Open Cruise driver within 500 m.
+    case cruiseInvite(to: String)
+    /// Join an open convoy nearby, or one we were invited to, without its code.
+    case cruiseJoin(code: String)
 
     var payload: [String: Any] {
         switch self {
@@ -265,6 +327,14 @@ enum ClientMessage {
             return ["t": "convoy.regroup", "room": room, "enabled": enabled, "separationM": separationM]
         case let .route(room, name, stops):
             return ["t": "convoy.route", "room": room, "route": ["name": name, "stops": stops] as [String: Any]]
+        case let .convoyOpen(room, open):
+            return ["t": "convoy.open", "room": room, "open": open]
+        case let .cruiseOpen(on):
+            return ["t": "cruise.open", "on": on]
+        case let .cruiseInvite(to):
+            return ["t": "cruise.invite", "to": to]
+        case let .cruiseJoin(code):
+            return ["t": "cruise.join", "code": code]
         }
     }
 

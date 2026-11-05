@@ -71,6 +71,19 @@ struct ProfileView: View {
                 Text("User id  \(app.userId)").font(CvFont.mono(11, weight: .medium)).foregroundStyle(theme.inkMuted)
             }
 
+            VStack(alignment: .leading, spacing: 10) {
+                SectionLabel(text: "Convoy voice")
+                @Bindable var a: AppState = app
+                Toggle(isOn: $a.convoyAnnounce) {
+                    Text("Speak convoy events").font(CvFont.text(14, weight: .bold))
+                }
+                .tint(theme.signal)
+                Toggle(isOn: $a.convoyReadChat) {
+                    Text("Read chat aloud").font(CvFont.text(14, weight: .bold))
+                }
+                .tint(theme.signal)
+            }
+
             PhotoScoutSettings()
 
             CvButton(title: "Sign out", kind: .ghost) { app.signOut() }

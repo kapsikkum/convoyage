@@ -629,6 +629,15 @@ struct RoutePanel: View {
                     .accessibilityLabel("Rename the convoy")
                 }
             }
+            Toggle(isOn: Binding<Bool>(get: { return room.open }, set: { (v: Bool) in vm.setConvoyOpen(v) })) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Open convoy").font(CvFont.text(14, weight: .bold))
+                    Text("Open Cruise drivers within 5 km can see it and join without the code.")
+                        .font(CvFont.text(12))
+                        .foregroundStyle(theme.inkMuted)
+                }
+            }
+            .tint(theme.signal)
             regroupEditor(vm, room)
             if room.destination != nil {
                 CvButton(title: "Clear destination", icon: "xmark", kind: .ghost) { vm.clearDestination() }

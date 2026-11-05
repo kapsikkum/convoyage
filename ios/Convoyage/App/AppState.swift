@@ -58,6 +58,14 @@ final class AppState {
     /// The person skipped the "what should the convoy call you" screen (per account).
     var onboardingSkipped: Bool = false
     /// Police, cameras, crashes, closures, roadworks and jams on the Drive map (on by default).
+    /// Speak convoy events (joins, leader, destination, stopping, SOS, arrivals) through the navigation voice.
+    var convoyAnnounce: Bool = UserDefaults.standard.object(forKey: "convoyAnnounce") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(convoyAnnounce, forKey: "convoyAnnounce") }
+    }
+    /// Read other members' chat aloud too.
+    var convoyReadChat: Bool = UserDefaults.standard.bool(forKey: "convoyReadChat") {
+        didSet { UserDefaults.standard.set(convoyReadChat, forKey: "convoyReadChat") }
+    }
     var layerTraffic: Bool = UserDefaults.standard.object(forKey: "layerTraffic") as? Bool ?? true {
         didSet { UserDefaults.standard.set(layerTraffic, forKey: "layerTraffic") }
     }
@@ -155,6 +163,10 @@ final class AppState {
         }
         convoyModel.onRoomChange = { [weak self] in
             self?.updateServices()
+        }
+        convoyModel.onNotice = { [weak self] (n: ConvoyNotice) in
+            guard let self = self else { return }
+            if n.message ? self.convoyReadChat : self.convoyAnnounce { self.nav.announce(n.text) }
         }
         recorderModel.onPhaseChange = { [weak self] in
             self?.updateServices()

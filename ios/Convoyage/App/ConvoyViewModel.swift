@@ -49,12 +49,28 @@ final class ConvoyViewModel {
     /// A road-following line fetched by this device (the leader) while the server has none.
     var leaderRoute: [CLLocationCoordinate2D] = []
 
+    // Open Cruise: see drivers and open convoys within 5 km, invite or be invited without a code.
+    /// What the user asked for (remembered; sent again after every reconnect).
+    var wantOpenCruise: Bool = UserDefaults.standard.bool(forKey: "openCruise") {
+        didSet { UserDefaults.standard.set(wantOpenCruise, forKey: "openCruise") }
+    }
+    /// The server confirmed Open Cruise is on.
+    var openCruise: Bool = false
+    var nearbyDrivers: [NearbyDriver] = []
+    var nearbyConvoys: [NearbyConvoy] = []
+    /// Drivers invited this session, for a "Sent" label.
+    var invited: Set<String> = []
+    /// An invite waiting for an answer.
+    var invite: CruiseInvite?
+
     let location: LocationService = LocationService()
 
     /// Supplies access tokens for the socket handshake (refreshing them when needed). `force` = the server just refused one.
     @ObservationIgnored var tokenProvider: ((Bool) async -> String?)?
     /// My display name, for default convoy names.
     @ObservationIgnored var displayName: String = ""
+    /// Convoy events and chat to speak (AppState decides whether to).
+    @ObservationIgnored var onNotice: ((ConvoyNotice) -> Void)?
     /// Every live `hazard` frame (fed to the HazardStore).
     @ObservationIgnored var onHazard: ((String, HazardDto) -> Void)?
     /// Called when I enter or leave a convoy (background location follows it).
@@ -559,14 +575,45 @@ final class ConvoyViewModel {
 
     // MARK: Incoming
 
+    // MARK: Open Cruise
+
+    func setOpenCruise(_ on: Bool) {
+        wantOpenCruise = on
+        if socketState == .open { socket.send(.cruiseOpen(on: on)) }
+        if !on {
+            openCruise = false
+            nearbyDrivers = []
+            nearbyConvoys = []
+        }
+    }
+
+    func inviteNearby(_ driverId: String) {
+        socket.send(.cruiseInvite(to: driverId))
+    }
+
+    /// Joins an open convoy nearby, or the one we were invited to.
+    func joinOpen(code: String) {
+        invite = nil
+        socket.send(.cruiseJoin(code: code))
+    }
+
+    /// Leader: let Open Cruise drivers nearby see and join this convoy.
+    func setConvoyOpen(_ open: Bool) {
+        guard let code = room?.code else { return }
+        lastLeaderCommand = Date()
+        socket.send(.convoyOpen(room: code, open: open))
+    }
+
     private func handle(_ m: ServerMessage) {
         let before: String? = room?.code
+        let snapshot: Room? = room
         switch m {
         case .pong, .unknown:
             break
         case .hello(let me, let rooms):
             myId = me
             room = rooms.first
+            if wantOpenCruise { socket.send(.cruiseOpen(on: true)) }
             livePositions = [:]
             statuses = [:]
             sosNotices = [:]
@@ -580,6 +627,7 @@ final class ConvoyViewModel {
             if room == nil || room?.code == r.code {
                 let first: Bool = (room == nil)
                 room = r
+                for n in ConvoyEvents.between(snapshot, r, me: myId) { onNotice?(n) }
                 if first { seedRead() }
                 livePositions = [:]
                 pruneStatuses()
@@ -599,8 +647,14 @@ final class ConvoyViewModel {
                 resetLeaderRoute()
             }
         case .pos(let u):
-            if room?.code == u.room {
-                livePositions[u.id] = MemberPosition(lat: u.lat, lng: u.lng, heading: u.heading, speed: u.speed, ts: u.ts)
+            if let r = room, r.code == u.room {
+                let now: MemberPosition = MemberPosition(lat: u.lat, lng: u.lng, heading: u.heading, speed: u.speed, ts: u.ts)
+                let then: MemberPosition? = livePositions[u.id]
+                    ?? r.members.first { (x: Member) -> Bool in return x.id == u.id }?.position
+                livePositions[u.id] = now
+                if u.id != myId, !r.resting, let d = r.destination, let t = then, ConvoyEvents.arrived(then: t, now: now, at: d) {
+                    onNotice?(ConvoyNotice(text: nameOf(userId: u.id) + " has arrived" + (d.label.isEmpty ? "" : " at " + d.label)))
+                }
             }
         case .error(let message, _):
             if message == "Unknown message", let probe = lastStatusSend, Date().timeIntervalSince(probe.at) < 6 {
@@ -622,12 +676,30 @@ final class ConvoyViewModel {
                 }
                 room = r
                 if message.userId != myId {
+                    if message.text != Self.stoppingText && message.text != Self.movingText {
+                        let who: String = message.username.isEmpty ? "Someone" : ConvoyViewModel.shownName(message.username)
+                        onNotice?(ConvoyNotice(text: who + " says: " + message.text, message: true))
+                    }
                     if message.text == Self.stoppingText { applyStatus(userId: message.userId, kind: .stopping, note: nil) }
                     if message.text == Self.movingText { applyStatus(userId: message.userId, kind: .moving, note: nil) }
                 }
             }
         case .hazard(let code, let hazard):
             onHazard?(code, hazard)
+        case .cruiseState(let on):
+            openCruise = on
+            if !on {
+                nearbyDrivers = []
+                nearbyConvoys = []
+            }
+        case .cruiseNearby(let drivers, let convoys):
+            nearbyDrivers = drivers
+            nearbyConvoys = convoys
+        case .cruiseInvite(let inv):
+            invite = inv
+            onNotice?(ConvoyNotice(text: (inv.fromName.map { ConvoyViewModel.shownName($0) } ?? "A driver") + " invited you to their convoy"))
+        case .cruiseInvited(let to):
+            invited.insert(to)
         case .status(let code, let id, let status, let note):
             let forThisRoom: Bool = (code == nil) || (code == room?.code)
             if forThisRoom, let kind = MemberStatusKind(rawValue: status) {
@@ -652,16 +724,21 @@ final class ConvoyViewModel {
         let name: String = (userId == myId) ? "You" : nameOf(userId: userId)
         switch kind {
         case .moving:
+            if userId != myId && statuses[userId] != nil { onNotice?(ConvoyNotice(text: name + " is moving again")) }
             statuses.removeValue(forKey: userId)
             sosNotices.removeValue(forKey: userId)
             if userId == myId { iAmStopping = false }
         case .stopping:
             statuses[userId] = MemberStatus(kind: .stopping, note: note, at: Date())
             sosNotices.removeValue(forKey: userId)
-            if userId != myId { raiseStopNotice("\(name) is stopping") }
+            if userId != myId {
+                raiseStopNotice("\(name) is stopping")
+                onNotice?(ConvoyNotice(text: name + " is stopping" + ((note ?? "").isEmpty ? "" : ": " + (note ?? ""))))
+            }
         case .sos:
             statuses[userId] = MemberStatus(kind: .sos, note: note, at: Date())
             if userId != myId {
+                onNotice?(ConvoyNotice(text: "SOS from " + name + ". Check the map."))
                 var text: String = "\(name) needs help"
                 if let n = note, !n.isEmpty { text += " (\(n))" }
                 sosNotices[userId] = text
