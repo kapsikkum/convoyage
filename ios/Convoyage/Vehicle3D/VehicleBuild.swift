@@ -67,7 +67,7 @@ enum Ps1Wheels {
 struct VehicleBuild: Hashable {
     static let defaultPaint: UInt32 = 0xB8BCC2
     /// Bump to throw every cached thumbnail away when the models or the shader change.
-    static let rendererVersion: Int = 2
+    static let rendererVersion: Int = 3
 
     var kind: Ps1Kind
     /// 0xRRGGBB
@@ -76,11 +76,15 @@ struct VehicleBuild: Hashable {
     var wheelId: String
     /// Millimetres from stock, -200...200.
     var rideHeightMm: Int
+    /// A body modelled in Blender (cars/<id>.glb), when there is one for this car.
+    var modelId: String?
 
     var wheel: Ps1Wheel { return Ps1Wheels.of(wheelId) }
 
-    init(kind: String?, paint: String?, finish: String?, wheel: String?, rideHeightMm: Int?) {
+    init(kind: String?, paint: String?, finish: String?, wheel: String?, rideHeightMm: Int?,
+         shape: String? = nil, make: String? = nil, model: String? = nil, year: Int? = nil) {
         self.kind = Ps1Kind.of(kind)
+        self.modelId = self.kind == .motorcycle ? nil : Ps1CarModels.match(shape: shape, make: make, model: model, year: year)
         self.paint = VehicleBuild.parseHex(paint)
         self.finish = Ps1Finish.of(finish)
         self.wheelId = Ps1Wheels.of(wheel).id
@@ -88,15 +92,18 @@ struct VehicleBuild: Hashable {
     }
 
     init(vehicle v: VehicleDto) {
-        self.init(kind: v.kind, paint: v.build?.paint, finish: v.build?.finish, wheel: v.build?.wheel, rideHeightMm: v.build?.rideHeightMm)
+        self.init(kind: v.kind, paint: v.build?.paint, finish: v.build?.finish, wheel: v.build?.wheel, rideHeightMm: v.build?.rideHeightMm,
+                  shape: v.build?.shape, make: v.make, model: v.model, year: v.year)
     }
 
     init(badge b: VehicleBadgeDto) {
-        self.init(kind: b.kind, paint: b.build?.paint, finish: b.build?.finish, wheel: b.build?.wheel, rideHeightMm: b.build?.rideHeightMm)
+        self.init(kind: b.kind, paint: b.build?.paint, finish: b.build?.finish, wheel: b.build?.wheel, rideHeightMm: b.build?.rideHeightMm,
+                  shape: b.build?.shape)
     }
 
     init(draft d: VehicleDraft) {
-        self.init(kind: d.kind, paint: d.paint, finish: d.finish, wheel: d.wheel, rideHeightMm: d.rideHeightMm)
+        self.init(kind: d.kind, paint: d.paint, finish: d.finish, wheel: d.wheel, rideHeightMm: d.rideHeightMm,
+                  make: d.make, model: d.model, year: Int(d.yearText))
     }
 
     /// `#RRGGBB` (any case); anything else gives the default paint.
@@ -111,7 +118,7 @@ struct VehicleBuild: Hashable {
     /// visible change gives another. `variant` separates thumbnail sizes.
     func key(_ variant: String = "") -> String {
         let hex: String = String(format: "%06x", paint & 0xFFFFFF)
-        let canonical: String = "v\(VehicleBuild.rendererVersion)|\(kind.rawValue)|\(hex)|\(finish.rawValue)|\(wheelId)|\(rideHeightMm)|\(variant)"
+        let canonical: String = "v\(VehicleBuild.rendererVersion)|\(kind.rawValue)|\(hex)|\(finish.rawValue)|\(wheelId)|\(rideHeightMm)|\(modelId ?? "")|\(variant)"
         let digest: SHA256.Digest = SHA256.hash(data: Data(canonical.utf8))
         var out: String = ""
         for byte in digest.prefix(10) {

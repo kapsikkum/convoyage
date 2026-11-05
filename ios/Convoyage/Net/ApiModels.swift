@@ -45,6 +45,8 @@ struct VehicleBadgeDto: Codable, Equatable {
 }
 
 struct BadgeBuildDto: Codable, Equatable {
+    /// The catalogue model the server matched (e.g. "ford-focus-rs-mk3").
+    var shape: String?
     var paint: String?
     var finish: String?
     var wheel: String?
@@ -82,6 +84,7 @@ struct DecalDto: Decodable, Equatable {
 }
 
 struct BuildDto: Decodable, Equatable {
+    var shape: String?
     var paint: String?
     var finish: String?
     var wheel: String?

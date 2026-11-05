@@ -345,6 +345,74 @@ enum Ps1Models {
     private static let bikeTail: [V2] = unitsToPx([-2.05, 0.86, -1.95, 1.12, -1.2, 1.2, -0.5, 1.1, -0.5, 0.84])
     private static let bikeSeat: [V2] = unitsToPx([-1.5, 1.2, -0.5, 1.12, -0.45, 0.98, -1.5, 1.0])
 
+    /// Metres to model units for the Blender bodies (Android's Ps1Models.K).
+    static let K: Float = 1.5
+
+    private static let glassM: Surf = Surf.srgb(0x0E1A28)
+    private static let arch: Surf = Surf.srgb(0x050608)
+    private static let chrome: Surf = Surf.srgb(0xB8BCC2)
+    private static let plate: Surf = Surf.srgb(0xE8EAEE)
+    private static let fog: Surf = Surf.srgb(0xFFD27A, flag: 2)
+    private static let rotor: Surf = Surf.srgb(0x5A5F66)
+    private static let red: Surf = Surf.srgb(0xB0141E)
+    private static let trimM: Surf = Surf.srgb(0x3A414C)
+
+    /// The frame for a build: the Blender body's size when it has one, else its kind's.
+    static func frame(_ spec: VehicleBuild?) -> Ps1Frame {
+        guard let id = spec?.modelId, let cm = Ps1CarModels.of(id) else { return frame(spec?.kind ?? .car) }
+        let fit: Float = hypotf(cm.len / 2, cm.height / 2) * K * 1.02
+        return Ps1Frame(fitRadius: fit, groundY: -cm.tyre / 2 * K, groundRadius: fit * 1.3, lookY: (cm.height * 0.42 - cm.tyre / 2) * K)
+    }
+
+    /// A body modelled in Blender: its parts take the paint, glass and lamp surfaces; the wheels go in its arches.
+    private static func modelledCar(_ mb: MeshBuilder, _ cm: Ps1CarModel, _ paint: Surf, _ rim: Surf, _ dyIn: Float) {
+        let h0: Float = cm.tyre / 2
+        let dy: Float = max(dyIn, -0.06 * K)
+        for part in cm.parts {
+            let s: Surf
+            switch part.material {
+            case "glass": s = glassM
+            case "dark": s = arch
+            case "black": s = dark
+            case "trim": s = trimM
+            case "chrome": s = chrome
+            case "head": s = head
+            case "tail": s = tail
+            case "fog": s = fog
+            case "plate": s = plate
+            case "red": s = red
+            default: s = paint
+            }
+            let pos: [Float] = part.positions
+            let nrm: [Float] = part.normals
+            var ids: [Int] = []
+            ids.reserveCapacity(pos.count / 3)
+            for i in 0..<(pos.count / 3) {
+                let p: V3 = V3(pos[i * 3] * K, (pos[i * 3 + 1] - h0) * K + dy, pos[i * 3 + 2] * K)
+                let n: V3 = i * 3 + 2 < nrm.count ? V3(nrm[i * 3], nrm[i * 3 + 1], nrm[i * 3 + 2]) : V3(0, 1, 0)
+                ids.append(mb.vertex(p, n, V2(p.x / 7 + 0.5, p.y / 2), s))
+            }
+            let ix: [Int] = part.indices
+            var t: Int = 0
+            while t + 2 < ix.count {
+                mb.tri(ids[ix[t]], ids[ix[t + 1]], ids[ix[t + 2]])
+                t += 3
+            }
+        }
+        let r: Float = cm.tyre / 2 * K
+        let ww: Float = cm.tyreW * K
+        for (i, d) in [cm.fo, cm.fo + cm.wb].enumerated() {
+            let ax: Float = (cm.len / 2 - d) * K
+            let ht: Float = cm.halfTrack[min(i, cm.halfTrack.count - 1)] * K
+            for side: Float in [1, -1] {
+                Ps1Geo.wheel(mb, ax, 0, side * ht, radius: r, width: ww, tyre, rim, segments: 16)
+                // Brake disc and caliper behind the spokes.
+                Ps1Geo.wheel(mb, ax, 0, side * (ht - ww * 0.3), radius: r * 0.62, width: 0.05, rotor, rotor, segments: 12)
+                Ps1Geo.box(mb, ax - r * 0.42, r * 0.2, side * (ht - ww * 0.22), r * 0.22, r * 0.42, 0.06, tail)
+            }
+        }
+    }
+
     static func frame(_ kind: Ps1Kind) -> Ps1Frame {
         switch kind {
         case .car: return Ps1Frame(fitRadius: 3.6, groundY: -0.53, groundRadius: 4.6, lookY: 0.35)
@@ -368,7 +436,8 @@ enum Ps1Models {
 
     static func build(_ spec: VehicleBuild) -> Ps1Mesh {
         let mb: MeshBuilder = MeshBuilder()
-        let f: Ps1Frame = frame(spec.kind)
+        let modelled: Ps1CarModel? = spec.modelId.flatMap { Ps1CarModels.of($0) }
+        let f: Ps1Frame = frame(spec)
         Ps1Geo.disc(mb, y: f.groundY, rx: f.groundRadius, rz: f.groundRadius, segments: 12, ground, uvScale: 6)
         let groundIndices: Int = mb.indexCount
 
@@ -376,6 +445,12 @@ enum Ps1Models {
         let paint: Surf = Surf.srgb(spec.paint, tex: 1, flag: 1)
         let rim: Surf = Surf.srgb(wheel.rgb, tex: 2)
         let dy: Float = Float(spec.rideHeightMm) * mm
+        if let cm = modelled {
+            // Modelled bodies are smooth clear-coated paint, no texture.
+            modelledCar(mb, cm, Surf.srgb(spec.paint, flag: 1), rim, dy)
+            Ps1Geo.disc(mb, y: f.groundY + 0.012, rx: cm.len / 2 * K * 1.02, rz: (cm.halfTrack[0] + cm.tyreW) * K * 1.12, segments: 10, shadow)
+            return mb.build(groundIndexCount: groundIndices)
+        }
         switch spec.kind {
         case .car: car(mb, paint, rim, dy)
         case .ute: ute(mb, paint, rim, dy)

@@ -190,7 +190,7 @@ final class Ps1Scene: NSObject, SCNProgramDelegate {
     func frame(aspect: Float, zoom: Float) {
         self.aspect = aspect
         self.zoom = zoom
-        let f: Ps1Frame = Ps1Models.frame(build?.kind ?? Ps1Kind.car)
+        let f: Ps1Frame = Ps1Models.frame(build)
         let dist: Float = 12.2 * f.fitRadius / 3.6 * max(1, 1.43 / max(aspect, 0.1)) / max(zoom, 0.1)
         let eyeY: Float = sinf(Ps1Scene.elevation) * dist + f.lookY + 0.05
         let eyeZ: Float = cosf(Ps1Scene.elevation) * dist
