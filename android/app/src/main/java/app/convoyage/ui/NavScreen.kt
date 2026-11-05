@@ -101,6 +101,15 @@ fun followZoomFor(speedMps: Double): Double {
 }
 
 /**
+ * Zoom while following on the idle map (no route): further out than turn-by-turn, so the streets, landmarks and
+ * reports around you fit on screen; 16.2 when parked or crawling, easing out to 15 by 30 m/s.
+ */
+fun idleZoomFor(speedMps: Double): Double {
+    val t = ((speedMps - 4.0) / 26.0).coerceIn(0.0, 1.0)
+    return 16.2 - 1.2 * (t * t * (3 - 2 * t))
+}
+
+/**
  * Top map padding that puts the followed car about 72% of the way down the map above the sheet, so more of the road
  * ahead shows than behind. The camera centres in the padded area: centre = (top + visible) / 2.
  */
@@ -125,8 +134,12 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
     val search by vm.search.collectAsStateWithLifecycle()
     val query by vm.query.collectAsStateWithLifecycle()
     val rawFix by container.tracker.fix.collectAsStateWithLifecycle()
-    val fix = rememberSmoothedFix(rawFix)
-    val headingUp = rememberHeadingUp(fix)
+    // About once a second. The glide between fixes (every frame) is read only inside the map below, so moving does
+    // not recompose the whole screen at the frame rate.
+    val fix = rememberFilledFix(rawFix)
+    // The signed limit of the road you are on, matched from each fix.
+    LaunchedEffect(rawFix) { rawFix?.let { container.speedLimits.onFix(it.lat, it.lng, it.headingDeg) } }
+    val speedLimit by container.speedLimits.limit.collectAsStateWithLifecycle()
     val hazards by container.hazards.active.collectAsStateWithLifecycle()
     val convoy by container.convoy.state.collectAsStateWithLifecycle()
     val garage by container.garage.state.collectAsStateWithLifecycle()
@@ -163,6 +176,12 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
 
     // Hazards for the area: what the map shows, and the corridor of the route once there is one.
     var viewport by remember { mutableStateOf<Bbox?>(null) }
+    // PhotoScout spots and events, behind the rail's layers button.
+    val mapLayers = rememberMapLayers(
+        viewport,
+        onNavigate = { p -> container.nav.navigateTo(p, container.tracker.lastKnown()) },
+        onJoinCruise = { e -> container.convoy.joinCruise(e.id) },
+    )
     LaunchedEffect(viewport) { viewport?.let { container.hazards.refresh(it) } }
     LaunchedEffect(nav.route) {
         val r = nav.route ?: return@LaunchedEffect
@@ -183,10 +202,13 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
     // Off track while following: which way back to the route (from the part ahead of where we left it).
     val rejoin = if (nav.phase == NavPhase.Active && fix != null)
         app.convoyage.nav.Rejoin.target(line, app.convoyage.data.LatLngD(fix.lat, fix.lng), nav.progress?.snap?.seg ?: 0) else null
+    // "Show" on the layers hint frames what it found; following again forgets it.
+    var layerFit by remember { mutableStateOf<List<LatLng>>(emptyList()) }
+    LaunchedEffect(local.follow) { if (local.follow) layerFit = emptyList() }
     val fit = remember(nav.route, nav.phase) {
         if (nav.phase == NavPhase.Preview) nav.route?.points.orEmpty().let { p -> p.filterIndexed { i, _ -> i % maxOf(1, p.size / 150) == 0 }.map { LatLng(it.lat, it.lng) } } else emptyList()
     }
-    val pins = remember(myVehicle, nav.destination, nav.routeHazards, fix, nav.bearing, convoy.nearbyDrivers, convoy.nearbyConvoys, drive != null, routeStops, nav.phase) {
+    val pins = remember(myVehicle, nav.destination, nav.routeHazards, convoy.nearbyDrivers, convoy.nearbyConvoys, drive != null, routeStops, nav.phase) {
         buildList {
             // While driving only servos ahead stay on the map; the preview shows every stop.
             if (nav.phase == NavPhase.Preview) addAll(stopPins(routeStops))
@@ -194,18 +216,21 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
             if (drive != null && nav.phase == NavPhase.Idle) addAll(nearbyPins(convoy.nearbyDrivers, convoy.nearbyConvoys))
             nav.routeHazards.forEach { add(it.hazard.toPin()) }
             nav.destination?.let { add(MapPinData("dest", PinKind.Destination, "", it.lat, it.lng, tag = it.name.take(12).uppercase().ifBlank { "DEST" })) }
-            // Our own smoothed heading (from how we actually move), not the route's: the route bearing jumps between
-            // segments and the raw GPS heading is often missing or 0.
-            fix?.let { add(MapPinData("me", PinKind.Me, "", it.lat, it.lng, it.headingDeg ?: nav.bearing, vehicle = myVehicle)) }
         }
     }
     val following = nav.phase == NavPhase.Active && local.follow
     val sheetHeight = when (nav.phase) { NavPhase.Idle -> if (drive != null) DriveDockPeek else 0.dp; NavPhase.Active, NavPhase.Arrived -> 296.dp; else -> 236.dp + (if (navCond.value != null) 44.dp else 0.dp) } + chrome
 
     Box(Modifier.fillMaxSize().onSizeChanged { boxH = it.height }) {
+        SmoothedFix(rawFix) { fix ->
+        val headingUp = rememberHeadingUp(fix)
         ConvoyMap(
             modifier = Modifier.fillMaxSize(),
-            pins = pins,
+            // Our own smoothed heading (from how we actually move), not the route's: the route bearing jumps between
+            // segments and the raw GPS heading is often missing or 0.
+            pins = mapLayers.pins + pins + listOfNotNull(fix?.let { MapPinData("me", PinKind.Me, "", it.lat, it.lng, it.headingDeg ?: nav.bearing, vehicle = myVehicle) }),
+            tappable = mapLayers.tappable,
+            onPinTap = mapLayers.onPinTap,
             me = fix?.let { LatLng(it.lat, it.lng) },
             route = emptyList(),
             routeLine = ahead,
@@ -218,11 +243,12 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
             topPadding = if (following || (nav.phase == NavPhase.Idle && headingUp != null && local.follow)) aheadPadding(with(density) { boxH.toDp() }, sheetHeight + 24.dp) else 0.dp,
             followBearing = if (following) (fix?.headingDeg ?: nav.bearing) else if (nav.phase == NavPhase.Idle && local.follow) headingUp else null,
             headingUpFallbackNorth = nav.phase == NavPhase.Idle,
-            followZoom = if (nav.phase == NavPhase.Active) followZoomFor(nav.speedMps) else if (nav.phase == NavPhase.Idle && local.follow && fix != null) followZoomFor(fix.speedMps ?: 0.0) else null,
-            fitTo = fit,
+            followZoom = if (nav.phase == NavPhase.Active) followZoomFor(nav.speedMps) else if (nav.phase == NavPhase.Idle && local.follow && fix != null) idleZoomFor(fix.speedMps ?: 0.0) else null,
+            fitTo = fit.ifEmpty { layerFit },
             onViewport = { b -> viewport = Bbox(b.south, b.west, b.north, b.east) },
             onLongPress = if (nav.phase != NavPhase.Active) { ll -> vm.pick(ll.latitude, ll.longitude) } else null,
         )
+        }
 
         // ---- top ----
         Column(
@@ -322,13 +348,23 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
                         ) { CvText(found.coerceAtMost(9).toString(), Cv.type.label.copy(fontSize = 9.sp, lineHeight = 10.sp), c.surface100) }
                     }
                 }
+                mapLayers.RailButton()
                 CvChipToggle("3D", local.buildings3d, vm::toggle3d)
                 CvIconButton(CvIcons.Alert, "Report hazard", onReport, tint = c.hazard, edge = c.hazard)
                 CvIconButton(CvIcons.Locate, "Recentre", vm::recenter, tint = if (local.follow) c.signal else c.ink)
             }
         }
-        if (active) {
-            SpeedReadout(nav.speedMps, Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = sheetHeight + navInset + Space.s3))
+        // Speed, and the road's limit beside it: always while guiding, on the idle map once you are moving.
+        val speedMps = if (active) nav.speedMps else fix?.speedMps ?: 0.0
+        if (active || (nav.phase == NavPhase.Idle && speedMps > 1.5)) {
+            Row(
+                Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = sheetHeight + navInset + Space.s3),
+                horizontalArrangement = Arrangement.spacedBy(Space.s2), verticalAlignment = Alignment.CenterVertically,
+            ) {
+                val limit = speedLimit
+                SpeedReadout(speedMps, over = limit != null && speedMps * 3.6 > limit + 2)
+                if (limit != null) SpeedLimitSign(limit)
+            }
         }
         // Next servo on the route, with its price, above the speed.
         upcomingFuel?.let { (s, km) ->
@@ -407,6 +443,12 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
             }
         }
         if (showRecord) RecordSheet(onDismiss = { showRecord = false }, bottomInset = chrome)
+        if (nav.phase == NavPhase.Idle) {
+            mapLayers.Hint(
+                Modifier.align(Alignment.TopCenter).windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.statusBars).padding(top = 132.dp),
+            ) { pts -> vm.userMovedMap(); layerFit = pts + listOfNotNull(fix?.let { LatLng(it.lat, it.lng) }) }
+        }
+        mapLayers.Sheets(chrome)
         PhotoConfirmSheet(capture)
     }
 }

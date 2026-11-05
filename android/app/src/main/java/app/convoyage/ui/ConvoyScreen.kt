@@ -139,16 +139,12 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
 
     // Load the hazards for what the map shows now, and again every 30 s while the screen is on.
     var viewport by remember { mutableStateOf<Bbox?>(null) }
-    // PhotoScout layers: offered once the account is linked; they follow the map like the hazards.
-    val layers by container.layers.state.collectAsStateWithLifecycle()
-    val spotsOn by container.session.layerSpots.collectAsStateWithLifecycle()
-    val eventsOn by container.session.layerEvents.collectAsStateWithLifecycle()
-    var openSpot by remember { mutableStateOf<app.convoyage.api.PsSpot?>(null) }
-    var openEvent by remember { mutableStateOf<app.convoyage.api.PsEvent?>(null) }
-    LaunchedEffect(Unit) { container.layers.refreshStatus() }
-    LaunchedEffect(viewport, spotsOn, eventsOn, layers.available) {
-        viewport?.let { container.layers.onViewport(it, spotsOn && layers.available, eventsOn && layers.available) }
-    }
+    // PhotoScout spots and events, behind the rail's layers button.
+    val mapLayers = rememberMapLayers(
+        viewport,
+        onNavigate = { p -> container.nav.navigateTo(p, container.tracker.lastKnown()) },
+        onJoinCruise = { e -> container.convoy.joinCruise(e.id) },
+    )
     val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(viewport) {
         val box = viewport ?: return@LaunchedEffect
@@ -160,51 +156,48 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
         }
     }
 
-    // Members glide between fixes and are carried forward along their heading (display only).
-    val motion = remember { app.convoyage.data.ConvoyMotion() }
-    var motionNow by remember { androidx.compose.runtime.mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(room?.members) {
-        motion.update(room?.members.orEmpty(), System.currentTimeMillis())
-        do {
-            motionNow = System.currentTimeMillis()
-            kotlinx.coroutines.delay(50)
-        } while (motion.isAnimating(System.currentTimeMillis()))
-        motionNow = System.currentTimeMillis()
-    }
-
-    val myFix = rememberSmoothedFix(ui.fix)
-    val headingUp = rememberHeadingUp(myFix)
-    val layerPins = remember(layers, spotsOn, eventsOn) {
-        (if (spotsOn && layers.available) layers.spots.map { MapPinData("spot-${it.id}", PinKind.Spot, "", it.lat, it.lng) } else emptyList()) +
-            (if (eventsOn && layers.available) layers.events.map { MapPinData("event-${it.id}", PinKind.Event, "", it.lat!!, it.lng!!, tag = Fmt.whenLine(it.startTime).uppercase().ifBlank { null }) } else emptyList())
-    }
-    val pins = layerPins + remember(ui.roster, myFix, hazards, room?.destination, local.pendingDest, motionNow) {
-        ui.roster.mapNotNull { e ->
-            if (e.isMe || e.lat == null || e.lng == null) return@mapNotNull null
-            val pose = motion.pose(e.id, motionNow)
-            MapPinData(
-                id = e.id,
-                kind = when (e.state) {
-                    MemberState.Lead -> PinKind.Lead
-                    MemberState.Stopped -> PinKind.Stopped
-                    MemberState.Offline -> PinKind.Offline
-                    MemberState.Online -> PinKind.Member
-                },
-                label = e.initials, lat = pose?.lat ?: e.lat, lng = pose?.lng ?: e.lng, headingDeg = pose?.heading ?: e.headingDeg, vehicle = e.vehicle,
-                tag = if (e.state == MemberState.Lead) e.distanceM?.let { Geo.formatDistance(it).uppercase() } else null,
-            )
-        } + hazards.map { it.toPin() } + listOfNotNull(
-            myFix?.let { MapPinData("me", PinKind.Me, "", it.lat, it.lng, it.headingDeg, vehicle = myVehicle) },
-            room?.destination?.let { MapPinData("dest", PinKind.Destination, "", it.lat, it.lng, tag = it.label.take(12).uppercase().ifBlank { "DEST" }) },
-            local.pendingDest?.let { MapPinData("pending", PinKind.Destination, "", it.lat, it.lng, tag = "CONFIRM") },
-        )
-    }
-
     val statusTop = WindowInsets.statusBars.getTop(density)
     val navBottom = WindowInsets.navigationBars.getBottom(density)
     val peekPad = SheetPeekHeight + with(density) { navBottom.toDp() } + LocalBottomChrome.current
 
     Box(Modifier.fillMaxSize().onSizeChanged { containerH = it.height }) {
+        // Everything that moves every frame (our glide, members gliding) is read in here, so it recomposes the map
+        // only, not the whole screen.
+        SmoothedFix(ui.fix) { myFix ->
+        // Members glide between fixes and are carried forward along their heading (display only).
+        val motion = remember { app.convoyage.data.ConvoyMotion() }
+        var motionNow by remember { androidx.compose.runtime.mutableLongStateOf(System.currentTimeMillis()) }
+        LaunchedEffect(room?.members) {
+            motion.update(room?.members.orEmpty(), System.currentTimeMillis())
+            do {
+                motionNow = System.currentTimeMillis()
+                kotlinx.coroutines.delay(50)
+            } while (motion.isAnimating(System.currentTimeMillis()))
+            motionNow = System.currentTimeMillis()
+        }
+
+        val headingUp = rememberHeadingUp(myFix)
+        val pins = mapLayers.pins + remember(ui.roster, myFix, hazards, room?.destination, local.pendingDest, motionNow) {
+            ui.roster.mapNotNull { e ->
+                if (e.isMe || e.lat == null || e.lng == null) return@mapNotNull null
+                val pose = motion.pose(e.id, motionNow)
+                MapPinData(
+                    id = e.id,
+                    kind = when (e.state) {
+                        MemberState.Lead -> PinKind.Lead
+                        MemberState.Stopped -> PinKind.Stopped
+                        MemberState.Offline -> PinKind.Offline
+                        MemberState.Online -> PinKind.Member
+                    },
+                    label = e.initials, lat = pose?.lat ?: e.lat, lng = pose?.lng ?: e.lng, headingDeg = pose?.heading ?: e.headingDeg, vehicle = e.vehicle,
+                    tag = if (e.state == MemberState.Lead) e.distanceM?.let { Geo.formatDistance(it).uppercase() } else null,
+                )
+            } + hazards.map { it.toPin() } + listOfNotNull(
+                myFix?.let { MapPinData("me", PinKind.Me, "", it.lat, it.lng, it.headingDeg, vehicle = myVehicle) },
+                room?.destination?.let { MapPinData("dest", PinKind.Destination, "", it.lat, it.lng, tag = it.label.take(12).uppercase().ifBlank { "DEST" }) },
+                local.pendingDest?.let { MapPinData("pending", PinKind.Destination, "", it.lat, it.lng, tag = "CONFIRM") },
+            )
+        }
         ConvoyMap(
             modifier = Modifier.fillMaxSize(),
             pins = pins,
@@ -225,7 +218,7 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
             fitTo = fitAll,
             followBearing = if (local.follow && !navState.phase.guiding()) headingUp else if (local.follow) (myFix?.headingDeg ?: navState.bearing) else null,
             headingUpFallbackNorth = true,
-            followZoom = if (local.follow && myFix != null) followZoomFor(myFix.speedMps ?: 0.0) else null,
+            followZoom = if (local.follow && myFix != null) (if (navState.phase.guiding()) followZoomFor(myFix.speedMps ?: 0.0) else idleZoomFor(myFix.speedMps ?: 0.0)) else null,
             // The map keeps the same padding in every state, so the camera does not lurch as the sheet moves.
             bottomPadding = peekPad,
             // Following with the map turned to our heading: sit low so the road ahead fills the screen.
@@ -233,15 +226,10 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
             // Rounded to ~1 km so small pans do not reload; the 30 s loop above keeps it fresh.
             onViewport = { b -> viewport = Bbox(b.south.round2(), b.west.round2(), b.north.round2(), b.east.round2()) },
             onLongPress = if (room != null) { ll -> vm.proposeDestination(ll.latitude, ll.longitude) } else null,
-            tappable = setOf(PinKind.Spot, PinKind.Event),
-            onPinTap = { pin ->
-                when (pin.kind) {
-                    PinKind.Spot -> openSpot = layers.spots.firstOrNull { "spot-${it.id}" == pin.id }
-                    PinKind.Event -> openEvent = layers.events.firstOrNull { "event-${it.id}" == pin.id }
-                    else -> Unit
-                }
-            },
+            tappable = mapLayers.tappable,
+            onPinTap = mapLayers.onPinTap,
         )
+        }
 
         // Top: banners, then the toggle row.
         Column(
@@ -313,26 +301,7 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
             Row(horizontalArrangement = Arrangement.spacedBy(Space.s2)) {
                 CvChipToggle("3D", local.buildings3d, vm::toggle3d)
                 if (rec.isActive) CvChipToggle("REC ${Fmt.clock(rec.elapsedS)}${if (rec.isPaused) " II" else ""}", true, { showRecord = true })
-                if (layers.available) {
-                    CvChipToggle("SPOTS", spotsOn, { container.session.setLayerSpots(!spotsOn) })
-                    CvChipToggle("EVENTS", eventsOn, { container.session.setLayerEvents(!eventsOn) })
-                }
-            }
-        }
-
-        // Right rail: one stable spot just above the sheet's peek height, in every state. It steps aside when the
-        // sheet is pulled up over it.
-        AnimatedVisibility(
-            visible = detent == Detent.Peek,
-            enter = fadeIn(), exit = fadeOut(),
-            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = peekPad + Space.s3),
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(Space.s2), horizontalAlignment = Alignment.CenterHorizontally) {
-                val everyone = ui.roster.mapNotNull { e -> if (!e.isMe && e.lat != null && e.lng != null) LatLng(e.lat, e.lng) else null } +
-                    listOfNotNull(ui.fix?.let { LatLng(it.lat, it.lng) }, room?.destination?.let { LatLng(it.lat, it.lng) })
-                if (room != null && everyone.size >= 2) {
-                    CvIconButton(CvIcons.Convoy, "Show everyone", { vm.userMovedMap(); fitAll = everyone.toList() }, tint = if (fitAll.isNotEmpty()) c.signal else c.ink)
-                }
+                mapLayers.RailButton()
                 CvIconButton(CvIcons.Alert, "Report hazard", onReport, tint = c.hazard, edge = c.hazard)
                 if (room == null) CvIconButton(CvIcons.Locate, "Recentre on me", vm::recenter, tint = if (local.follow) c.signal else c.ink)
                 // Hold to talk: big and round, where a thumb rests while driving.
@@ -344,7 +313,7 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
         }
 
         RecenterPill(
-            visible = !local.follow && myFix != null && detent == Detent.Peek,
+            visible = !local.follow && ui.fix != null && detent == Detent.Peek,
             onClick = vm::recenter,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = peekPad + Space.s3),
         )
@@ -426,17 +395,10 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
         }
 
         if (showRecord) RecordSheet(onDismiss = { showRecord = false })
-        openSpot?.let { s ->
-            SpotSheet(s, onNavigate = { p -> openSpot = null; container.nav.navigateTo(p, container.tracker.lastKnown()) }, onDismiss = { openSpot = null })
-        }
-        openEvent?.let { e ->
-            EventSheet(
-                e,
-                onNavigate = { p -> openEvent = null; container.nav.navigateTo(p, container.tracker.lastKnown()) },
-                onJoinCruise = { openEvent = null; container.convoy.joinCruise(e.id) },
-                onDismiss = { openEvent = null },
-            )
-        }
+        mapLayers.Hint(
+            Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.statusBars).padding(top = 120.dp),
+        ) { pts -> vm.userMovedMap(); fitAll = pts + listOfNotNull(ui.fix?.let { LatLng(it.lat, it.lng) }) }
+        mapLayers.Sheets()
         if (pickRoute) SavedRoutePickerSheet(onDismiss = { pickRoute = false }, onBuild = { pickRoute = false; onBuildRoute() })
         PhotoConfirmSheet(capture)
 

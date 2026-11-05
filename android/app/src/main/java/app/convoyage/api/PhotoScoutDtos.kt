@@ -7,6 +7,9 @@ import kotlinx.serialization.Serializable
 data class PhotoScoutStatus(val configured: Boolean = false, val linked: Boolean = false, val username: String? = null)
 
 @Serializable
+data class PhotoScoutAuthorizeUrl(val authorizeUrl: String)
+
+@Serializable
 data class PsGoodTimes(
     val phases: List<String> = emptyList(),
     val months: List<Int> = emptyList(),

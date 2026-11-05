@@ -75,6 +75,13 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="https" android:host="convoyage.app" android:pathPrefix="/join/" />
             </intent-filter>
+            <!-- Back from linking PhotoScout in the browser: convoyage://photoscout/linked[?error=...]. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="convoyage" android:host="photoscout" android:pathPrefix="/linked" />
+            </intent-filter>
             <!-- Magic link emailed by the server: convoyage://auth/magic?token=... (MAGIC_LINK_BASE_URL). -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />

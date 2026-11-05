@@ -66,8 +66,8 @@ class MapStyleTest {
         assertEquals(MapNightStyle.RoadClass.Rail, MapNightStyle.roadClass("road_major_rail"))
         assertNull(MapNightStyle.roadClass("road_one_way_arrow"))
         assertNull(MapNightStyle.roadClass("building"))
-        assertEquals("#3a4660", MapNightStyle.roadColor(MapNightStyle.RoadClass.Minor))
-        assertEquals("#56627e", MapNightStyle.roadColor(MapNightStyle.RoadClass.Major))
+        assertEquals("#4a5878", MapNightStyle.roadColor(MapNightStyle.RoadClass.Minor))
+        assertEquals("#7583a2", MapNightStyle.roadColor(MapNightStyle.RoadClass.Major))
     }
 
     @Test

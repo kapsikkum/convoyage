@@ -199,6 +199,10 @@ class ConvoyApi(
         }
     }
 
+    /** Police, cameras, hazards and traffic in a box (up to 0.3 degrees a side). */
+    suspend fun areaConditions(box: app.convoyage.data.Bbox): ApiResult<AreaConditionsDto> =
+        send("GET", "v1/conditions/area", null, AreaConditionsDto.serializer(), query = mapOf("bbox" to "%.5f,%.5f,%.5f,%.5f".format(java.util.Locale.ROOT, box.south, box.west, box.north, box.east)))
+
     suspend fun photoscoutRoutes(): ApiResult<List<PsRoute>> =
         send("GET", "v1/photoscout/routes", null, ListSerializer(PsRoute.serializer()))
 
@@ -305,6 +309,11 @@ class ConvoyApi(
     // ---- PhotoScout map layers --------------------------------------------------------------------
 
     suspend fun photoscoutStatus(): ApiResult<PhotoScoutStatus> = send("GET", "v1/photoscout/status", null, PhotoScoutStatus.serializer())
+
+    /** The PhotoScout consent page to open in the browser; it comes back to convoyage://photoscout/linked. */
+    suspend fun photoscoutConnect(): ApiResult<PhotoScoutAuthorizeUrl> = send("GET", "v1/photoscout/connect", null, PhotoScoutAuthorizeUrl.serializer())
+
+    suspend fun photoscoutUnlink(): ApiResult<OkBody> = send("DELETE", "v1/photoscout/link", null, OkBody.serializer())
 
     /** Spots inside [box]. */
     suspend fun photoscoutSpots(box: app.convoyage.data.Bbox): ApiResult<List<PsSpot>> =

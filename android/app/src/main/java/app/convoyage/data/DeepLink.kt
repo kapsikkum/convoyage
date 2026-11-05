@@ -4,6 +4,9 @@ package app.convoyage.data
 sealed interface AppLink {
     data class Join(val code: String) : AppLink
     data class Auth(val link: String) : AppLink
+
+    /** Back from linking PhotoScout in the browser; [error] is the server's code when it did not work. */
+    data class PhotoScoutLinked(val error: String?) : AppLink
 }
 
 /** Parses `convoyage://join/<CODE>` and `https://convoyage.app/join/<CODE>` (plus the magic-link scheme). Pure. */
@@ -32,6 +35,10 @@ object DeepLink {
         val lower = text.lowercase()
         val prefixes = listOf("convoyage://join/", "https://convoyage.app/join/", "https://www.convoyage.app/join/")
         if (lower.startsWith("convoyage://auth")) return AppLink.Auth(text)
+        if (lower.startsWith("convoyage://photoscout/linked")) {
+            val error = text.substringAfter('?', "").split('&').firstOrNull { it.startsWith("error=") }?.substringAfter('=')?.ifBlank { null }
+            return AppLink.PhotoScoutLinked(error)
+        }
         for (p in prefixes) if (lower.startsWith(p)) return joinCode(text.substring(p.length))
         return null
     }

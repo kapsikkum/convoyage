@@ -70,6 +70,22 @@ fun rememberSmoothedFix(raw: app.convoyage.data.Fix?): app.convoyage.data.Fix? {
     return shown
 }
 
+/** The raw fix (once per fix, no glide) with heading and speed worked out from movement when the device omits them. */
+@androidx.compose.runtime.Composable
+fun rememberFilledFix(raw: app.convoyage.data.Fix?): app.convoyage.data.Fix? {
+    val motion = androidx.compose.runtime.remember { app.convoyage.data.SelfMotion() }
+    return androidx.compose.runtime.remember(raw) { raw?.let { motion.update(it, System.currentTimeMillis()) } }
+}
+
+/**
+ * The smoothed fix, read only inside [content]: the glide updates every frame, and reading it here keeps those
+ * recompositions to the map instead of the whole screen around it.
+ */
+@androidx.compose.runtime.Composable
+fun SmoothedFix(raw: app.convoyage.data.Fix?, content: @androidx.compose.runtime.Composable (app.convoyage.data.Fix?) -> Unit) {
+    content(rememberSmoothedFix(raw))
+}
+
 /**
  * The camera bearing for following, Waze / Google Maps style: heading-up while moving (above ~10 km/h, so a parked
  * phone does not spin), held through short slow patches, north-up only once stopped for a while.

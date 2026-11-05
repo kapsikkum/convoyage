@@ -43,7 +43,10 @@ import org.maplibre.geojson.Polygon
  */
 object MapNightStyle {
     /** Layer ids matching this are hidden. Same pattern as the reference renderer. */
-    val HIDDEN_LAYERS = Regex("^poi|^airport|housenumber|shield")
+    // Landmarks stay (the higher-ranked POIs, transit, airports); the long tail of minor POIs, house numbers and
+    // shields is clutter on a driving map.
+    val HIDDEN_LAYERS = Regex("^poi_r20|housenumber|shield")
+    const val TEXT_POI = "#8e9cb4"
 
     const val TEXT = "#b9c4d2"
     const val TEXT_WATER = "#6f8fb3"
@@ -53,9 +56,9 @@ object MapNightStyle {
     const val MOOD_OPACITY = 0.66f
 
     /** Night HUD road palette. The mood sits under the roads, so these are the colours you actually see. */
-    const val ROAD_MINOR = "#3a4660"
-    const val ROAD_MAJOR = "#56627e"
-    const val ROAD_PATH = "#2c3650"
+    const val ROAD_MINOR = "#4a5878"
+    const val ROAD_MAJOR = "#7583a2"
+    const val ROAD_PATH = "#36425e"
     const val ROAD_RAIL = "#273044"
     const val ROAD_CASING = "#070a10"
     const val BUILDING_2D = "#151c2a"
@@ -181,7 +184,11 @@ object MapNightStyle {
     fun moodBelowRoads(layerIds: List<String>): String? = layerIds.firstOrNull { isRoadLayer(it) }
 
     fun shouldHide(layerId: String) = HIDDEN_LAYERS.containsMatchIn(layerId)
-    fun labelColor(layerId: String) = if (layerId.contains("water")) TEXT_WATER else TEXT
+    fun labelColor(layerId: String) = when {
+        layerId.contains("water") -> TEXT_WATER
+        layerId.startsWith("poi") || layerId.startsWith("airport") -> TEXT_POI
+        else -> TEXT
+    }
 
     /** Applies everything to a freshly loaded [style]. Returns the ids of the 3D building layers. */
     fun apply(style: Style, buildings3d: Boolean): List<String> {
@@ -194,6 +201,8 @@ object MapNightStyle {
             if (layer is SymbolLayer) {
                 runCatching {
                     layer.setProperties(textColor(labelColor(id)), textHaloColor(HALO), textHaloWidth(HALO_WIDTH))
+                    // Landmark icons are bright on the night map: tone them down under the pins and reports.
+                    if (id.startsWith("poi") || id.startsWith("airport")) layer.setProperties(org.maplibre.android.style.layers.PropertyFactory.iconOpacity(0.7f))
                 }
             }
             if (layer is FillExtrusionLayer) {

@@ -115,7 +115,9 @@ fun EventSheet(event: PsEvent, onNavigate: (Place) -> Unit, onJoinCruise: (() ->
 }
 
 @Composable
-private fun LayerScrim(onDismiss: () -> Unit, bottomInset: Dp, content: @Composable () -> Unit) {
+internal fun LayerScrim(onDismiss: () -> Unit, bottomInset: Dp, content: @Composable () -> Unit) {
+    // Back closes the sheet, not the app.
+    androidx.activity.compose.BackHandler(onBack = onDismiss)
     Box(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)).clickableNoRipple(onDismiss))
         CvSheet(Modifier.align(Alignment.BottomCenter).padding(bottom = bottomInset).clickableNoRipple {}) {
@@ -143,4 +145,67 @@ internal fun goodTimesLine(spot: PsSpot): String? {
     }
     val parts = listOf(phases, months, g.conditions.joinToString(", ")).filter { it.isNotBlank() }
     return parts.joinToString(" · ").uppercase().ifBlank { null }
+}
+
+/** Opens PhotoScout's consent page in the browser; it returns to the app at convoyage://photoscout/linked. */
+@Composable
+fun rememberPhotoScoutConnect(): Pair<() -> Unit, String?> {
+    val container = LocalContainer.current
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    var error by remember { mutableStateOf<String?>(null) }
+    val connect: () -> Unit = {
+        error = null
+        scope.launch {
+            container.layers.connectUrl()
+                .onSuccess { url ->
+                    runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))) }
+                        .onFailure { error = "No browser to open PhotoScout in" }
+                }
+                .onFailure { error = it.message ?: "Could not reach the server" }
+        }
+    }
+    return connect to error
+}
+
+/** Tapped SPOTS or EVENTS before linking: what they are, and the one button that sets them up. */
+@Composable
+fun ConnectPhotoScoutSheet(onDismiss: () -> Unit, bottomInset: Dp = 0.dp) {
+    val c = Cv.colors
+    val (connect, error) = rememberPhotoScoutConnect()
+    LayerScrim(onDismiss, bottomInset) {
+        Eyebrow("PHOTOSCOUT")
+        CvText("See photo spots and car events on the map", Cv.type.title, c.ink)
+        CvText(
+            "Link your PhotoScout account to show its photo spots (with the best times to shoot them) and upcoming events, " +
+                "and to join cruise convoys from them. You can unlink it any time in Settings.",
+            Cv.type.body, c.inkMuted,
+        )
+        error?.let { Eyebrow(it.uppercase(), color = c.hazard) }
+        CvButton("Connect PhotoScout", connect, Modifier.fillMaxWidth())
+        CvButton("Not now", onDismiss, Modifier.fillMaxWidth(), CvButtonKind.Ghost)
+    }
+}
+
+/** Settings: link or unlink PhotoScout. Hidden on servers without PhotoScout. */
+@Composable
+fun PhotoScoutSettings() {
+    val c = Cv.colors
+    val container = LocalContainer.current
+    val state by container.layers.state.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    val (connect, error) = rememberPhotoScoutConnect()
+    var unlinkError by remember { mutableStateOf<String?>(null) }
+    androidx.compose.runtime.LaunchedEffect(Unit) { container.layers.refreshStatus() }
+    if (!state.configured) return
+    Eyebrow("PHOTOSCOUT")
+    if (state.linked) {
+        CvText("Linked" + (state.username?.let { " as $it" } ?: "") + ". Spots, events and saved routes come from your PhotoScout account.", Cv.type.bodyS, c.inkMuted)
+        CvButton("Unlink PhotoScout", { scope.launch { unlinkError = container.layers.unlink() } }, Modifier.fillMaxWidth(), CvButtonKind.Ghost)
+        unlinkError?.let { Eyebrow(it.uppercase(), color = c.hazard) }
+    } else {
+        CvText("Link your PhotoScout account for photo spots and events on the map, cruise convoys, and your saved routes.", Cv.type.bodyS, c.inkMuted)
+        CvButton("Connect PhotoScout", connect, Modifier.fillMaxWidth())
+        error?.let { Eyebrow(it.uppercase(), color = c.hazard) }
+    }
 }

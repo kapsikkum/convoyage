@@ -777,6 +777,8 @@ fun MapPin(
         ) {
             if (kind == PinKind.Me) CvIcon(CvIcons.Navigate, c.signalInk, size = 16.dp, modifier = Modifier.rotate(heading ?: 0f))
             else if (kind == PinKind.Destination) CvIcon(CvIcons.Route, c.ink, size = 18.dp)
+            // A short word (POL, CAM, JAM, WRK) says which kind of report it is; otherwise the alert glyph.
+            else if ((kind == PinKind.Hazard || kind == PinKind.Police) && label.length >= 2) CvText(label, Cv.type.label.copy(fontSize = 10.sp, letterSpacing = 0.sp), ring, maxLines = 1)
             else if (kind == PinKind.Hazard || kind == PinKind.Police) CvIcon(CvIcons.Alert, ring, size = 18.dp)
             else if (kind == PinKind.Photo || kind == PinKind.Spot) CvIcon(CvIcons.Camera, ring, size = 18.dp)
             else if (kind == PinKind.Event) CvIcon(CvIcons.Flag, ring, size = 18.dp)

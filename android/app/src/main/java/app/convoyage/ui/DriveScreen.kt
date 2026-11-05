@@ -1,5 +1,10 @@
 package app.convoyage.ui
 
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -318,11 +323,25 @@ internal fun DriveRecordBar(rec: app.convoyage.data.RecorderState, onRecord: () 
 
 /** Current speed, Konvoi-style, bottom-left while navigating. */
 @Composable
-internal fun SpeedReadout(speedMps: Double, modifier: Modifier = Modifier) {
+internal fun SpeedReadout(speedMps: Double, modifier: Modifier = Modifier, over: Boolean = false) {
     val c = Cv.colors
-    Column(modifier.cutPanel(c.glass, c.lineStrong, CutMShape).padding(horizontal = Space.s3, vertical = Space.s2), horizontalAlignment = Alignment.CenterHorizontally) {
-        CvText(Math.round(speedMps * 3.6).toString(), Cv.type.telemetryL, c.ink, maxLines = 1)
+    Column(modifier.cutPanel(c.glass, if (over) c.hazard else c.lineStrong, CutMShape).padding(horizontal = Space.s3, vertical = Space.s2), horizontalAlignment = Alignment.CenterHorizontally) {
+        CvText(Math.round(speedMps * 3.6).toString(), Cv.type.telemetryL, if (over) c.hazard else c.ink, maxLines = 1)
         Eyebrow("KM/H")
+    }
+}
+
+/** The road's signed limit, drawn like the sign itself (a physically round thing, so it is round). */
+@Composable
+internal fun SpeedLimitSign(kmh: Int, modifier: Modifier = Modifier) {
+    androidx.compose.foundation.layout.Box(
+        modifier.size(56.dp)
+            .background(androidx.compose.ui.graphics.Color.White, androidx.compose.foundation.shape.CircleShape)
+            .border(5.dp, androidx.compose.ui.graphics.Color(0xFFD7262E), androidx.compose.foundation.shape.CircleShape)
+            .semantics { contentDescription = "Speed limit $kmh" },
+        contentAlignment = Alignment.Center,
+    ) {
+        CvText(kmh.toString(), if (kmh >= 100) Cv.type.telemetry else Cv.type.telemetryL, androidx.compose.ui.graphics.Color.Black, maxLines = 1)
     }
 }
 

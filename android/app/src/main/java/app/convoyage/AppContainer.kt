@@ -121,6 +121,10 @@ class AppContainer(private val context: Context) {
 
     /** PhotoScout spots and events on the Drive map (when the account is linked). */
     val layers = app.convoyage.data.PhotoScoutLayers(appScope, api)
+    /** Police, hazards and traffic around the map view (TfNSW, Waze). */
+    val area = app.convoyage.data.AreaConditions(appScope, api)
+    /** The signed limit of the road you are on. */
+    val speedLimits = app.convoyage.data.SpeedLimits(appScope, api)
 
     /** Notifications without Google services: UnifiedPush, or our own socket kept alive. */
     val push = app.convoyage.push.PushManager(
@@ -192,6 +196,8 @@ class AppContainer(private val context: Context) {
     private fun clearAccountData() {
         garage.clear()
         layers.clear()
+        area.clear()
+        speedLimits.clear()
         rides.clear()
         feed.clear()
         images.clear()

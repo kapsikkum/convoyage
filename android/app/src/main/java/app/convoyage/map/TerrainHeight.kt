@@ -34,6 +34,13 @@ object TerrainHeight {
         return intArrayOf(tx, ty, ((x - tx) * 256).toInt().coerceIn(0, 255), ((y - ty) * 256).toInt().coerceIn(0, 255))
     }
 
+    /** The height if its tile is already loaded (no network), for per-frame use; null until [at] has fetched it. */
+    fun cached(lat: Double, lng: Double): Double? {
+        val l = locate(lat, lng)
+        val pixels = synchronized(tiles) { tiles["${l[0]}/${l[1]}"] } ?: return null
+        return decode(pixels[l[3] * 256 + l[2]])
+    }
+
     suspend fun at(lat: Double, lng: Double): Double? = withContext(Dispatchers.IO) {
         val (tx, ty, px, py) = locate(lat, lng).let { listOf(it[0], it[1], it[2], it[3]) }
         val key = "$tx/$ty"

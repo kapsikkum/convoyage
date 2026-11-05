@@ -66,6 +66,7 @@ object CvIcons {
     val Heart = stroke("heart", "M12 20S4 15 4 9.5A4.2 4.2 0 0 1 12 8a4.2 4.2 0 0 1 8 1.5C20 15 12 20 12 20z")
     val HeartFilled = stroke("heart_fill", "M12 20S4 15 4 9.5A4.2 4.2 0 0 1 12 8a4.2 4.2 0 0 1 8 1.5C20 15 12 20 12 20z", fill = true)
     val Comment = stroke("comment", "M4 5h16v11H9l-5 4z")
+    val Layers = stroke("layers", "M12 3.5l8.5 4.75L12 13 3.5 8.25z", "M3.5 12.25L12 17l8.5-4.75", "M3.5 16.25L12 21l8.5-4.75")
     val Camera = stroke("camera", "M3 8h4l2-3h6l2 3h4v11H3z", circle(12f, 13.5f, 3.5f))
     val Lock = stroke("lock", "M5 11h14v10H5z", "M8 11V8a4 4 0 0 1 8 0v3")
     val Mail = stroke("mail", "M3 6h18v13H3z", "m3 7 9 7 9-7")

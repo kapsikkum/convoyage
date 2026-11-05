@@ -98,13 +98,17 @@ class SessionStore(context: Context) {
 
     private val _layerSpots = MutableStateFlow(prefs.getBoolean("layerSpots", false))
     private val _layerEvents = MutableStateFlow(prefs.getBoolean("layerEvents", false))
+    private val _layerTraffic = MutableStateFlow(prefs.getBoolean("layerTraffic", true))
 
     /** PhotoScout map layers on the Drive map. */
     val layerSpots: StateFlow<Boolean> = _layerSpots.asStateFlow()
     val layerEvents: StateFlow<Boolean> = _layerEvents.asStateFlow()
+    /** Police, cameras, hazards and traffic around the map (on by default). */
+    val layerTraffic: StateFlow<Boolean> = _layerTraffic.asStateFlow()
 
     fun setLayerSpots(on: Boolean) { prefs.edit().putBoolean("layerSpots", on).apply(); _layerSpots.value = on }
     fun setLayerEvents(on: Boolean) { prefs.edit().putBoolean("layerEvents", on).apply(); _layerEvents.value = on }
+    fun setLayerTraffic(on: Boolean) { prefs.edit().putBoolean("layerTraffic", on).apply(); _layerTraffic.value = on }
 
     private val _openCruise = MutableStateFlow(prefs.getBoolean("openCruise", false))
     /** Open Cruise: show me to drivers nearby who have it on too. Off unless chosen. */

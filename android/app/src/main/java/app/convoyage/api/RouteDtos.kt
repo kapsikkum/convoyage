@@ -165,3 +165,13 @@ data class RouteConditions(
     val sources: ConditionSources = ConditionSources(),
     val cached: Boolean = false,
 )
+
+/** Police, hazards and traffic in a map box (GET /v1/conditions/area). `km` is unused there. */
+@Serializable
+data class AreaConditionsDto(
+    val items: List<ConditionItem> = emptyList(),
+    val sources: AreaSources = AreaSources(),
+)
+
+@Serializable
+data class AreaSources(val tfnsw: String = "off", val waze: String = "off")

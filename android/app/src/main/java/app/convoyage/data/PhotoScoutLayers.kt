@@ -16,7 +16,12 @@ import kotlin.math.cos
 import kotlin.math.max
 
 data class LayersState(
-    /** This server has PhotoScout and the account is linked: the layer toggles are offered. */
+    /** This server has PhotoScout: the layer toggles are offered (they ask to link first). */
+    val configured: Boolean = false,
+    val linked: Boolean = false,
+    /** The PhotoScout username, when it told us. */
+    val username: String? = null,
+    /** Linked and configured: layers can load. */
     val available: Boolean = false,
     val spots: List<PsSpot> = emptyList(),
     val events: List<PsEvent> = emptyList(),
@@ -48,8 +53,14 @@ class PhotoScoutLayers(
     /** Asks the server whether PhotoScout is there and linked. Call after sign-in and when Settings links it. */
     fun refreshStatus() {
         scope.launch {
-            val ok = (api.photoscoutStatus() as? ApiResult.Ok)?.value?.let { it.configured && it.linked } ?: false
-            _state.update { if (ok) it.copy(available = true) else LayersState() }
+            val s = (api.photoscoutStatus() as? ApiResult.Ok)?.value ?: return@launch
+            val ok = s.configured && s.linked
+            _state.update {
+                if (ok) it.copy(configured = true, linked = true, username = s.username, available = true)
+                else LayersState(configured = s.configured)
+            }
+            // Just linked: force a load for the current view on the next viewport call.
+            if (ok) { spotsAt = 0; eventsAt = 0 }
         }
     }
 
@@ -66,7 +77,7 @@ class PhotoScoutLayers(
             val loaded = spotsBox
             if (loaded == null || !loaded.covers(view) || t - spotsAt > maxAgeMs) {
                 // A margin around the view, so small pans need nothing new.
-                val box = view.grown(0.5).clamped(2.0)
+                val box = view.grown(0.5).atLeast(0.3).clamped(2.0)
                 spotsJob?.cancel()
                 spotsJob = scope.launch {
                     when (val r = api.photoscoutSpots(box)) {
@@ -99,6 +110,17 @@ class PhotoScoutLayers(
         }
     }
 
+    /** The consent page to open, or an error to show. */
+    suspend fun connectUrl(): Result<String> = when (val r = api.photoscoutConnect()) {
+        is ApiResult.Ok -> Result.success(r.value.authorizeUrl)
+        is ApiResult.Err -> Result.failure(IllegalStateException(r.message))
+    }
+
+    suspend fun unlink(): String? = when (val r = api.photoscoutUnlink()) {
+        is ApiResult.Ok -> { val configured = _state.value.configured; clear(); _state.value = LayersState(configured = configured); null }
+        is ApiResult.Err -> r.message
+    }
+
     /** Going / interested / take it back ([status] null). The list updates with the server's counts. */
     suspend fun rsvp(event: PsEvent, status: String?): String? {
         val body = if (status == null) PsRsvpRequest(going = false) else PsRsvpRequest(status = status)
@@ -122,6 +144,15 @@ internal fun Bbox.grown(fraction: Double): Bbox {
     val dLat = (north - south) * fraction
     val dLng = (east - west) * fraction
     return Bbox((south - dLat).coerceAtLeast(-90.0), (west - dLng).coerceAtLeast(-180.0), (north + dLat).coerceAtMost(90.0), (east + dLng).coerceAtMost(180.0))
+}
+
+/** The same centre, at least [degrees] across each way. */
+internal fun Bbox.atLeast(degrees: Double): Bbox {
+    val cLat = (south + north) / 2
+    val cLng = (west + east) / 2
+    val hLat = maxOf((north - south) / 2, degrees / 2)
+    val hLng = maxOf((east - west) / 2, degrees / 2)
+    return Bbox((cLat - hLat).coerceAtLeast(-90.0), (cLng - hLng).coerceAtLeast(-180.0), (cLat + hLat).coerceAtMost(90.0), (cLng + hLng).coerceAtMost(180.0))
 }
 
 internal fun Bbox.halfDiagonalKm(): Double {

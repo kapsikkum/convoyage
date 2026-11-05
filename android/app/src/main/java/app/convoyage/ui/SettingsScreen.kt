@@ -181,6 +181,8 @@ fun SettingsScreen(onBack: () -> Unit) {
 
         PushSettings()
 
+        PhotoScoutSettings()
+
         Eyebrow("SAFETY")
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f).padding(end = Space.s3)) {

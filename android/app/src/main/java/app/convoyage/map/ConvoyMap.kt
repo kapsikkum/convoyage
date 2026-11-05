@@ -1,5 +1,6 @@
 package app.convoyage.map
 
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.clickable
 import android.graphics.PointF
 import android.view.Gravity
@@ -110,6 +111,11 @@ fun ConvoyMap(
     var style by remember { mutableStateOf<Style?>(null) }
     var extrusions by remember { mutableStateOf<List<String>>(emptyList()) }
     var tick by remember { mutableIntStateOf(0) }
+    // Bearing and tilt for the pins' artwork, in whole-degree steps so a gliding camera does not recompose them.
+    var camBearing by remember { mutableStateOf(0.0) }
+    var camTilt by remember { mutableStateOf(0f) }
+    // The last view reported, so the follow camera's constant small moves do not re-run every layer's loading.
+    var lastViewport by remember { mutableStateOf<Bbox?>(null) }
     // A pinch in progress: following pauses so the camera does not fight the fingers.
     var scaling by remember { mutableStateOf(false) }
     // The zoom the person pinched to while following; it wins over [followZoom] until they recentre.
@@ -121,6 +127,8 @@ fun ConvoyMap(
     val onTapNow by rememberUpdatedState(onTap)
     val onPinTapNow by rememberUpdatedState(onPinTap)
     val initial3d = remember { buildings3d }
+    val buildings3dNow by rememberUpdatedState(buildings3d)
+    val groundScope = androidx.compose.runtime.rememberCoroutineScope()
 
     // Your marker (and the camera on it) sits exactly on the road: snapped to the route while navigating, else to the
     // nearest drawn road running your way. The road pieces near you are re-read from the map every couple of seconds.
@@ -166,18 +174,37 @@ fun ConvoyMap(
     LaunchedEffect(mapView) {
         mapView.getMapAsync { m ->
             map = m
+            // 3D terrain, panning freely: keep the camera centre on the ground under it (not on the plane where the
+            // last follow left it), so a drag moves the map with the finger over hills and valleys.
+            fun groundCentre() {
+                if (!buildings3dNow) return
+                val t = m.cameraPosition.target ?: return
+                val h = TerrainHeight.cached(t.latitude, t.longitude)
+                if (h == null) { groundScope.launch { TerrainHeight.at(t.latitude, t.longitude) }; return }
+                val want = h * MapNightStyle.TERRAIN_EXAGGERATION
+                if (want > 0 && kotlin.math.abs(m.centerAltitude - want) > 25.0) m.setCenterAltitudeKeepingView(want)
+            }
             m.uiSettings.isLogoEnabled = false
             m.uiSettings.isCompassEnabled = false
             m.uiSettings.isRotateGesturesEnabled = interactive
             if (!interactive) m.uiSettings.setAllGesturesEnabled(false)
             m.uiSettings.attributionGravity = Gravity.BOTTOM or Gravity.START
             m.setCameraPosition(CameraPosition.Builder().target(me ?: DEFAULT_CENTER).zoom(if (me != null) 15.0 else 11.0).tilt(if (initial3d) 60.0 else 0.0).build())
-            m.addOnCameraMoveListener { tick++ }
+            // Fewer coarse tiles fetched ahead of the camera (the default asks for 4 zoom levels up).
+            m.prefetchZoomDelta = 2
+            fun camSteps() {
+                val cp = m.cameraPosition
+                if (kotlin.math.abs(cp.bearing - camBearing) >= 1.0) camBearing = cp.bearing
+                if (kotlin.math.abs(cp.tilt.toFloat() - camTilt) >= 1f) camTilt = cp.tilt.toFloat()
+            }
+            m.addOnCameraMoveListener { tick++; camSteps() }
             m.addOnCameraIdleListener {
                 tick++
+                camSteps()
                 runCatching {
                     val b = m.projection.visibleRegion.latLngBounds
-                    onViewportNow(Bbox(b.latitudeSouth, b.longitudeWest, b.latitudeNorth, b.longitudeEast))
+                    val v = Bbox(b.latitudeSouth, b.longitudeWest, b.latitudeNorth, b.longitudeEast)
+                    if (!sameView(lastViewport, v)) { lastViewport = v; onViewportNow(v) }
                 }
             }
             m.addOnMapLongClickListener { latLng ->
@@ -206,8 +233,8 @@ fun ConvoyMap(
             })
             m.addOnMoveListener(object : MapLibreMap.OnMoveListener {
                 override fun onMoveBegin(detector: org.maplibre.android.gestures.MoveGestureDetector) = onUserMovedNow()
-                override fun onMove(detector: org.maplibre.android.gestures.MoveGestureDetector) = Unit
-                override fun onMoveEnd(detector: org.maplibre.android.gestures.MoveGestureDetector) = Unit
+                override fun onMove(detector: org.maplibre.android.gestures.MoveGestureDetector) = groundCentre()
+                override fun onMoveEnd(detector: org.maplibre.android.gestures.MoveGestureDetector) = groundCentre()
             })
             m.setStyle(Style.Builder().fromUri(BuildConfig.MAP_STYLE_URL)) { s ->
                 extrusions = MapNightStyle.apply(s, initial3d)
@@ -333,8 +360,12 @@ fun ConvoyMap(
         if (style == null || fitTo.size < 2 || size.width == 0 || size.height == 0) return@LaunchedEffect
         runCatching {
             val bounds = org.maplibre.android.geometry.LatLngBounds.Builder().includes(fitTo).build()
-            val pad = with(density) { 48.dp.toPx() }.toInt()
-            m.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, pad, pad, pad, pad))
+            // Frame flat and north-up (a tilted camera over terrain frames far wider than asked), clear of the top
+            // chrome, the side rail and the bottom sheet, and never closer than street level for a tight cluster.
+            val px = { d: Int -> with(density) { d.dp.toPx() }.toInt() }
+            val cam = m.getCameraForLatLngBounds(bounds, intArrayOf(px(48), px(200), px(96), px(260)), 0.0, 0.0)
+            if (cam != null) m.animateCamera(CameraUpdateFactory.newCameraPosition(CameraPosition.Builder(cam).zoom(cam.zoom.coerceAtMost(15.0)).build()), 700)
+            else m.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, px(48), px(48), px(48), px(48)))
         }
     }
 
@@ -342,26 +373,41 @@ fun ConvoyMap(
         AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
 
         val m = map
-        if (m != null && tick >= 0) {
-            val bearing = m.cameraPosition.bearing
+        if (m != null) {
+            val half = with(density) { 28.dp.toPx() }
+            val frame = remember { PinFrame() }
             pins.forEach { pin ->
-                val p: PointF = TerrainCamera.screen(m, LatLng(pin.lat, pin.lng), buildings3d)
-                if (p.x > -80 && p.y > -80 && p.x < size.width + 80 && p.y < size.height + 80) {
-                    val half = with(density) { 28.dp.toPx() }
+                androidx.compose.runtime.key(pin.id) {
                     MapPin(
                         kind = pin.kind,
                         label = pin.label,
-                        heading = pin.headingDeg?.let { (it - bearing).toFloat() },
+                        heading = pin.headingDeg?.let { (it - camBearing).toFloat() },
                         tag = pin.tag,
                         vehicle = pin.vehicle,
-                        tiltDeg = m.cameraPosition.tilt.toFloat(),
-                        modifier = Modifier.offset { IntOffset((p.x - half).toInt(), (p.y - half).toInt()) }
-                            .then(if (pin.kind in tappable) Modifier.clickable { onPinTapNow(pin) } else Modifier),
+                        tiltDeg = camTilt,
+                        modifier = Modifier.offset {
+                            // Read in layout: a camera frame re-places the pins without recomposing them.
+                            val t = tick
+                            if (frame.tick != t) { frame.tick = t; frame.nadir = if (buildings3d) TerrainCamera.nadir(m) else null }
+                            val ground = if (!buildings3d) null
+                                else if (pin.kind == PinKind.Me && ease.groundM > 0) ease.groundM
+                                else TerrainHeight.cached(pin.lat, pin.lng)
+                            val p: PointF = TerrainCamera.screen(m, LatLng(pin.lat, pin.lng), buildings3d, ground?.times(MapNightStyle.TERRAIN_EXAGGERATION), frame.nadir)
+                            // Well off screen: park it out of the way (still composed, never drawn in view).
+                            if (p.x < -200 || p.y < -200 || p.x > size.width + 200 || p.y > size.height + 200) IntOffset(-10_000, -10_000)
+                            else IntOffset((p.x - half).toInt(), (p.y - half).toInt())
+                        }.then(if (pin.kind in tappable) Modifier.clickable { onPinTapNow(pin) } else Modifier),
                     )
                 }
             }
         }
     }
+}
+
+/** The nadir worked out once per camera frame for all the pins (plain fields: written during layout). */
+internal class PinFrame {
+    var tick = -1
+    var nadir: PointF? = null
 }
 
 /** Camera easing state kept across follow updates (plain fields: writing it must not recompose the map). */
@@ -414,10 +460,48 @@ internal object TerrainCamera {
      * centre raised, the ground near it is on the plane at the centre's altitude, so refine the sea-level answer
      * against the inverse projection at that altitude (a few Newton steps).
      */
-    fun screen(m: org.maplibre.android.maps.MapLibreMap, p: LatLng, terrain: Boolean): PointF {
+    fun screen(m: org.maplibre.android.maps.MapLibreMap, p: LatLng, terrain: Boolean, groundM: Double? = null, nadir: PointF? = null): PointF {
         val proj = m.projection
         val first = proj.toScreenLocation(p)
         if (!terrain || m.centerAltitude < 1.0) return first
+        val onCentrePlane = onCentrePlane(m, p, first)
+        val alt = m.centerAltitude
+        if (groundM == null || nadir == null || kotlin.math.abs(groundM - alt) < 3.0) return onCentrePlane
+        // The point's own ground is above or below the centre's. Its vertical line passes through the sea-level answer
+        // and the centre-plane answer and runs to the nadir (where vertical lines meet on screen); along that line the
+        // position is projective in height: P(h) = N + (S0 - N) * b / (h + b), with b fixed by P(alt) = the plane answer.
+        val u0 = kotlin.math.hypot((first.x - nadir.x).toDouble(), (first.y - nadir.y).toDouble())
+        val uA = kotlin.math.hypot((onCentrePlane.x - nadir.x).toDouble(), (onCentrePlane.y - nadir.y).toDouble())
+        if (u0 < 1.0 || kotlin.math.abs(u0 - uA) < 0.01) return onCentrePlane
+        val b = alt * uA / (u0 - uA)
+        if (groundM + b <= 0.0) return onCentrePlane
+        val k = (b / (groundM + b)).toFloat()
+        return PointF(nadir.x + (first.x - nadir.x) * k, nadir.y + (first.y - nadir.y) * k)
+    }
+
+    /**
+     * Where vertical lines meet on screen (straight below the camera): found from two screen points, each joined to
+     * where the same ground point sits on the sea-level plane. Null when the camera is not raised.
+     */
+    fun nadir(m: org.maplibre.android.maps.MapLibreMap): PointF? {
+        if (m.centerAltitude < 1.0) return null
+        val proj = m.projection
+        val w = m.width; val h = m.height
+        if (w <= 0f || h <= 0f) return null
+        val a1 = PointF(w * 0.25f, h * 0.7f); val a2 = PointF(w * 0.75f, h * 0.7f)
+        val b1 = proj.fromScreenLocationAtCenterAltitude(a1)?.let { proj.toScreenLocation(it) } ?: return null
+        val b2 = proj.fromScreenLocationAtCenterAltitude(a2)?.let { proj.toScreenLocation(it) } ?: return null
+        // Intersect line a1-b1 with line a2-b2.
+        val d1x = b1.x - a1.x; val d1y = b1.y - a1.y; val d2x = b2.x - a2.x; val d2y = b2.y - a2.y
+        val den = d1x * d2y - d1y * d2x
+        if (kotlin.math.abs(den) < 1e-3f) return null
+        val t = ((a2.x - a1.x) * d2y - (a2.y - a1.y) * d2x) / den
+        return PointF(a1.x + d1x * t, a1.y + d1y * t)
+    }
+
+    /** Where a ground point at the centre's altitude shows on screen, refined from the sea-level answer [first]. */
+    private fun onCentrePlane(m: org.maplibre.android.maps.MapLibreMap, p: LatLng, first: PointF): PointF {
+        val proj = m.projection
         var x = first.x
         var y = first.y
         repeat(3) {
@@ -504,4 +588,16 @@ internal class RoadSnapper {
         val b = best ?: return null
         return Pair(LatLng(lat0 + b[1] / ky, lng0 + b[0] / kx), if (heading != null) b[2] else null)
     }
+}
+
+/**
+ * Pure: two views close enough that nothing needs reloading: each edge within 10% of the view's size of the other's.
+ * The follow camera settles many times a minute a few metres apart.
+ */
+internal fun sameView(a: Bbox?, b: Bbox): Boolean {
+    if (a == null) return false
+    val h = (b.north - b.south) * 0.1
+    val w = (b.east - b.west) * 0.1
+    return kotlin.math.abs(a.south - b.south) < h && kotlin.math.abs(a.north - b.north) < h &&
+        kotlin.math.abs(a.west - b.west) < w && kotlin.math.abs(a.east - b.east) < w
 }

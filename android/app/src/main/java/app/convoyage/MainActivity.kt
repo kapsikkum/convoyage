@@ -69,6 +69,17 @@ class MainActivity : ComponentActivity() {
                 intent.data = null
                 container.setPendingJoin(link.code)
             }
+            is AppLink.PhotoScoutLinked -> {
+                intent.data = null
+                container.layers.refreshStatus()
+                if (link.error == null) { container.session.setLayerSpots(true); container.session.setLayerEvents(true) }
+                val text = when (link.error) {
+                    null -> "PhotoScout linked. Spots and events are on the map."
+                    "access_denied" -> "PhotoScout was not linked: you said no."
+                    else -> "PhotoScout could not be linked (${link.error}). Try again."
+                }
+                Toast.makeText(this, text, Toast.LENGTH_LONG).show()
+            }
             null -> Unit
         }
     }
