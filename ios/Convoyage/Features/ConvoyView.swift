@@ -404,6 +404,7 @@ struct ConvoyView: View {
             HStack(spacing: 10) {
                 CvButton(title: "Start") { showCreate = true }
                 CvButton(title: "Join", kind: .ghost) { showJoin = true }
+                CvButton(title: "Routes", kind: .ghost) { app.showRoutes = true }
             }
             OpenCruiseRow()
             Spacer(minLength: 0)

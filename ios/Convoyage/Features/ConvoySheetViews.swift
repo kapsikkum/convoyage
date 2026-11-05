@@ -662,6 +662,15 @@ struct RoutePanel: View {
     private func leaderTools(_ vm: ConvoyViewModel, _ room: Room) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionLabel(text: "Leader tools")
+            if vm.atStaging {
+                Text("Everyone is heading to the staging point. Roll out when the convoy is together.")
+                    .font(CvFont.text(13))
+                    .foregroundStyle(theme.inkMuted)
+                CvButton(title: "Roll out", icon: "flag.checkered") { vm.rollOut() }
+            }
+            CvButton(title: "Drive a saved route", icon: "point.topleft.down.curvedto.point.bottomright.up", kind: .ghost) {
+                app.showRoutes = true
+            }
             VStack(alignment: .leading, spacing: 8) {
                 SectionLabel(text: "Convoy name")
                 HStack(spacing: 8) {

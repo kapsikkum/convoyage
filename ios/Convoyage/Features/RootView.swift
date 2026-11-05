@@ -13,6 +13,10 @@ struct RootView: View {
             get: { app.showNav },
             set: { (newValue: Bool) in app.showNav = newValue }
         )
+        let routesBinding: Binding<Bool> = Binding<Bool>(
+            get: { app.showRoutes },
+            set: { (newValue: Bool) in app.showRoutes = newValue }
+        )
         let rideBinding: Binding<Bool> = Binding<Bool>(
             get: { app.showRide },
             set: { (newValue: Bool) in app.showRide = newValue }
@@ -53,6 +57,9 @@ struct RootView: View {
         .foregroundStyle(theme.ink)
         .fullScreenCover(isPresented: rideBinding) {
             RideView()
+        }
+        .sheet(isPresented: routesBinding) {
+            RoutesView()
         }
     }
 }

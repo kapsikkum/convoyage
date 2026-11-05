@@ -27,7 +27,7 @@ enum ConvoyEvents {
         func name(_ id: String) -> String {
             let m: Member? = room.members.first { (x: Member) -> Bool in return x.id == id }
                 ?? before.members.first { (x: Member) -> Bool in return x.id == id }
-            let n: String = m.map { (x: Member) -> String in return ConvoyViewModel.shownName(x.username) } ?? ""
+            let n: String = m.map { (x: Member) -> String in return Formatters.shownName(x.username) } ?? ""
             return n.isEmpty ? "A member" : n
         }
         let beforeIds: Set<String> = Set(before.members.map { (m: Member) -> String in return m.id })

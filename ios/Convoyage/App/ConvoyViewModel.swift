@@ -62,6 +62,10 @@ final class ConvoyViewModel {
     var invited: Set<String> = []
     /// An invite waiting for an answer.
     var invite: CruiseInvite?
+    /// The saved route I shared as leader (staging point, then roll out to its end).
+    var sharedRoute: SharedSavedRoute?
+    /// A saved route to share as soon as the convoy I just started exists.
+    @ObservationIgnored private var pendingSaved: SavedRouteDto?
 
     let location: LocationService = LocationService()
 
@@ -401,6 +405,60 @@ final class ConvoyViewModel {
         socket.send(.regroup(room: r.code, enabled: enabled, separationM: min(20000, max(1000, separationM))))
     }
 
+    // MARK: Saved routes
+
+    /// Drive a saved route: starts a convoy named after it, or shares it in the one I lead. Nil, or why not.
+    func driveSavedRoute(_ route: SavedRouteDto) -> String? {
+        if route.stops.count < 2 { return "This route has no line to follow." }
+        guard room != nil else {
+            pendingSaved = route
+            createConvoy(name: String(route.name.prefix(40)))
+            return nil
+        }
+        if !isLeader { return "Only the convoy leader can share a route." }
+        shareSavedRoute(route)
+        return nil
+    }
+
+    /// Leader: share the route's stops (route before destination), then head for its staging point when it has one
+    /// and I am not there yet (everyone gathers first), else for where it ends.
+    func shareSavedRoute(_ route: SavedRouteDto) {
+        guard let r = room, route.stops.count >= 2, let last = route.stops.last, last.count >= 2 else { return }
+        let name: String = String(route.name.prefix(40))
+        let staging: Destination? = route.staging.map { (s: LatLngDto) -> Destination in
+            return Destination(lat: s.lat, lng: s.lng, label: String((name + " staging").prefix(80)))
+        }
+        let end: Destination = Destination(lat: last[1], lng: last[0], label: name)
+        var atStaging: Bool = false
+        if let s = staging, let loc = location.latest {
+            atStaging = GeoMath.distanceM(loc.coordinate.latitude, loc.coordinate.longitude, s.lat, s.lng) < 300
+        }
+        sharedRoute = SharedSavedRoute(code: r.code, route: route, staging: staging, end: end)
+        socket.send(.route(room: r.code, name: name, stops: route.stops))
+        if let s = staging, !atStaging {
+            socket.send(.destination(room: r.code, destination: s))
+        } else {
+            goTo(end, line: route.line, room: r.code)
+        }
+    }
+
+    /// The convoy is heading for the staging point of the route I shared.
+    var atStaging: Bool {
+        guard let s = sharedRoute, s.code == room?.code, let st = s.staging, let d = room?.destination else { return false }
+        return d.lat == st.lat && d.lng == st.lng
+    }
+
+    /// Leader: everyone is at the staging point; set off along the shared route to its end.
+    func rollOut() {
+        guard let s = sharedRoute, let r = room, s.code == r.code else { return }
+        goTo(s.end, line: s.route.line, room: r.code)
+    }
+
+    private func goTo(_ d: Destination, line: [CLLocationCoordinate2D], room code: String) {
+        if line.count >= 2 { navHint = (dest: CLLocationCoordinate2D(latitude: d.lat, longitude: d.lng), line: line) }
+        socket.send(.destination(room: code, destination: d))
+    }
+
     /// Navigation's "Invite friends": start a convoy that heads for the navigation destination along the navigation
     /// route. If I am already in a convoy, I only set the destination (when I lead it).
     func startConvoyForNavigation(place: NavPlace, line: [CLLocationCoordinate2D]) {
@@ -631,6 +689,10 @@ final class ConvoyViewModel {
                 if first { seedRead() }
                 livePositions = [:]
                 pruneStatuses()
+                if first, let saved = pendingSaved {
+                    pendingSaved = nil
+                    if r.leader == myId { shareSavedRoute(saved) }
+                }
                 if first, let nav = pendingNav {
                     pendingNav = nil
                     if r.leader == myId { applyNavDestination(place: nav.place, line: nav.line) }
@@ -677,7 +739,7 @@ final class ConvoyViewModel {
                 room = r
                 if message.userId != myId {
                     if message.text != Self.stoppingText && message.text != Self.movingText {
-                        let who: String = message.username.isEmpty ? "Someone" : ConvoyViewModel.shownName(message.username)
+                        let who: String = message.username.isEmpty ? "Someone" : Formatters.shownName(message.username)
                         onNotice?(ConvoyNotice(text: who + " says: " + message.text, message: true))
                     }
                     if message.text == Self.stoppingText { applyStatus(userId: message.userId, kind: .stopping, note: nil) }
@@ -697,7 +759,7 @@ final class ConvoyViewModel {
             nearbyConvoys = convoys
         case .cruiseInvite(let inv):
             invite = inv
-            onNotice?(ConvoyNotice(text: (inv.fromName.map { ConvoyViewModel.shownName($0) } ?? "A driver") + " invited you to their convoy"))
+            onNotice?(ConvoyNotice(text: (inv.fromName.map { Formatters.shownName($0) } ?? "A driver") + " invited you to their convoy"))
         case .cruiseInvited(let to):
             invited.insert(to)
         case .status(let code, let id, let status, let note):

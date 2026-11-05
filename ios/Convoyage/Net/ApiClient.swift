@@ -297,6 +297,42 @@ final class ApiClient: @unchecked Sendable {
         return await send("POST", "/v1/reports", json: body, as: Empty.self)
     }
 
+    // MARK: Saved routes
+
+    func listRoutes() async -> ApiResult<[SavedRouteDto]> {
+        return await send("GET", "/v1/routes", as: [SavedRouteDto].self)
+    }
+
+    func saveRoute(body: [String: Any]) async -> ApiResult<SavedRouteDto> {
+        return await send("POST", "/v1/routes", json: body, as: SavedRouteDto.self)
+    }
+
+    func patchRoute(id: String, body: [String: Any]) async -> ApiResult<SavedRouteDto> {
+        return await send("PATCH", "/v1/routes/\(id)", json: body, as: SavedRouteDto.self)
+    }
+
+    func deleteRoute(id: String) async -> ApiResult<Empty> {
+        return await send("DELETE", "/v1/routes/\(id)", as: Empty.self)
+    }
+
+    func discoverRoutes(lat: Double, lng: Double, radiusKm: Int) async -> ApiResult<[DiscoveredRouteDto]> {
+        let q: [URLQueryItem] = [
+            URLQueryItem(name: "lat", value: String(lat)),
+            URLQueryItem(name: "lng", value: String(lng)),
+            URLQueryItem(name: "radiusKm", value: String(radiusKm))
+        ]
+        return await send("GET", "/v1/routes/discover", query: q, as: [DiscoveredRouteDto].self)
+    }
+
+    func photoscoutRoutes() async -> ApiResult<[PsRouteDto]> {
+        return await send("GET", "/v1/photoscout/routes", as: [PsRouteDto].self)
+    }
+
+    func importPhotoscoutRoute(id: String) async -> ApiResult<SavedRouteDto> {
+        let c: String = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+        return await send("POST", "/v1/photoscout/routes/\(c)/import", as: SavedRouteDto.self)
+    }
+
     // MARK: Live share link
 
     func liveLink(code: String) async -> ApiResult<LiveLinkDto> {
@@ -385,6 +421,8 @@ final class ApiClient: @unchecked Sendable {
         case .failure(let f):
             return .failure(f)
         case .ok(let data):
+            // 204 No Content (deletes): an empty body reads as an empty object, so `Empty` decodes.
+            if data.isEmpty, let none = try? decoder.decode(T.self, from: Data("{}".utf8)) { return .ok(none) }
             do {
                 return .ok(try decoder.decode(T.self, from: data))
             } catch {

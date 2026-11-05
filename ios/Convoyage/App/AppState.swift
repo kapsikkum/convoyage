@@ -48,6 +48,8 @@ final class AppState {
     var showRide: Bool = false
     /// The navigation screen is up (navigation itself can keep running with it hidden).
     var showNav: Bool = false
+    /// Saved routes (full screen).
+    var showRoutes: Bool = false
     /// The last `/v1/me` we fetched (nil until loaded or after sign-out).
     var me: MeDto?
     /// A deep-link sign-in in progress or failed: shown on Welcome.
@@ -95,6 +97,8 @@ final class AppState {
     let area: AreaConditionsStore
     /// The signed limit of the road you are on.
     let speedLimits: SpeedLimits
+    /// The routes I saved.
+    let savedRoutes: SavedRoutesStore
     /// PhotoScout spots and events.
     let photoscout: PhotoScoutLayers
 
@@ -123,6 +127,7 @@ final class AppState {
         hazards = hazardStore
         area = AreaConditionsStore(api: client)
         speedLimits = SpeedLimits(api: client)
+        savedRoutes = SavedRoutesStore(api: client)
         photoscout = PhotoScoutLayers(api: client)
         nav = NavigationSession(api: client, location: convoyModel.location, hazards: hazardStore)
         voice = VoiceChannel(api: client)
@@ -481,6 +486,7 @@ final class AppState {
         hazards.clear()
         area.clear()
         speedLimits.clear()
+        savedRoutes.clear()
         photoscout.clear()
         garage.clear()
         feed.clear()
