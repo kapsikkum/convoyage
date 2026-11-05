@@ -533,7 +533,7 @@ enum AppTab: String, CaseIterable, Hashable {
         switch self {
         case .home: return "Home"
         case .feed: return "Feed"
-        case .convoy: return "Convoy"
+        case .convoy: return "Drive"
         case .garage: return "Garage"
         case .profile: return "Profile"
         }
@@ -543,7 +543,7 @@ enum AppTab: String, CaseIterable, Hashable {
         switch self {
         case .home: return "house"
         case .feed: return "list.bullet.rectangle"
-        case .convoy: return "person.3.fill"
+        case .convoy: return "steeringwheel"
         case .garage: return "car"
         case .profile: return "person.crop.circle"
         }

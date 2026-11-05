@@ -297,6 +297,18 @@ final class ApiClient: @unchecked Sendable {
         return await send("POST", "/v1/reports", json: body, as: Empty.self)
     }
 
+    // MARK: Conditions around the map
+
+    /// `GET /v1/conditions/area`: police, cameras, hazards and traffic in a box (up to 0.3 degrees a side).
+    func areaConditions(box: GeoBox) async -> ApiResult<AreaConditionsDto> {
+        return await send("GET", "/v1/conditions/area", query: [URLQueryItem(name: "bbox", value: box.param())], as: AreaConditionsDto.self)
+    }
+
+    /// `GET /v1/roads`: OpenStreetMap roads in a box (up to 0.15 degrees a side) with their signed limits.
+    func roads(box: GeoBox) async -> ApiResult<RoadsDto> {
+        return await send("GET", "/v1/roads", query: [URLQueryItem(name: "bbox", value: box.param())], as: RoadsDto.self)
+    }
+
     // MARK: Routing and voice
 
     /// `GET /v1/route`. Points are `lng,lat`; `profile` is "car" or "motorcycle".

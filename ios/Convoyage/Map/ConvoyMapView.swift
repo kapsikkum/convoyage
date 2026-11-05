@@ -98,6 +98,7 @@ final class PinAnnotationView: MLNAnnotationView {
 
     func apply(initials: String, symbol: String?, fill: UIColor, edge: UIColor, text: UIColor) {
         label.text = initials
+        label.font = UIFont.systemFont(ofSize: initials.count >= 3 ? 10 : 12, weight: .bold)
         label.textColor = text
         if let name = symbol {
             icon.image = UIImage(systemName: name)
@@ -120,8 +121,8 @@ enum NightMap {
     static let moodHex: UInt32 = 0x0a0c1a
     static let moodOpacity: CGFloat = 0.62
     /// What roads should look like on screen (brighter than before so they read on the night map).
-    static let minorRoadHex: UInt32 = 0x3a4660
-    static let majorRoadHex: UInt32 = 0x56627e
+    static let minorRoadHex: UInt32 = 0x4a5878
+    static let majorRoadHex: UInt32 = 0x7583a2
     static let casingHex: UInt32 = 0x1a2232
 
     private static func comps(_ hex: UInt32) -> (CGFloat, CGFloat, CGFloat) {
@@ -180,6 +181,12 @@ struct ConvoyMapView: UIViewRepresentable {
     /// Increment to fit `fitCoordinates` (the whole route) in view.
     var fitToken: Int = 0
     var fitCoordinates: [CLLocationCoordinate2D] = []
+    /// The Drive map: keep the person in the middle as they move, until they pan or zoom the map themselves.
+    var followUser: Bool = false
+    /// The person moved the map with a gesture (following stops).
+    var onUserMoved: (() -> Void)? = nil
+    /// A pin was tapped (its id).
+    var onPinTap: ((String) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
         return Coordinator()
@@ -207,6 +214,9 @@ struct ConvoyMapView: UIViewRepresentable {
         c.theme = theme
         c.onViewport = onViewport
         c.onLongPress = onLongPress
+        c.onUserMoved = onUserMoved
+        c.onPinTap = onPinTap
+        c.followUser = followUser
         c.syncPins(pins)
         c.setRoute(route)
         c.setUser(userCoordinate)
@@ -236,6 +246,9 @@ struct ConvoyMapView: UIViewRepresentable {
         private var followApplied: FollowCamera?
         var onViewport: ((GeoBox) -> Void)?
         var onLongPress: ((CLLocationCoordinate2D) -> Void)?
+        var onUserMoved: (() -> Void)?
+        var onPinTap: ((String) -> Void)?
+        var followUser: Bool = false
         private var viewportTask: Task<Void, Never>?
         private var annotations: [String: PinAnnotation] = [:]
         private var buildingLayers: [MLNFillExtrusionStyleLayer] = []
@@ -256,12 +269,16 @@ struct ConvoyMapView: UIViewRepresentable {
 
             for layer in original {
                 let id: String = layer.identifier
-                if id.range(of: "^poi|^airport|housenumber|shield", options: .regularExpression) != nil {
+                // Landmarks stay (higher-ranked POIs, transit, airports); minor POIs, house numbers and shields are clutter.
+                if id.range(of: "^poi_r20|housenumber|shield", options: .regularExpression) != nil {
                     layer.isVisible = false
                 }
                 if let symbol = layer as? MLNSymbolStyleLayer {
                     let isWater: Bool = id.contains("water")
-                    symbol.textColor = NSExpression(forConstantValue: UIColor(hex: isWater ? 0x6f8fb3 : 0xb9c4d2))
+                    let isPoi: Bool = id.hasPrefix("poi") || id.hasPrefix("airport")
+                    let hex: UInt32 = isWater ? 0x6f8fb3 : (isPoi ? 0x8e9cb4 : 0xb9c4d2)
+                    symbol.textColor = NSExpression(forConstantValue: UIColor(hex: hex))
+                    if isPoi { symbol.iconOpacity = NSExpression(forConstantValue: 0.7) }
                     symbol.textHaloColor = NSExpression(forConstantValue: UIColor(hex: 0x0b0f16))
                     symbol.textHaloWidth = NSExpression(forConstantValue: 1.4)
                     if firstText == nil && symbol.text != nil {
@@ -404,11 +421,15 @@ struct ConvoyMapView: UIViewRepresentable {
         }
 
         func setUser(_ c: CLLocationCoordinate2D?) {
+            let moved: Bool = !(userCoord?.latitude == c?.latitude && userCoord?.longitude == c?.longitude)
             userCoord = c
             applyUser()
-            if let c = c, !centeredOnUser, let map = map {
+            guard let c = c, let map = map else { return }
+            if !centeredOnUser {
                 centeredOnUser = true
-                map.setCenter(c, zoomLevel: 14, animated: false)
+                map.setCenter(c, zoomLevel: followUser ? 16 : 14, animated: false)
+            } else if followUser && moved && !following {
+                map.setCenter(c, animated: true)
             }
         }
 
@@ -428,7 +449,7 @@ struct ConvoyMapView: UIViewRepresentable {
 
         func recenter() {
             guard let map = map, let c = userCoord else { return }
-            map.setCenter(c, zoomLevel: max(map.zoomLevel, 15), animated: true)
+            map.setCenter(c, zoomLevel: max(map.zoomLevel, followUser ? 16 : 15), animated: true)
         }
 
         // MARK: Navigation camera
@@ -485,6 +506,16 @@ struct ConvoyMapView: UIViewRepresentable {
         }
 
         // MARK: Viewport (hazards are fetched for what is on screen)
+
+        func mapView(_ mapView: MLNMapView, regionWillChangeWith reason: MLNCameraChangeReason, animated: Bool) {
+            let gesture: MLNCameraChangeReason = [.gesturePan, .gesturePinch, .gestureRotate, .gestureZoomIn, .gestureZoomOut, .gestureOneFingerZoom, .gestureTilt]
+            if !reason.intersection(gesture).isEmpty { onUserMoved?() }
+        }
+
+        func mapView(_ mapView: MLNMapView, didSelect annotation: MLNAnnotation) {
+            if let ann = annotation as? PinAnnotation { onPinTap?(ann.pinId) }
+            mapView.deselectAnnotation(annotation, animated: false)
+        }
 
         func mapView(_ mapView: MLNMapView, regionDidChangeAnimated animated: Bool) {
             reportViewport(mapView)

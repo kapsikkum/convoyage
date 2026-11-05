@@ -43,7 +43,8 @@ final class AppState {
     var displayName: String
     var isSignedIn: Bool
     var authKind: AuthKind?
-    var tab: AppTab = .home
+    /// Drive (the map) is the centre tab and where the app opens.
+    var tab: AppTab = .convoy
     var showRide: Bool = false
     /// The navigation screen is up (navigation itself can keep running with it hidden).
     var showNav: Bool = false
@@ -56,6 +57,10 @@ final class AppState {
     var showAlwaysExplainer: Bool = false
     /// The person skipped the "what should the convoy call you" screen (per account).
     var onboardingSkipped: Bool = false
+    /// Police, cameras, crashes, closures, roadworks and jams on the Drive map (on by default).
+    var layerTraffic: Bool = UserDefaults.standard.object(forKey: "layerTraffic") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(layerTraffic, forKey: "layerTraffic") }
+    }
 
     let userId: String
     let tokens: TokenStore
@@ -69,6 +74,10 @@ final class AppState {
     let feed: FeedStore
     let photos: PhotoCapture
     let crash: CrashMonitor
+    /// Police and traffic around the map view (TfNSW, Waze).
+    let area: AreaConditionsStore
+    /// The signed limit of the road you are on.
+    let speedLimits: SpeedLimits
 
     @ObservationIgnored private let defaults: UserDefaults = UserDefaults.standard
 
@@ -93,6 +102,8 @@ final class AppState {
         convoy = convoyModel
         let hazardStore: HazardStore = HazardStore(api: client)
         hazards = hazardStore
+        area = AreaConditionsStore(api: client)
+        speedLimits = SpeedLimits(api: client)
         nav = NavigationSession(api: client, location: convoyModel.location, hazards: hazardStore)
         voice = VoiceChannel(api: client)
         recorder = recorderModel
@@ -420,6 +431,8 @@ final class AppState {
         showNav = false
         convoy.disconnect()
         hazards.clear()
+        area.clear()
+        speedLimits.clear()
         garage.clear()
         feed.clear()
         me = nil

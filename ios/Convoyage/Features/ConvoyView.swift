@@ -16,6 +16,10 @@ struct ConvoyView: View {
     @State private var tab: SheetTab = .roster
     @State private var pendingDest: PendingDestination?
     @State private var keyboard: CGFloat = 0
+    /// The map keeps you in the middle until you move it yourself; Recentre turns it back on.
+    @State private var follow: Bool = true
+    @State private var showLayers: Bool = false
+    @State private var openItem: ConditionItemDto?
 
     private static let headerHeight: CGFloat = 96
     private static let noConvoyHeight: CGFloat = 176
@@ -27,6 +31,12 @@ struct ConvoyView: View {
                           kind: h.isPolice ? .police : .hazard,
                           coordinate: CLLocationCoordinate2D(latitude: h.lat, longitude: h.lng))
         }
+    }
+
+    /// Police, cameras and traffic around the map (TfNSW, Waze), when that layer is on.
+    private var areaPins: [MapPin] {
+        guard app.layerTraffic else { return [] }
+        return app.area.items.map { (i: ConditionItemDto) -> MapPin in return i.pin }
     }
 
     /// Sheet detents for a screen this tall. The bottom `reserve` is where the floating tab bar sits.
@@ -57,16 +67,26 @@ struct ConvoyView: View {
             let railVisible: Bool = sheetH <= m.half + 30
 
             ZStack(alignment: .bottom) {
-                ConvoyMapView(pins: vm.mapPins + hazardPins, is3D: is3D, recenterToken: recenter, theme: theme,
+                ConvoyMapView(pins: areaPins + hazardPins + vm.mapPins, is3D: is3D, recenterToken: recenter, theme: theme,
                               userCoordinate: vm.location.latest?.coordinate,
                               route: vm.mapRoute,
                               onViewport: { (box: GeoBox) in
                                   Task { await app.hazards.refresh(box: box) }
+                                  app.area.onViewport(box, on: app.layerTraffic)
                               },
                               onLongPress: { (c: CLLocationCoordinate2D) in
                                   longPressed(c)
-                              })
+                              },
+                              followUser: follow,
+                              onUserMoved: { follow = false },
+                              onPinTap: { (id: String) in pinTapped(id) })
                     .frame(width: geo.size.width, height: geo.size.height)
+
+                speedRow(vm)
+                    .padding(.leading, 16)
+                    .padding(.bottom, railBottom)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                    .opacity(railVisible ? 1 : 0)
 
                 topOverlay(vm, rec)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -102,6 +122,23 @@ struct ConvoyView: View {
         .sheet(isPresented: $showReport) {
             ReportView()
         }
+        .sheet(isPresented: $showLayers) {
+            LayersSheet()
+                .presentationDetents([.height(260)])
+        }
+        .sheet(item: $openItem) { (i: ConditionItemDto) in
+            ConditionSheet(item: i)
+                .presentationDetents([.height(220)])
+        }
+        .onChange(of: vm.location.latest) { (_: CLLocation?, l: CLLocation?) in
+            // The signed limit of the road you are on, matched from each fix.
+            guard let l = l else { return }
+            app.speedLimits.onFix(lat: l.coordinate.latitude, lng: l.coordinate.longitude,
+                                  headingDeg: l.course >= 0 ? l.course : nil)
+        }
+        .onChange(of: app.layerTraffic) { (_: Bool, on: Bool) in
+            if !on { app.area.clear() }
+        }
         .sheet(isPresented: $showCreate) {
             CreateConvoySheet()
                 .presentationDetents([.medium, .large])
@@ -131,6 +168,26 @@ struct ConvoyView: View {
 
     // MARK: Map interaction
 
+    private func pinTapped(_ id: String) {
+        if id.hasPrefix("area-") {
+            let key: String = String(id.dropFirst(5))
+            openItem = app.area.items.first { (i: ConditionItemDto) -> Bool in return i.id == key }
+        }
+    }
+
+    /// Speed, and the road's limit beside it, once you are moving.
+    @ViewBuilder
+    private func speedRow(_ vm: ConvoyViewModel) -> some View {
+        let speed: Double = max(0, vm.location.latest?.speed ?? 0)
+        if speed > 1.5 {
+            HStack(spacing: 8) {
+                let limit: Int? = app.speedLimits.limit
+                SpeedReadout(speedMps: speed, over: limit != nil && speed * 3.6 > Double(limit ?? 0) + 2)
+                if let l = limit { SpeedLimitSign(kmh: l) }
+            }
+        }
+    }
+
     private func longPressed(_ c: CLLocationCoordinate2D) {
         let vm: ConvoyViewModel = app.convoy
         if vm.room == nil {
@@ -146,6 +203,9 @@ struct ConvoyView: View {
 
     private func topOverlay(_ vm: ConvoyViewModel, _ rec: RideRecorder) -> some View {
         VStack(spacing: 8) {
+            if vm.room == nil && app.nav.phase == .idle {
+                WhereToBar { app.showNav = true }
+            }
             bannerView(vm)
             HStack(spacing: 8) {
                 toggleChip("3D", on: is3D) { is3D.toggle() }
@@ -220,7 +280,11 @@ struct ConvoyView: View {
 
     private func rail(_ vm: ConvoyViewModel, _ rec: RideRecorder) -> some View {
         VStack(spacing: 10) {
-            iconButton("location.north.fill", tint: theme.signal, label: "Centre on my location") { recenter += 1 }
+            iconButton("location.north.fill", tint: follow ? theme.signal : theme.ink, label: "Centre on my location") {
+                follow = true
+                recenter += 1
+            }
+            iconButton("square.3.layers.3d", tint: app.layerTraffic ? theme.signal : theme.ink, label: "Map layers") { showLayers = true }
             iconButton("exclamationmark.triangle", tint: theme.hazard, label: "Report a hazard") { showReport = true }
             iconButton(rec.isActive ? "gauge.with.dots.needle.67percent" : "record.circle",
                        tint: rec.isActive ? theme.pulse : theme.signal,

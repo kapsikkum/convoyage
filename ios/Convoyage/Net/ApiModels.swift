@@ -371,3 +371,43 @@ struct CatalogueDto: Decodable {
     var wheels: [Entry]?
     var decals: [Entry]?
 }
+
+// MARK: Conditions around the map
+
+/// A police report, camera, crash, closure, roadworks or jam (`GET /v1/conditions/area`).
+struct ConditionItemDto: Decodable, Identifiable, Equatable {
+    var id: String
+    /// tfnsw, waze or convoyage.
+    var source: String
+    /// police, camera, hazard, crash, jam, closure, roadwork, event, flood, fire, alpine.
+    var kind: String
+    var title: String
+    var detail: String
+    var lat: Double
+    var lng: Double
+    var reportedAt: String?
+}
+
+struct AreaSourcesDto: Decodable, Equatable {
+    var tfnsw: String
+    var waze: String
+}
+
+struct AreaConditionsDto: Decodable {
+    var items: [ConditionItemDto]
+    var sources: AreaSourcesDto
+}
+
+/// The road layer (`GET /v1/roads`): GeoJSON lines with each road's signed limit.
+struct RoadsDto: Decodable {
+    struct Geometry: Decodable { var coordinates: [[Double]] }
+    struct Properties: Decodable {
+        var maxspeed: Int?
+        var name: String?
+    }
+    struct Feature: Decodable {
+        var geometry: Geometry
+        var properties: Properties
+    }
+    var features: [Feature]
+}
