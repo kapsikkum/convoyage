@@ -41,9 +41,10 @@ struct RouteBuilderView: View {
         ZStack(alignment: .top) {
             ConvoyMapView(pins: pins, is3D: false, recenterToken: 0, theme: theme,
                           userCoordinate: app.convoy.location.latest?.coordinate,
-                          route: line, fitToken: fitToken,
-                          fitCoordinates: app.convoy.location.latest.map { [$0.coordinate] } ?? [],
-                          onTap: { (c: CLLocationCoordinate2D) in tapped(c) })
+                          route: line,
+                          onTap: { (c: CLLocationCoordinate2D) in tapped(c) },
+                          fitToken: fitToken,
+                          fitCoordinates: app.convoy.location.latest.map { [$0.coordinate] } ?? [])
                 .ignoresSafeArea()
             HStack(spacing: 10) {
                 CvButton(title: "Back", icon: "chevron.left", kind: .ghost) { dismiss() }
