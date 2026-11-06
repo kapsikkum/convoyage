@@ -61,7 +61,7 @@ final class PinAnnotationView: MLNAnnotationView {
     /// Car mode: the top-down render, a glow under it and the initials as a tag.
     private let car: UIImageView = UIImageView()
     private let glow: CAGradientLayer = CAGradientLayer()
-    private let tag: UILabel = UILabel()
+    private let tagLabel: UILabel = UILabel()
     private var carKey: String?
 
     override init(annotation: MLNAnnotation?, reuseIdentifier: String?) {
@@ -96,12 +96,12 @@ final class PinAnnotationView: MLNAnnotationView {
         car.layer.magnificationFilter = CALayerContentsFilter.nearest
         car.isHidden = true
         addSubview(car)
-        tag.font = UIFont.systemFont(ofSize: 9, weight: .bold)
-        tag.textAlignment = .center
-        tag.layer.borderWidth = 1
-        tag.layer.masksToBounds = true
-        tag.isHidden = true
-        addSubview(tag)
+        tagLabel.font = UIFont.systemFont(ofSize: 9, weight: .bold)
+        tagLabel.textAlignment = .center
+        tagLabel.layer.borderWidth = 1
+        tagLabel.layer.masksToBounds = true
+        tagLabel.isHidden = true
+        addSubview(tagLabel)
     }
 
     /// Draws the member as their car seen from above (nil goes back to the round pin). The view turns with the map,
@@ -111,7 +111,7 @@ final class PinAnnotationView: MLNAnnotationView {
             if !car.isHidden {
                 car.isHidden = true
                 glow.isHidden = true
-                tag.isHidden = true
+                tagLabel.isHidden = true
                 label.isHidden = false
                 layer.borderWidth = 2
                 rotatesToMatchCamera = false
@@ -137,12 +137,12 @@ final class PinAnnotationView: MLNAnnotationView {
         car.transform = .identity
         car.frame = CGRect(x: 17, y: 2, width: 22, height: 52)
         car.transform = CGAffineTransform(rotationAngle: CGFloat((heading ?? 0) * Double.pi / 180))
-        tag.isHidden = initials.isEmpty
-        tag.text = initials
-        tag.textColor = .white
-        tag.backgroundColor = UIColor(white: 0.06, alpha: 0.9)
-        tag.layer.borderColor = edge.cgColor
-        tag.frame = CGRect(x: 14, y: 46, width: 28, height: 13)
+        tagLabel.isHidden = initials.isEmpty
+        tagLabel.text = initials
+        tagLabel.textColor = .white
+        tagLabel.backgroundColor = UIColor(white: 0.06, alpha: 0.9)
+        tagLabel.layer.borderColor = edge.cgColor
+        tagLabel.frame = CGRect(x: 14, y: 46, width: 28, height: 13)
         let key: String = b.key("Top")
         if key == carKey && car.image != nil { return }
         carKey = key
