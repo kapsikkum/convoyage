@@ -260,6 +260,8 @@ struct ConvoyMapView: UIViewRepresentable {
     var onViewport: ((GeoBox) -> Void)? = nil
     /// Called when the person long-presses the map.
     var onLongPress: ((CLLocationCoordinate2D) -> Void)? = nil
+    /// Called when the person taps the map (not a pin). Only set where taps place things (the route builder).
+    var onTap: ((CLLocationCoordinate2D) -> Void)? = nil
     /// Navigation: follow the person from behind, pitched to 60 degrees. Nil leaves the camera alone.
     var follow: FollowCamera? = nil
     /// Increment to fit `fitCoordinates` (the whole route) in view.
@@ -289,6 +291,13 @@ struct ConvoyMapView: UIViewRepresentable {
                                                                              action: #selector(Coordinator.handleLongPress(_:)))
         press.minimumPressDuration = 0.6
         map.addGestureRecognizer(press)
+        if onTap != nil {
+            let tap: UITapGestureRecognizer = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
+            for r in map.gestureRecognizers ?? [] {
+                if let t = r as? UITapGestureRecognizer, t.numberOfTapsRequired == 2 { tap.require(toFail: t) }
+            }
+            map.addGestureRecognizer(tap)
+        }
         context.coordinator.map = map
         return map
     }
@@ -298,6 +307,7 @@ struct ConvoyMapView: UIViewRepresentable {
         c.theme = theme
         c.onViewport = onViewport
         c.onLongPress = onLongPress
+        c.onTap = onTap
         c.onUserMoved = onUserMoved
         c.onPinTap = onPinTap
         c.followUser = followUser
@@ -332,6 +342,7 @@ struct ConvoyMapView: UIViewRepresentable {
         private var followApplied: FollowCamera?
         var onViewport: ((GeoBox) -> Void)?
         var onLongPress: ((CLLocationCoordinate2D) -> Void)?
+        var onTap: ((CLLocationCoordinate2D) -> Void)?
         var onUserMoved: (() -> Void)?
         var onPinTap: ((String) -> Void)?
         var followUser: Bool = false
@@ -583,6 +594,11 @@ struct ConvoyMapView: UIViewRepresentable {
         }
 
         // MARK: Long press
+
+        @objc func handleTap(_ g: UITapGestureRecognizer) {
+            guard g.state == .ended, let map = map else { return }
+            onTap?(map.convert(g.location(in: map), toCoordinateFrom: map))
+        }
 
         @objc func handleLongPress(_ g: UILongPressGestureRecognizer) {
             guard g.state == .began, let map = map else { return }

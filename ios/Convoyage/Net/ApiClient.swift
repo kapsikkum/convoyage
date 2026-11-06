@@ -1,4 +1,5 @@
 import Foundation
+import CoreLocation
 
 /// Why a request failed. `status` is the HTTP status, or 0 when the server could not be reached at all.
 struct ApiFailure: Error {
@@ -391,12 +392,19 @@ final class ApiClient: @unchecked Sendable {
     // MARK: Routing and voice
 
     /// `GET /v1/route`. Points are `lng,lat`; `profile` is "car" or "motorcycle".
-    func route(fromLng: Double, fromLat: Double, toLng: Double, toLat: Double, profile: String) async -> ApiResult<RouteDto> {
-        let q: [URLQueryItem] = [
+    func route(fromLng: Double, fromLat: Double, toLng: Double, toLat: Double, profile: String,
+               via: [CLLocationCoordinate2D] = []) async -> ApiResult<RouteDto> {
+        var q: [URLQueryItem] = [
             URLQueryItem(name: "from", value: String(format: "%.6f,%.6f", fromLng, fromLat)),
             URLQueryItem(name: "to", value: String(format: "%.6f,%.6f", toLng, toLat)),
             URLQueryItem(name: "profile", value: profile)
         ]
+        if !via.isEmpty {
+            let v: String = via.map { (c: CLLocationCoordinate2D) -> String in
+                return String(format: "%.6f,%.6f", c.longitude, c.latitude)
+            }.joined(separator: ";")
+            q.append(URLQueryItem(name: "via", value: v))
+        }
         return await send("GET", "/v1/route", query: q, as: RouteDto.self)
     }
 

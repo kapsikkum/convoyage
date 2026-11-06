@@ -13,6 +13,7 @@ struct RoutesView: View {
     @State private var open: SavedRouteDto?
     @State private var openFound: DiscoveredRouteDto?
     @State private var importing: Bool = false
+    @State private var building: Bool = false
 
     var body: some View {
         let store: SavedRoutesStore = app.savedRoutes
@@ -42,9 +43,10 @@ struct RoutesView: View {
                         row(r.name, r.stats) { open = r }
                     }
                     if store.loaded && store.routes.isEmpty {
-                        Text("No saved routes yet. Build one in the Android app or on the web, or bring your PhotoScout routes across.")
+                        Text("No saved routes yet. Draw one on the map, or bring your PhotoScout routes across.")
                             .font(CvFont.text(14)).foregroundStyle(theme.inkMuted)
                     }
+                    CvButton(title: "Build a route", icon: "point.topleft.down.curvedto.point.bottomright.up") { building = true }
                     if app.photoscout.available {
                         CvButton(title: "Import from PhotoScout", icon: "square.and.arrow.down", kind: .ghost) { importing = true }
                     }
@@ -84,6 +86,9 @@ struct RoutesView: View {
         .sheet(item: $openFound) { (d: DiscoveredRouteDto) in
             RouteDetailSheet(route: d.route, found: d) { dismiss() }
                 .presentationDetents([.large])
+        }
+        .fullScreenCover(isPresented: $building) {
+            RouteBuilderView()
         }
         .sheet(isPresented: $importing) {
             PhotoScoutImportSheet()
