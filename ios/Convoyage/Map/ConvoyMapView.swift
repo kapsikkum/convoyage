@@ -27,9 +27,15 @@ struct MapPin: Identifiable, Equatable {
     var symbol: String? = nil
     /// The member's primary vehicle, drawn as a small badge on the pin.
     var vehicle: VehicleBuild? = nil
+    /// Degrees from north the member is driving; turns the top-down car marker.
+    var heading: Double? = nil
+
+    /// The heading in 6 degree steps, so tiny changes do not restyle the pin.
+    var headingStep: Int? { return heading.map { (h: Double) -> Int in return Int((h / 6).rounded()) } }
 
     static func == (a: MapPin, b: MapPin) -> Bool {
         return a.id == b.id && a.initials == b.initials && a.kind == b.kind && a.symbol == b.symbol && a.vehicle == b.vehicle
+            && a.headingStep == b.headingStep
             && a.coordinate.latitude == b.coordinate.latitude
             && a.coordinate.longitude == b.coordinate.longitude
     }
@@ -42,6 +48,8 @@ final class PinAnnotation: MLNPointAnnotation {
     var kind: MapPin.Kind = .member
     var symbol: String?
     var vehicle: VehicleBuild?
+    var heading: Double?
+    var headingStep: Int? { return heading.map { (h: Double) -> Int in return Int((h / 6).rounded()) } }
 }
 
 /// A round pin: avatar initials (or a symbol) on a coloured disc.
@@ -50,6 +58,11 @@ final class PinAnnotationView: MLNAnnotationView {
     private let icon: UIImageView = UIImageView()
     private let badge: UIImageView = UIImageView()
     private var badgeKey: String?
+    /// Car mode: the top-down render, a glow under it and the initials as a tag.
+    private let car: UIImageView = UIImageView()
+    private let glow: CAGradientLayer = CAGradientLayer()
+    private let tag: UILabel = UILabel()
+    private var carKey: String?
 
     override init(annotation: MLNAnnotation?, reuseIdentifier: String?) {
         super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
@@ -73,6 +86,73 @@ final class PinAnnotationView: MLNAnnotationView {
         badge.contentMode = .scaleAspectFit
         badge.isHidden = true
         addSubview(badge)
+
+        glow.type = .radial
+        glow.startPoint = CGPoint(x: 0.5, y: 0.5)
+        glow.endPoint = CGPoint(x: 1, y: 1)
+        glow.isHidden = true
+        layer.insertSublayer(glow, at: 0)
+        car.contentMode = .scaleAspectFit
+        car.layer.magnificationFilter = CALayerContentsFilter.nearest
+        car.isHidden = true
+        addSubview(car)
+        tag.font = UIFont.systemFont(ofSize: 9, weight: .bold)
+        tag.textAlignment = .center
+        tag.layer.borderWidth = 1
+        tag.layer.masksToBounds = true
+        tag.isHidden = true
+        addSubview(tag)
+    }
+
+    /// Draws the member as their car seen from above (nil goes back to the round pin). The view turns with the map,
+    /// so the car points the way they drive whichever way the map faces.
+    func setCar(_ build: VehicleBuild?, heading: Double?, edge: UIColor, initials: String) {
+        guard let b = build else {
+            if !car.isHidden {
+                car.isHidden = true
+                glow.isHidden = true
+                tag.isHidden = true
+                label.isHidden = false
+                layer.borderWidth = 2
+                rotatesToMatchCamera = false
+                car.transform = .identity
+                frame = CGRect(x: frame.minX, y: frame.minY, width: 36, height: 36)
+                layer.cornerRadius = 18
+            }
+            carKey = nil
+            return
+        }
+        frame = CGRect(x: frame.minX, y: frame.minY, width: 56, height: 56)
+        layer.cornerRadius = 28
+        backgroundColor = .clear
+        layer.borderWidth = 0
+        label.isHidden = true
+        icon.isHidden = true
+        badge.isHidden = true
+        rotatesToMatchCamera = true
+        glow.isHidden = false
+        glow.frame = bounds.insetBy(dx: 7, dy: 7)
+        glow.colors = [edge.withAlphaComponent(0.45).cgColor, edge.withAlphaComponent(0).cgColor]
+        car.isHidden = false
+        car.transform = .identity
+        car.frame = CGRect(x: 17, y: 2, width: 22, height: 52)
+        car.transform = CGAffineTransform(rotationAngle: CGFloat((heading ?? 0) * Double.pi / 180))
+        tag.isHidden = initials.isEmpty
+        tag.text = initials
+        tag.textColor = .white
+        tag.backgroundColor = UIColor(white: 0.06, alpha: 0.9)
+        tag.layer.borderColor = edge.cgColor
+        tag.frame = CGRect(x: 14, y: 46, width: 28, height: 13)
+        let key: String = b.key("Top")
+        if key == carKey && car.image != nil { return }
+        carKey = key
+        car.image = Ps1Thumbs.cached(b, Ps1ThumbSize.top)
+        if car.image == nil {
+            Task { @MainActor in
+                let img: UIImage? = await Ps1Thumbs.shared.image(b, Ps1ThumbSize.top)
+                if self.carKey == key { self.car.image = img }
+            }
+        }
     }
 
     required init?(coder aDecoder: NSCoder) {
@@ -230,8 +310,10 @@ struct ConvoyMapView: UIViewRepresentable {
             c.fit(fitCoordinates)
         }
         if c.is3D != is3D {
+            let flatChanged: Bool = c.is3D != is3D
             c.is3D = is3D
             c.applyBuildings()
+            if flatChanged { c.restyleAll() }
             c.applyPitch()
         }
         if c.lastRecenter != recenterToken {
@@ -562,8 +644,10 @@ struct ConvoyMapView: UIViewRepresentable {
             for pin in pins {
                 if let ann = annotations[pin.id] {
                     ann.coordinate = pin.coordinate
-                    if ann.kind != pin.kind || ann.initials != pin.initials || ann.symbol != pin.symbol || ann.vehicle != pin.vehicle {
+                    if ann.kind != pin.kind || ann.initials != pin.initials || ann.symbol != pin.symbol || ann.vehicle != pin.vehicle
+                        || ann.headingStep != pin.headingStep {
                         ann.vehicle = pin.vehicle
+                        ann.heading = pin.heading
                         ann.kind = pin.kind
                         ann.initials = pin.initials
                         ann.symbol = pin.symbol
@@ -578,6 +662,7 @@ struct ConvoyMapView: UIViewRepresentable {
                     ann.kind = pin.kind
                     ann.symbol = pin.symbol
                     ann.vehicle = pin.vehicle
+                    ann.heading = pin.heading
                     ann.coordinate = pin.coordinate
                     annotations[pin.id] = ann
                     map.addAnnotation(ann)
@@ -626,6 +711,18 @@ struct ConvoyMapView: UIViewRepresentable {
                        edge: UIColor(edge),
                        text: UIColor(text))
             view.setVehicle(ann.symbol == nil ? ann.vehicle : nil)
+            // Flat map: members with a known vehicle show as their car from above, turned to their heading.
+            let carKind: Bool = ann.kind == .lead || ann.kind == .member || ann.kind == .stopped || ann.kind == .sos
+            let useCar: Bool = carKind && ann.symbol == nil && !is3D && !following && ann.vehicle != nil
+            view.setCar(useCar ? ann.vehicle : nil, heading: ann.heading, edge: UIColor(edge), initials: ann.initials)
+        }
+
+        /// The map went flat or tilted: pins switch between car and round.
+        func restyleAll() {
+            guard let map = map else { return }
+            for ann in annotations.values {
+                if let view = map.view(for: ann) as? PinAnnotationView { restyle(view, ann) }
+            }
         }
 
         func mapView(_ mapView: MLNMapView, viewFor annotation: MLNAnnotation) -> MLNAnnotationView? {

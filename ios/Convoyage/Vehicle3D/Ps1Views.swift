@@ -143,16 +143,31 @@ enum Ps1ThumbSize {
     case badge
     /// Cards and lists: the same framing as the live view, with the grid floor.
     case card
+    /// Map marker: a plan view from straight above, nose at the top.
+    case top
 
     var name: String {
         switch self {
         case .badge: return "Badge"
         case .card: return "Card"
+        case .top: return "Top"
         }
     }
 
-    var width: Int { return self == .badge ? 72 : 192 }
-    var height: Int { return self == .badge ? 72 : 128 }
+    var width: Int {
+        switch self {
+        case .badge: return 72
+        case .card: return 192
+        case .top: return 40
+        }
+    }
+    var height: Int {
+        switch self {
+        case .badge: return 72
+        case .card: return 128
+        case .top: return 96
+        }
+    }
     var ground: Bool { return self == .card }
     var zoom: Float { return self == .badge ? 1.5 : 1 }
     var yawDeg: Float { return -32 }
@@ -248,8 +263,13 @@ final class Ps1Thumbs {
         s.params.setRes(Float(size.width), Float(size.height))
         s.setBuild(b)
         s.setGroundVisible(size.ground)
-        s.setYaw(size.yawDeg)
-        s.frame(aspect: Float(w / h), zoom: size.zoom)
+        if size == .top {
+            s.setYaw(0)
+            s.frameTopDown(aspect: Float(w / h))
+        } else {
+            s.setYaw(size.yawDeg)
+            s.frame(aspect: Float(w / h), zoom: size.zoom)
+        }
         r.pointOfView = s.cameraNode
         var img: UIImage = r.snapshot(atTime: 0, with: CGSize(width: w, height: h), antialiasingMode: SCNAntialiasingMode.none)
         if s.programFailed && !s.usingFallback {

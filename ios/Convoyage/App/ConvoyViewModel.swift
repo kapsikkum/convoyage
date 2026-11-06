@@ -906,7 +906,8 @@ final class ConvoyViewModel {
                           initials: Formatters.initials(Formatters.shownName(m.username)),
                           kind: kind,
                           coordinate: CLLocationCoordinate2D(latitude: p.lat, longitude: p.lng),
-                          vehicle: m.vehicle.map { (v: VehicleBadgeDto) -> VehicleBuild in return VehicleBuild(badge: v) })
+                          vehicle: m.vehicle.map { (v: VehicleBadgeDto) -> VehicleBuild in return VehicleBuild(badge: v) },
+                          heading: livePositions[m.id]?.heading ?? p.heading)
         }
         if let r = room, let d = r.destination {
             out.append(MapPin(id: "convoy-destination",

@@ -177,6 +177,15 @@ final class Ps1Scene: NSObject, SCNProgramDelegate {
         if kindChanged { frame(aspect: aspect, zoom: zoom) }
     }
 
+    /// Straight down with the nose (+x) at the top of the image, orthographic so it reads as a plan view.
+    func frameTopDown(aspect: Float) {
+        let f: Ps1Frame = Ps1Models.frame(build)
+        cameraNode.camera?.usesOrthographicProjection = true
+        cameraNode.camera?.orthographicScale = Double(f.fitRadius * 1.02)
+        cameraNode.position = SCNVector3(0, 30, 0)
+        cameraNode.look(at: SCNVector3(0, 0, 0), up: SCNVector3(1, 0, 0), localFront: SCNVector3(0, 0, -1))
+    }
+
     func setYaw(_ degrees: Float) {
         vehicleNode.eulerAngles.y = degrees * Float.pi / 180
     }
@@ -190,6 +199,7 @@ final class Ps1Scene: NSObject, SCNProgramDelegate {
     func frame(aspect: Float, zoom: Float) {
         self.aspect = aspect
         self.zoom = zoom
+        cameraNode.camera?.usesOrthographicProjection = false
         let f: Ps1Frame = Ps1Models.frame(build)
         let dist: Float = 12.2 * f.fitRadius / 3.6 * max(1, 1.43 / max(aspect, 0.1)) / max(zoom, 0.1)
         let eyeY: Float = sinf(Ps1Scene.elevation) * dist + f.lookY + 0.05
