@@ -5,6 +5,7 @@ struct HomeView: View {
     @Environment(\.theme) private var theme
     @State private var showJoin: Bool = false
     @State private var showCreate: Bool = false
+    @State private var openEvent: PsEvent?
     @State private var code: String = ""
 
     private var greeting: String {
@@ -42,9 +43,7 @@ struct HomeView: View {
 
                 VStack(alignment: .leading, spacing: 10) {
                     SectionLabel(text: "Events")
-                    // TODO(events): load events from the PhotoScout feed.
-                    placeholderRow(day: "SAT", date: "09", title: "Twilight Cruise to Kinglake", meta: "Placeholder event")
-                    placeholderRow(day: "SUN", date: "17", title: "Reefton Spur ride", meta: "Placeholder event")
+                    eventsSection()
                 }
 
                 CvButton(title: app.recorder.isActive ? "Open ride mode" : "Record a ride", icon: "record.circle", kind: .ghost) {
@@ -90,6 +89,50 @@ struct HomeView: View {
             CreateConvoySheet(onCreated: { app.tab = .convoy })
                 .presentationDetents([.medium, .large])
         }
+        .sheet(item: $openEvent) { (e: PsEvent) in
+            EventSheet(event: e)
+                .presentationDetents([.medium, .large])
+        }
+        .task {
+            await app.photoscout.refreshStatus()
+            if let loc = app.convoy.location.latest {
+                await app.photoscout.loadHomeEvents(lat: loc.coordinate.latitude, lng: loc.coordinate.longitude)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func eventsSection() -> some View {
+        let ps: PhotoScoutLayers = app.photoscout
+        if ps.available {
+            if ps.homeEvents.isEmpty {
+                Text("No upcoming events within 150 km.").font(CvFont.text(13)).foregroundStyle(theme.inkMuted)
+            }
+            ForEach(ps.homeEvents) { (e: PsEvent) in
+                Button { openEvent = e } label: {
+                    eventRow(e)
+                }
+                .buttonStyle(.plain)
+            }
+        } else if ps.configured {
+            Text("Link PhotoScout to see meets and cruises near you.").font(CvFont.text(13)).foregroundStyle(theme.inkMuted)
+            PhotoScoutConnectButton()
+        } else {
+            Text("Events come from PhotoScout, which this server does not have.").font(CvFont.text(13)).foregroundStyle(theme.inkMuted)
+        }
+    }
+
+    private func eventRow(_ e: PsEvent) -> some View {
+        let d: Date? = ConditionSheet.parse(e.startTime)
+        let dayF: DateFormatter = DateFormatter()
+        dayF.dateFormat = "EEE"
+        let dateF: DateFormatter = DateFormatter()
+        dateF.dateFormat = "dd"
+        let day: String = d.map { dayF.string(from: $0).uppercased() } ?? "--"
+        let date: String = d.map { dateF.string(from: $0) } ?? "--"
+        var meta: String = e.venue ?? e.address ?? ""
+        if e.cruise != nil { meta = meta.isEmpty ? "Cruise" : "Cruise \u{00B7} " + meta }
+        return placeholderRow(day: day, date: date, title: e.title, meta: meta)
     }
 
     @ViewBuilder

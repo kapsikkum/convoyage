@@ -5,6 +5,7 @@ struct RideView: View {
     @Environment(AppState.self) private var app
     @Environment(\.theme) private var theme
     @State private var showReport: Bool = false
+    @State private var lean: LeanMonitor = LeanMonitor()
 
     var body: some View {
         let vm: ConvoyViewModel = app.convoy
@@ -59,7 +60,7 @@ struct RideView: View {
 
             noticeStack(vm)
 
-            // TODO(nav): turn-by-turn instruction card goes here.
+            if app.nav.isActive { navCard(app.nav) }
 
             HStack(alignment: .bottom) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -70,8 +71,7 @@ struct RideView: View {
                     }
                 }
                 Spacer()
-                // TODO(lean): lean angle needs CoreMotion.
-                Readout(caption: "Lean", value: "--", unit: "deg", size: 28, alignment: .trailing)
+                Readout(caption: "Lean", value: leanText, unit: "deg", size: 28, alignment: .trailing)
             }
             .padding(.top, 4)
 
@@ -106,9 +106,11 @@ struct RideView: View {
         .overlay { AppOverlays() }
         .onAppear {
             UIApplication.shared.isIdleTimerDisabled = true
+            lean.start()
             app.updateServices()
         }
         .onDisappear {
+            lean.stop()
             UIApplication.shared.isIdleTimerDisabled = false
             app.updateServices()
         }
@@ -122,6 +124,47 @@ struct RideView: View {
     }
 
     // MARK: Pieces
+
+    private var leanText: String {
+        guard let d = lean.degrees else { return "--" }
+        return String(Int(abs(d).rounded()))
+    }
+
+    /// Next manoeuvre while navigating, big enough to read at a glance.
+    private func navCard(_ nav: NavigationSession) -> some View {
+        let step: NavStep? = nav.currentStep
+        let dist: Double = nav.progress?.distanceToManeuver ?? 0
+        let rounded: Double = dist >= 100 ? (dist / 10).rounded() * 10 : dist.rounded()
+        let title: String
+        let symbol: String
+        switch nav.phase {
+        case .routing:
+            title = "Finding route..."
+            symbol = "location.north.fill"
+        case .arrived:
+            title = "Arrived"
+            symbol = "flag.checkered"
+        default:
+            title = step.map { (s: NavStep) -> String in return Maneuver.title(for: s) } ?? "Follow route"
+            symbol = Maneuver.symbol(type: step?.type ?? "depart", modifier: step?.modifier)
+        }
+        return HStack(spacing: 14) {
+            Image(systemName: symbol)
+                .font(.system(size: 34, weight: .bold))
+                .foregroundStyle(theme.signal)
+                .frame(width: 48, height: 48)
+            VStack(alignment: .leading, spacing: 2) {
+                if nav.phase == .navigating {
+                    Text(Formatters.distanceText(rounded)).font(CvFont.mono(28)).foregroundStyle(theme.signal)
+                }
+                Text(title).font(CvFont.text(16, weight: .bold)).lineLimit(2)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .cvPanel(fill: theme.surface200, edge: theme.signal, cut: Cut.m)
+        .accessibilityElement(children: .combine)
+    }
 
     /// Ride settings: the opt-in crash detection, and a DEBUG item that starts the countdown.
     private var rideMenu: some View {

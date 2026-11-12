@@ -98,8 +98,15 @@ struct ThemedRoot<Content: View>: View {
 }
 
 /// Fonts. Falls back to the system font silently if a custom font is missing.
-/// TODO: if the fonts fail to register on device, check UIAppFonts in project.yml.
+/// `missingFamilies()` lists any bundled family iOS did not register (check UIAppFonts in project.yml); the app logs it at launch.
 enum CvFont {
+    /// Families the app expects, as iOS names them.
+    static let families: [String] = ["Chakra Petch", "Manrope", "JetBrains Mono"]
+
+    static func missingFamilies() -> [String] {
+        return families.filter { (f: String) -> Bool in return UIFont.fontNames(forFamilyName: f).isEmpty }
+    }
+
     /// Chakra Petch (display). Static weights: 500, 600, 700.
     static func display(_ size: CGFloat, weight: Font.Weight = .bold) -> Font {
         let name: String

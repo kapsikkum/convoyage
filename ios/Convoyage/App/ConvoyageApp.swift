@@ -12,6 +12,8 @@ struct ConvoyageApp: App {
                     .environment(appState)
             }
             .task {
+                let missing: [String] = CvFont.missingFamilies()
+                if !missing.isEmpty { NSLog("Convoyage: fonts not registered: %@", missing.joined(separator: ", ")) }
                 appState.resume()
             }
             .onOpenURL { (url: URL) in

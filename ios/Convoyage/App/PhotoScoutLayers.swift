@@ -196,6 +196,21 @@ final class PhotoScoutLayers {
         }
     }
 
+    /// Upcoming events within 150 km for the Home tab (soonest first, at most five).
+    var homeEvents: [PsEvent] = []
+
+    func loadHomeEvents(lat: Double, lng: Double) async {
+        guard available else { homeEvents = []; return }
+        guard case .ok(let list) = await api.photoscoutEvents(lat: lat, lng: lng, radiusKm: 150) else { return }
+        let now: Date = Date().addingTimeInterval(-3600)
+        let upcoming: [PsEvent] = list.filter { (e: PsEvent) -> Bool in
+            guard let d = ConditionSheet.parse(e.startTime) else { return false }
+            return d >= now
+        }
+        let sorted: [PsEvent] = upcoming.sorted { (a: PsEvent, b: PsEvent) -> Bool in return a.startTime < b.startTime }
+        homeEvents = Array(sorted.prefix(5))
+    }
+
     /// The consent page to open in the browser, or an error to show.
     func connectURL() async -> Result<URL, ApiFailure> {
         switch await api.photoscoutConnect() {

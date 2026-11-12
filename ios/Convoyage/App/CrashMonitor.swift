@@ -3,12 +3,14 @@ import CoreMotion
 import CoreLocation
 import UIKit
 import Observation
+import UserNotifications
 
 /// Opt-in crash detection for Ride mode. Feeds CoreMotion user acceleration and GPS speed to `CrashDetector`; on a
 /// trigger it runs a 30 second countdown with a big "I'm OK" button. If the countdown runs out the convoy gets an SOS
 /// status and a chat message with the location. It NEVER calls emergency services.
 ///
-/// TODO(background-alert): a local notification when the app is not in the foreground at trigger time.
+/// When the app is not in the foreground at trigger time a time-sensitive local notification tells the rider the
+/// countdown has started, so they can open the app and tap "I'm OK".
 @Observable
 @MainActor
 final class CrashMonitor {
@@ -44,7 +46,11 @@ final class CrashMonitor {
     func setEnabled(_ on: Bool) {
         enabled = on
         UserDefaults.standard.set(on, forKey: Self.enabledKey)
-        if !on { stopMonitoring() }
+        if on {
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .timeSensitive]) { (_: Bool, _: Error?) in }
+        } else {
+            stopMonitoring()
+        }
     }
 
     /// Runs the sensors only while they are wanted (Ride mode open or a ride recording) and the setting is on.
@@ -111,6 +117,7 @@ final class CrashMonitor {
         if case .countdown = phase { return }
         phase = .countdown(secondsLeft: Self.countdownSeconds)
         UIApplication.shared.isIdleTimerDisabled = true
+        if UIApplication.shared.applicationState != .active { postBackgroundAlert() }
         countdown?.cancel()
         countdown = Task { [weak self] in
             var left: Int = CrashMonitor.countdownSeconds
@@ -133,17 +140,37 @@ final class CrashMonitor {
         phase = .idle
         detector.reset()
         UIApplication.shared.isIdleTimerDisabled = false
+        clearBackgroundAlert()
     }
 
     private func expire() {
         countdown = nil
         let alerted: Bool = onExpire?() ?? false
         phase = .expired(alerted: alerted)
+        clearBackgroundAlert()
     }
 
     func dismissExpired() {
         phase = .idle
         UIApplication.shared.isIdleTimerDisabled = false
+    }
+
+    private static let alertId: String = "crash-countdown"
+
+    private func postBackgroundAlert() {
+        let content: UNMutableNotificationContent = UNMutableNotificationContent()
+        content.title = "Possible crash detected"
+        content.body = "Open Convoyage and tap I'm OK within \(Self.countdownSeconds) seconds, or your convoy is told."
+        content.sound = UNNotificationSound.default
+        content.interruptionLevel = .timeSensitive
+        let request: UNNotificationRequest = UNNotificationRequest(identifier: Self.alertId, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request) { (_: Error?) in }
+    }
+
+    private func clearBackgroundAlert() {
+        let center: UNUserNotificationCenter = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: [Self.alertId])
+        center.removeDeliveredNotifications(withIdentifiers: [Self.alertId])
     }
 
     #if DEBUG
