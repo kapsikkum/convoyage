@@ -139,11 +139,8 @@ struct StopsList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             SectionLabel(text: "Stops on the way")
-            let servos: [RouteStopDto] = stops.filter { (s: RouteStopDto) -> Bool in return s.kind == "fuel" }
-            let priced: [RouteStopDto] = servos.filter { (s: RouteStopDto) -> Bool in return s.prices["U91"] != nil }
-            if let cheapest: RouteStopDto = priced.min(by: { (a: RouteStopDto, b: RouteStopDto) -> Bool in return (a.prices["U91"] ?? 0) < (b.prices["U91"] ?? 0) }),
-               let u91: Double = cheapest.prices["U91"] {
-                Text("Cheapest U91: \(displayName(cheapest, fallback: "servo")) at km \(fmtKm(cheapest.km)), \(String(format: "%.1f", u91))")
+            if let cheapest: (stop: RouteStopDto, price: Double) = cheapestU91() {
+                Text(cheapestText(cheapest.stop, price: cheapest.price))
                     .font(CvFont.text(13, weight: .bold))
                     .foregroundStyle(theme.go)
             }
@@ -191,6 +188,25 @@ struct StopsList: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var servos: [RouteStopDto] {
+        return stops.filter { (s: RouteStopDto) -> Bool in return s.kind == "fuel" }
+    }
+
+    /// The servo with the cheapest U91, and that price.
+    private func cheapestU91() -> (stop: RouteStopDto, price: Double)? {
+        let priced: [RouteStopDto] = stops.filter { (s: RouteStopDto) -> Bool in
+            return s.kind == "fuel" && s.prices["U91"] != nil
+        }
+        guard let s: RouteStopDto = priced.min(by: { (a: RouteStopDto, b: RouteStopDto) -> Bool in
+            return (a.prices["U91"] ?? 0) < (b.prices["U91"] ?? 0)
+        }), let u91: Double = s.prices["U91"] else { return nil }
+        return (s, u91)
+    }
+
+    private func cheapestText(_ s: RouteStopDto, price: Double) -> String {
+        return "Cheapest U91: \(displayName(s, fallback: "servo")) at km \(fmtKm(s.km)), \(String(format: "%.1f", price))"
     }
 
     private func displayName(_ s: RouteStopDto, fallback: String) -> String {
