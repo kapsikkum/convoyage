@@ -184,3 +184,31 @@ test('deleting my account removes my data', async () => {
   assert.equal(left.length, 0);
   assert.equal((await t.req('GET', '/v1/me', { token: gone.token })).status, 401);
 });
+
+test('followers and following lists: accepted only, hidden for private accounts, blocks excluded', async () => {
+  const a = await t.signup('fl_a');
+  const b = await t.signup('fl_b');
+  const c = await t.signup('fl_c');
+  await setHandle(a, 'fl_alpha');
+  await setHandle(b, 'fl_bravo');
+  await setHandle(c, 'fl_charlie');
+  await t.req('POST', '/v1/users/fl_alpha/follow', { token: b.token });
+  await t.req('POST', '/v1/users/fl_alpha/follow', { token: c.token });
+  await t.req('POST', '/v1/users/fl_bravo/follow', { token: a.token });
+
+  const followers = await t.req('GET', '/v1/users/fl_alpha/followers', { token: a.token });
+  assert.equal(followers.status, 200);
+  assert.deepEqual(followers.body.map((u: any) => u.handle).sort(), ['fl_bravo', 'fl_charlie']);
+  const following = await t.req('GET', '/v1/users/fl_alpha/following', { token: a.token });
+  assert.deepEqual(following.body.map((u: any) => u.handle), ['fl_bravo']);
+
+  await t.req('POST', '/v1/users/fl_charlie/block', { token: a.token });
+  const afterBlock = await t.req('GET', '/v1/users/fl_bravo/followers', { token: a.token });
+  assert.deepEqual(afterBlock.body.map((u: any) => u.handle), ['fl_alpha']);
+  assert.equal((await t.req('GET', '/v1/users/fl_alpha/followers')).status, 401);
+  assert.equal((await t.req('GET', '/v1/users/nobody_zz/followers', { token: a.token })).status, 404);
+
+  const p = await t.signup('fl_p');
+  await setHandle(p, 'fl_private', { isPrivate: true });
+  assert.deepEqual((await t.req('GET', '/v1/users/fl_private/followers', { token: b.token })).body, []);
+});

@@ -184,6 +184,26 @@ export async function userRoutes(app: FastifyInstance, ctx: ApiContext): Promise
     return rows.map((r) => ({ user: { id: r.id, handle: r.handle, displayName: r.display_name, avatarMediaId: r.avatar_media_id, primaryVehicle: badges.get(r.id) ?? null }, createdAt: iso(r.created_at) }));
   });
 
+  // Followers / following of a profile, newest first. Empty for a private account the viewer does not follow; anyone blocked either way with the viewer is left out.
+  for (const [dir, summary] of [['followers', 'Accounts following this user'], ['following', 'Accounts this user follows']] as const) {
+    app.get(`/v1/users/:handle/${dir}`, {
+      ...auth,
+      schema: { ...security, summary, description: 'Empty for a private account the viewer does not follow. Only accepted follows; at most 200.', params: handleParam, response: { 200: arrayOf(ref('UserRef')), ...errorResponses } },
+    }, async (req) => {
+      const { id, rel } = await userByHandle(db, req.userId, (req.params as { handle: string }).handle);
+      if (!rel.canViewContent) return [];
+      const otherCol = dir === 'followers' ? 'follows.follower_id' : 'follows.followee_id';
+      const ownCol = dir === 'followers' ? 'follows.followee_id' : 'follows.follower_id';
+      const rows = await db.selectFrom('follows').innerJoin('profiles', 'profiles.user_id', otherCol)
+        .select([`${otherCol} as id`, 'handle', 'display_name', 'avatar_media_id'])
+        .where(ownCol, '=', id).where('follows.status', '=', 'accepted')
+        .where(sql<boolean>`not exists (select 1 from blocks b where (b.blocker_id = ${req.userId}::uuid and b.blocked_id = ${sql.ref(otherCol)}) or (b.blocker_id = ${sql.ref(otherCol)} and b.blocked_id = ${req.userId}::uuid))`)
+        .orderBy('follows.created_at', 'desc').limit(200).execute();
+      const badges = await vehicleBadges(db, req.userId, rows.map((r) => r.id));
+      return rows.map((r) => ({ id: r.id, handle: r.handle, displayName: r.display_name, avatarMediaId: r.avatar_media_id, primaryVehicle: badges.get(r.id) ?? null }));
+    });
+  }
+
   const requestParams = bodyObj({ userId: uuid });
 
   app.post('/v1/me/follow-requests/:userId/approve', {
