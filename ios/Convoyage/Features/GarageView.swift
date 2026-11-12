@@ -292,6 +292,47 @@ struct VehicleFormView: View {
                 group("Year (optional)") { CvField(placeholder: "2022", text: $draft.yearText, keyboard: .numberPad) }
                 group("Nickname (optional)") { CvField(placeholder: "Daily", text: $draft.nickname, autocap: .words) }
 
+                if !variants.isEmpty {
+                    group(chosen.map { (m: Ps1Model) -> String in
+                        return "Model · " + [m.make, m.model, m.gen].filter { (s: String) -> Bool in return !s.isEmpty }.joined(separator: " ")
+                    } ?? "Model · pick one") {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(variants, id: \.id) { (m: Ps1Model) in
+                                    ShapeTile(
+                                        build: preview(kind: m.body.kind.rawValue, body: m.body.rawValue, shape: m.id),
+                                        label: [m.model, m.gen].filter { (s: String) -> Bool in return !s.isEmpty }.joined(separator: " "),
+                                        sub: m.yearsLabel,
+                                        on: chosen?.id == m.id
+                                    ) {
+                                        draft.kind = m.body.kind.rawValue
+                                        draft.body = m.body.rawValue
+                                        draft.shape = m.id
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                group("Body · \(bodyNow.label)") {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(Ps1Body.forKind(kindNow), id: \.rawValue) { (b: Ps1Body) in
+                                ShapeTile(
+                                    build: preview(kind: draft.kind, body: b.rawValue, shape: VehicleBuild.genericShape),
+                                    label: b.label,
+                                    sub: nil,
+                                    on: chosen == nil && b == bodyNow
+                                ) {
+                                    draft.body = b.rawValue
+                                    draft.shape = VehicleBuild.genericShape
+                                }
+                            }
+                        }
+                    }
+                }
+
                 group("Paint") {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 52), spacing: 12)], spacing: 12) {
                         ForEach(0..<GarageCatalog.paints.count, id: \.self) { (i: Int) in
@@ -362,6 +403,9 @@ struct VehicleFormView: View {
             .padding(20)
         }
         .scrollDismissesKeyboard(.interactively)
+        .onChange(of: draft.make) { (_, _) in editedShape() }
+        .onChange(of: draft.model) { (_, _) in editedShape() }
+        .onChange(of: draft.yearText) { (_, _) in editedShape() }
         .safeAreaInset(edge: .top, spacing: 0) {
             Ps1LiveView(build: VehicleBuild(draft: draft))
                 .frame(height: 190)
@@ -385,6 +429,36 @@ struct VehicleFormView: View {
         return draft.paint
     }
 
+    private var kindNow: Ps1Kind {
+        return Ps1Kind.of(draft.kind)
+    }
+
+    private var yearNow: Int? {
+        return Int(draft.yearText)
+    }
+
+    private var chosen: Ps1Model? {
+        return draft.chosenModel
+    }
+
+    private var bodyNow: Ps1Body {
+        return draft.chosenBody
+    }
+
+    private var variants: [Ps1Model] {
+        return Ps1Catalog.candidates(make: draft.make, model: draft.model, year: yearNow)
+    }
+
+    private func preview(kind: String, body: String, shape: String) -> VehicleBuild {
+        return VehicleBuild(kind: kind, paint: draft.paint, finish: draft.finish, wheel: draft.wheel,
+                            rideHeightMm: draft.rideHeightMm, body: body, shape: shape)
+    }
+
+    /// Typing another car drops a model picked by hand, so the match follows the text again.
+    private func editedShape() {
+        if draft.shape != VehicleBuild.genericShape { draft.shape = nil }
+    }
+
     private func group<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             SectionLabel(text: title)
@@ -404,5 +478,39 @@ struct VehicleFormView: View {
                 dismiss()
             }
         }
+    }
+}
+
+/// A body or catalogue model to pick: its render on the current paint, a name and an optional second line.
+struct ShapeTile: View {
+    let build: VehicleBuild
+    let label: String
+    var sub: String? = nil
+    let on: Bool
+    let onPick: () -> Void
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        Button(action: onPick) {
+            VStack(spacing: 3) {
+                Ps1Thumb(build: build, size: Ps1ThumbSize.compact)
+                    .frame(width: 128, height: 84)
+                Text(label.uppercased())
+                    .font(CvFont.label(9))
+                    .tracking(0.8)
+                    .lineLimit(1)
+                    .foregroundStyle(on ? theme.signal : theme.ink)
+                if let s = sub {
+                    Text(s.uppercased())
+                        .font(CvFont.text(9, weight: .semibold))
+                        .lineLimit(1)
+                        .foregroundStyle(theme.inkMuted)
+                }
+            }
+            .frame(width: 136)
+            .padding(.vertical, 6)
+            .cvPanel(fill: on ? theme.surface300 : theme.surface200, edge: on ? theme.signal : theme.line, cut: Cut.s)
+        }
+        .buttonStyle(.plain)
     }
 }

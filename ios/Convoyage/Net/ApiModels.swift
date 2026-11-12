@@ -45,6 +45,8 @@ struct VehicleBadgeDto: Codable, Equatable {
 }
 
 struct BadgeBuildDto: Codable, Equatable {
+    /// The catalogue body style (e.g. "hot_hatch"); absent means the kind's default.
+    var body: String?
     /// The catalogue model the server matched (e.g. "ford-focus-rs-mk3").
     var shape: String?
     var paint: String?
@@ -84,6 +86,7 @@ struct DecalDto: Decodable, Equatable {
 }
 
 struct BuildDto: Decodable, Equatable {
+    var body: String?
     var shape: String?
     var paint: String?
     var finish: String?

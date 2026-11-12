@@ -67,43 +67,82 @@ enum Ps1Wheels {
 struct VehicleBuild: Hashable {
     static let defaultPaint: UInt32 = 0xB8BCC2
     /// Bump to throw every cached thumbnail away when the models or the shader change.
-    static let rendererVersion: Int = 3
+    static let rendererVersion: Int = 4
+    /// Written to `build.shape` when a body was picked by hand: no catalogue model.
+    static let genericShape: String = "generic"
 
     var kind: Ps1Kind
+    /// Always one of `kind`'s bodies.
+    var body: Ps1Body
+    /// A catalogue model id (its real shape), or nil for the body's generic shape.
+    var shapeId: String?
     /// 0xRRGGBB
     var paint: UInt32
     var finish: Ps1Finish
     var wheelId: String
     /// Millimetres from stock, -200...200.
     var rideHeightMm: Int
-    /// A body modelled in Blender (cars/<id>.glb), when there is one for this car.
-    var modelId: String?
 
     var wheel: Ps1Wheel { return Ps1Wheels.of(wheelId) }
 
+    /// The catalogue entry for `shapeId`, when it belongs to this kind.
+    var model: Ps1Model? {
+        guard let m = Ps1Catalog.byId(shapeId) else { return nil }
+        return m.body.kind == kind ? m : nil
+    }
+
+    /// The shape the renderer builds: the model's, else the body's typical one. Nil for motorcycles.
+    var shape: Ps1Shape? {
+        return model?.shape ?? Ps1Shapes.generic(body)
+    }
+
+    /// A Blender body for this model, when one shipped (cars/<id>.glb).
+    var modelId: String? {
+        return model?.id
+    }
+
     init(kind: String?, paint: String?, finish: String?, wheel: String?, rideHeightMm: Int?,
-         shape: String? = nil, make: String? = nil, model: String? = nil, year: Int? = nil) {
-        self.kind = Ps1Kind.of(kind)
-        self.modelId = self.kind == .motorcycle ? nil : Ps1CarModels.match(shape: shape, make: make, model: model, year: year)
+         body: String? = nil, shape: String? = nil, make: String? = nil, model: String? = nil, year: Int? = nil) {
+        let k: Ps1Kind = Ps1Kind.of(kind)
+        self.kind = k
         self.paint = VehicleBuild.parseHex(paint)
         self.finish = Ps1Finish.of(finish)
         self.wheelId = Ps1Wheels.of(wheel).id
         self.rideHeightMm = min(200, max(-200, rideHeightMm ?? 0))
+
+        // A shape id the server already matched wins. A body picked by hand has no model. Otherwise match the text.
+        let rawShape: String? = (shape?.isEmpty ?? true) ? nil : shape
+        var entry: Ps1Model? = nil
+        if let s = rawShape, s != VehicleBuild.genericShape {
+            entry = Ps1Catalog.byId(s).flatMap { (m: Ps1Model) -> Ps1Model? in
+                return m.body.kind == k ? m : nil
+            }
+            if entry == nil {
+                entry = Ps1Catalog.best(make: make ?? "", model: model ?? "", year: year, kind: k)
+            }
+        }
+        // No shape from the server: older entries and badges still match on what the owner typed.
+        if entry == nil && rawShape == nil && k != .motorcycle {
+            entry = Ps1Catalog.best(make: make ?? "", model: model ?? "", year: year, kind: k)
+        }
+        self.body = entry?.body ?? Ps1Body.of(body, k)
+        self.shapeId = entry?.id
     }
 
     init(vehicle v: VehicleDto) {
-        self.init(kind: v.kind, paint: v.build?.paint, finish: v.build?.finish, wheel: v.build?.wheel, rideHeightMm: v.build?.rideHeightMm,
-                  shape: v.build?.shape, make: v.make, model: v.model, year: v.year)
+        self.init(kind: v.kind, paint: v.build?.paint, finish: v.build?.finish, wheel: v.build?.wheel,
+                  rideHeightMm: v.build?.rideHeightMm, body: v.build?.body, shape: v.build?.shape,
+                  make: v.make, model: v.model, year: v.year)
     }
 
     init(badge b: VehicleBadgeDto) {
-        self.init(kind: b.kind, paint: b.build?.paint, finish: b.build?.finish, wheel: b.build?.wheel, rideHeightMm: b.build?.rideHeightMm,
-                  shape: b.build?.shape)
+        self.init(kind: b.kind, paint: b.build?.paint, finish: b.build?.finish, wheel: b.build?.wheel,
+                  rideHeightMm: b.build?.rideHeightMm, body: b.build?.body, shape: b.build?.shape)
     }
 
     init(draft d: VehicleDraft) {
         self.init(kind: d.kind, paint: d.paint, finish: d.finish, wheel: d.wheel, rideHeightMm: d.rideHeightMm,
-                  make: d.make, model: d.model, year: Int(d.yearText))
+                  body: d.body, shape: d.shape, make: d.make, model: d.model, year: Int(d.yearText))
     }
 
     /// `#RRGGBB` (any case); anything else gives the default paint.
@@ -118,7 +157,7 @@ struct VehicleBuild: Hashable {
     /// visible change gives another. `variant` separates thumbnail sizes.
     func key(_ variant: String = "") -> String {
         let hex: String = String(format: "%06x", paint & 0xFFFFFF)
-        let canonical: String = "v\(VehicleBuild.rendererVersion)|\(kind.rawValue)|\(hex)|\(finish.rawValue)|\(wheelId)|\(rideHeightMm)|\(modelId ?? "")|\(variant)"
+        let canonical: String = "v\(VehicleBuild.rendererVersion)|\(kind.rawValue)|\(body.rawValue)|\(shapeId ?? "-")|\(hex)|\(finish.rawValue)|\(wheelId)|\(rideHeightMm)|\(variant)"
         let digest: SHA256.Digest = SHA256.hash(data: Data(canonical.utf8))
         var out: String = ""
         for byte in digest.prefix(10) {

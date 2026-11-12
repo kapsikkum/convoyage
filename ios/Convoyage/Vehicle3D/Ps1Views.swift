@@ -137,12 +137,14 @@ struct Ps1LiveView: UIViewRepresentable {
 
 // MARK: - Thumbnails
 
-/// The two thumbnail shapes. Sizes are the low-res render, drawn scaled up with nearest-neighbour filtering.
+/// The thumbnail shapes. Sizes are the low-res render, drawn scaled up with nearest-neighbour filtering.
 enum Ps1ThumbSize {
     /// Avatar badge: square, no ground, tight on the vehicle.
     case badge
     /// Cards and lists: the same framing as the live view, with the grid floor.
     case card
+    /// Garage picker tiles: a small card, with the grid floor.
+    case compact
     /// Map marker: a plan view from straight above, nose at the top.
     case top
 
@@ -150,6 +152,7 @@ enum Ps1ThumbSize {
         switch self {
         case .badge: return "Badge"
         case .card: return "Card"
+        case .compact: return "Compact"
         case .top: return "Top"
         }
     }
@@ -158,6 +161,7 @@ enum Ps1ThumbSize {
         switch self {
         case .badge: return 72
         case .card: return 192
+        case .compact: return 128
         case .top: return 40
         }
     }
@@ -165,10 +169,16 @@ enum Ps1ThumbSize {
         switch self {
         case .badge: return 72
         case .card: return 128
+        case .compact: return 84
         case .top: return 96
         }
     }
-    var ground: Bool { return self == .card }
+    var ground: Bool {
+        switch self {
+        case .card, .compact: return true
+        case .badge, .top: return false
+        }
+    }
     var zoom: Float { return self == .badge ? 1.5 : 1 }
     var yawDeg: Float { return -32 }
 }
@@ -178,6 +188,12 @@ enum Ps1ThumbSize {
 /// the renderer version) changes.
 final class Ps1Thumbs {
     static let shared: Ps1Thumbs = Ps1Thumbs()
+
+    /// Headings per turn in the map-marker angle frames (11.25 degrees apart).
+    static let angleSteps: Int = 32
+    /// Map tilts the angle frames are drawn for; the nearest is used.
+    static let angleTilts: [Float] = [20, 40, 60]
+    private static let anglePx: Int = 64
 
     private static let memory: NSCache<NSString, UIImage> = {
         let c: NSCache<NSString, UIImage> = NSCache<NSString, UIImage>()
@@ -193,6 +209,34 @@ final class Ps1Thumbs {
     /// The thumbnail if it is already in memory. Cheap enough to call while building a view.
     static func cached(_ b: VehicleBuild, _ size: Ps1ThumbSize) -> UIImage? {
         return memory.object(forKey: b.key(size.name) as NSString)
+    }
+
+    /// A map-marker frame if it is already in memory: `yaw` is one of `angleSteps` headings relative to the screen
+    /// (0 = driving away from the camera, clockwise), `pitch` one of `angleTilts`.
+    static func cachedAngle(_ b: VehicleBuild, yaw: Int, pitch: Int) -> UIImage? {
+        return memory.object(forKey: b.key("a\(yaw).\(pitch)") as NSString)
+    }
+
+    /// The map-marker frame from memory, then disk, then the GPU. The vehicle is drawn as the camera sees it on a map
+    /// tilted `angleTilts[pitch]` degrees, facing `yaw / angleSteps` of a turn clockwise from away.
+    @MainActor
+    func angle(_ b: VehicleBuild, yaw: Int, pitch: Int) async -> UIImage? {
+        let key: String = b.key("a\(yaw).\(pitch)")
+        if let hit = Ps1Thumbs.memory.object(forKey: key as NSString) { return hit }
+        if let running = inFlight[key] { return await running.value }
+        let task: Task<UIImage?, Never> = Task { @MainActor () -> UIImage? in
+            var img: UIImage? = await Ps1Thumbs.readDisk(key)
+            if img == nil {
+                img = self.renderAngle(b, yaw: yaw, pitch: pitch)
+                if let made = img { Ps1Thumbs.writeDisk(key, made) }
+            }
+            if let done = img { Ps1Thumbs.memory.setObject(done, forKey: key as NSString) }
+            return img
+        }
+        inFlight[key] = task
+        let result: UIImage? = await task.value
+        inFlight[key] = nil
+        return result
     }
 
     /// The thumbnail from memory, then disk, then the GPU. Nil if the device cannot render it.
@@ -276,6 +320,39 @@ final class Ps1Thumbs {
             // The PS1 program was refused while drawing that: show the plain version instead of a blank.
             s.switchToFallback()
             img = r.snapshot(atTime: 0, with: CGSize(width: w, height: h), antialiasingMode: SCNAntialiasingMode.none)
+        }
+        return img
+    }
+
+    /// A map-marker frame: orthographic, no ground, at the map's tilt with the vehicle turned to the heading.
+    @MainActor
+    private func renderAngle(_ b: VehicleBuild, yaw: Int, pitch: Int) -> UIImage? {
+        if unavailable { return nil }
+        if scene == nil || renderer == nil {
+            guard let device = MTLCreateSystemDefaultDevice() else {
+                unavailable = true
+                return nil
+            }
+            let s: Ps1Scene = Ps1Scene()
+            let r: SCNRenderer = SCNRenderer(device: device, options: nil)
+            r.scene = s.scene
+            r.pointOfView = s.cameraNode
+            scene = s
+            renderer = r
+        }
+        guard let s = scene, let r = renderer else { return nil }
+        let px: CGFloat = CGFloat(Ps1Thumbs.anglePx)
+        s.params.setRes(Float(Ps1Thumbs.anglePx), Float(Ps1Thumbs.anglePx))
+        s.setBuild(b)
+        s.setGroundVisible(false)
+        s.setYaw(90 - Float(yaw) * 360 / Float(Ps1Thumbs.angleSteps))
+        let p: Int = max(0, min(pitch, Ps1Thumbs.angleTilts.count - 1))
+        s.frameAngle(elevationDeg: 90 - Ps1Thumbs.angleTilts[p])
+        r.pointOfView = s.cameraNode
+        var img: UIImage = r.snapshot(atTime: 0, with: CGSize(width: px, height: px), antialiasingMode: SCNAntialiasingMode.none)
+        if s.programFailed && !s.usingFallback {
+            s.switchToFallback()
+            img = r.snapshot(atTime: 0, with: CGSize(width: px, height: px), antialiasingMode: SCNAntialiasingMode.none)
         }
         return img
     }

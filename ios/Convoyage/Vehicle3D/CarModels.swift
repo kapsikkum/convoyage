@@ -111,40 +111,4 @@ enum Ps1CarModels {
         cache[id] = m
         return m
     }
-
-    /// The modelled cars and how people type them: (id, make, aliases longest first, years).
-    private static let known: [(id: String, make: String, aliases: [String], years: ClosedRange<Int>)] = [
-        ("hyundai-i30n-cn7", "hyundai", ["i30 sedan n", "i30 n sedan", "elantra n"], 2022...2100),
-        ("hyundai-i30-cn7", "hyundai", ["i30 sedan", "elantra"], 2020...2100),
-        ("hyundai-i30n-pd", "hyundai", ["i30 n", "i30n"], 2018...2100),
-        ("hyundai-i30-pd", "hyundai", ["i30"], 2017...2100),
-        ("ford-focus-rs-mk3", "ford", ["focus rs mk3", "rs mk3", "focus rs"], 2016...2018),
-        ("ford-focus-rs-mk2", "ford", ["focus rs mk2", "rs mk2", "focus rs"], 2009...2011),
-        ("ford-focus-st-mk4", "ford", ["focus st"], 2020...2024),
-        ("ford-focus-mk4", "ford", ["focus"], 2019...2024),
-        ("nissan-skyline-r33", "nissan", ["skyline r33", "r33", "skyline gtr", "skyline gt r", "skyline"], 1995...1998)
-    ]
-
-    /// Lower case, single spaces, punctuation gone.
-    private static func norm(_ s: String) -> String {
-        let mapped: String = String(s.lowercased().map { (c: Character) -> Character in return (c.isLetter || c.isNumber) ? c : " " })
-        return mapped.split(separator: " ").joined(separator: " ")
-    }
-
-    /// A modelled car for what the owner typed, or nil. A shape id the server already matched wins.
-    static func match(shape: String?, make: String?, model: String?, year: Int?) -> String? {
-        if let s = shape, known.contains(where: { $0.id == s }) { return s }
-        let mk: String = norm(make ?? "")
-        let md: String = " " + norm(model ?? "") + " "
-        var best: (id: String, score: Int)? = nil
-        for k in known where mk.contains(k.make) || md.contains(" " + k.make + " ") {
-            for a in k.aliases where md.contains(" " + a + " ") {
-                var score: Int = a.count * 10
-                if let y = year { score += k.years.contains(y) ? 5 : -20 }
-                // Ties keep the first (newer) generation.
-                if best == nil || score > best!.score { best = (k.id, score) }
-            }
-        }
-        return best?.id
-    }
 }

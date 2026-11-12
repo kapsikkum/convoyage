@@ -93,6 +93,9 @@ struct VehicleDraft {
     var finish: String = "gloss"
     var wheel: String = "stock"
     var rideHeightMm: Int = 0
+    var body: String? = nil
+    /// A catalogue model id, `generic` for a body picked by hand, or nil to match make and model.
+    var shape: String? = nil
     var decalIds: Set<String> = []
     var makePrimary: Bool = false
 
@@ -108,11 +111,29 @@ struct VehicleDraft {
         finish = v.build?.finish ?? "gloss"
         wheel = v.build?.wheel ?? "stock"
         rideHeightMm = v.build?.rideHeightMm ?? 0
+        body = v.build?.body
+        shape = v.build?.shape
         decalIds = Set((v.build?.decals ?? []).map { (d: DecalDto) -> String in return d.id })
     }
 
     var isValid: Bool {
         return !make.trimmingCharacters(in: .whitespaces).isEmpty && !model.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    /// The catalogue model this draft resolves to, unless a body was picked by hand.
+    var chosenModel: Ps1Model? {
+        let k: Ps1Kind = Ps1Kind.of(kind)
+        if shape == VehicleBuild.genericShape { return nil }
+        if let id = shape {
+            guard let m = Ps1Catalog.byId(id), m.body.kind == k else { return nil }
+            return m
+        }
+        return Ps1Catalog.best(make: make, model: model, year: Int(yearText), kind: k)
+    }
+
+    /// The body that will be saved: the chosen model's, else what the owner picked, else the kind's default.
+    var chosenBody: Ps1Body {
+        return chosenModel?.body ?? Ps1Body.of(body, Ps1Kind.of(kind))
     }
 
     func body(creating: Bool) -> [String: Any] {
@@ -128,6 +149,13 @@ struct VehicleDraft {
             b["year"] = NSNull()
         }
         var build: [String: Any] = ["paint": paint, "finish": finish, "wheel": wheel, "rideHeightMm": rideHeightMm]
+        build["body"] = chosenBody.rawValue
+        // A matched model is pinned by id; a hand-picked body says so; nil lets the server match the text.
+        if let m = chosenModel {
+            build["shape"] = m.id
+        } else if shape == VehicleBuild.genericShape {
+            build["shape"] = VehicleBuild.genericShape
+        }
         var decals: [[String: Any]] = []
         for item in GarageCatalog.decals where decalIds.contains(item.id) {
             decals.append(["id": item.id, "slot": item.slot, "color": "#2de2e6"])

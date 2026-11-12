@@ -169,7 +169,7 @@ final class Ps1Scene: NSObject, SCNProgramDelegate {
         let key: String = b.key()
         if key == builtKey { return }
         builtKey = key
-        let kindChanged: Bool = build?.kind != b.kind
+        let kindChanged: Bool = build?.kind != b.kind || build?.body != b.body || build?.shapeId != b.shapeId
         build = b
         let m: Ps1Mesh = Ps1Models.build(b)
         mesh = m
@@ -184,6 +184,17 @@ final class Ps1Scene: NSObject, SCNProgramDelegate {
         cameraNode.camera?.orthographicScale = Double(f.fitRadius * 1.02)
         cameraNode.position = SCNVector3(0, 30, 0)
         cameraNode.look(at: SCNVector3(0, 0, 0), up: SCNVector3(1, 0, 0), localFront: SCNVector3(0, 0, -1))
+    }
+
+    /// The map-marker angle: an orthographic camera at `elevationDeg` above the horizon, looking at the vehicle's middle.
+    /// The vehicle node's own yaw is the heading relative to the camera (see `Ps1Thumbs.angle`).
+    func frameAngle(elevationDeg: Float) {
+        let f: Ps1Frame = Ps1Models.frame(build)
+        cameraNode.camera?.usesOrthographicProjection = true
+        cameraNode.camera?.orthographicScale = Double(f.fitRadius)
+        let e: Float = elevationDeg * Float.pi / 180
+        cameraNode.position = SCNVector3(0, 30 * sinf(e), 30 * cosf(e))
+        cameraNode.look(at: SCNVector3(0, 0, 0), up: SCNVector3(0, 1, 0), localFront: SCNVector3(0, 0, -1))
     }
 
     func setYaw(_ degrees: Float) {

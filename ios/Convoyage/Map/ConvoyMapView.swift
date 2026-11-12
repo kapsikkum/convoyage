@@ -104,9 +104,9 @@ final class PinAnnotationView: MLNAnnotationView {
         addSubview(tagLabel)
     }
 
-    /// Draws the member as their car seen from above (nil goes back to the round pin). The view turns with the map,
-    /// so the car points the way they drive whichever way the map faces.
-    func setCar(_ build: VehicleBuild?, heading: Double?, edge: UIColor, initials: String) {
+    /// Draws the member as their car (nil goes back to the round pin). On a flat map it is the plan view turned to their
+    /// heading; on a tilted map it is a frame drawn from the camera's angle for that heading and tilt.
+    func setCar(_ build: VehicleBuild?, heading: Double?, edge: UIColor, initials: String, tilt: Float, bearing: Double) {
         guard let b = build else {
             if !car.isHidden {
                 car.isHidden = true
@@ -129,27 +129,54 @@ final class PinAnnotationView: MLNAnnotationView {
         label.isHidden = true
         icon.isHidden = true
         badge.isHidden = true
-        rotatesToMatchCamera = true
         glow.isHidden = false
         glow.frame = bounds.insetBy(dx: 7, dy: 7)
         glow.colors = [edge.withAlphaComponent(0.45).cgColor, edge.withAlphaComponent(0).cgColor]
         car.isHidden = false
-        car.transform = .identity
-        car.frame = CGRect(x: 17, y: 2, width: 22, height: 52)
-        car.transform = CGAffineTransform(rotationAngle: CGFloat((heading ?? 0) * Double.pi / 180))
         tagLabel.isHidden = initials.isEmpty
         tagLabel.text = initials
         tagLabel.textColor = .white
         tagLabel.backgroundColor = UIColor(white: 0.06, alpha: 0.9)
         tagLabel.layer.borderColor = edge.cgColor
         tagLabel.frame = CGRect(x: 14, y: 46, width: 28, height: 13)
-        let key: String = b.key("Top")
+        if tilt < 10 {
+            // Flat map: one plan view, turned smoothly with the heading.
+            rotatesToMatchCamera = true
+            car.frame = CGRect(x: 17, y: 2, width: 22, height: 52)
+            car.transform = CGAffineTransform(rotationAngle: CGFloat((heading ?? 0) * Double.pi / 180))
+            let key: String = b.key("Top")
+            if key == carKey && car.image != nil { return }
+            carKey = key
+            car.image = Ps1Thumbs.cached(b, Ps1ThumbSize.top)
+            if car.image == nil {
+                Task { @MainActor in
+                    let img: UIImage? = await Ps1Thumbs.shared.image(b, Ps1ThumbSize.top)
+                    if self.carKey == key { self.car.image = img }
+                }
+            }
+            return
+        }
+        // Tilted map: the frame is drawn for the heading relative to the camera, and sits square on the screen.
+        let rel: Double = (heading ?? 0) - bearing
+        let step: Double = 360.0 / Double(Ps1Thumbs.angleSteps)
+        var yaw: Int = Int((rel / step).rounded())
+        yaw = ((yaw % Ps1Thumbs.angleSteps) + Ps1Thumbs.angleSteps) % Ps1Thumbs.angleSteps
+        var pitch: Int = 0
+        var best: Float = Float.greatestFiniteMagnitude
+        for (i, t) in Ps1Thumbs.angleTilts.enumerated() where abs(t - tilt) < best {
+            best = abs(t - tilt)
+            pitch = i
+        }
+        rotatesToMatchCamera = false
+        car.transform = .identity
+        car.frame = CGRect(x: 0, y: 0, width: 56, height: 56)
+        let key: String = b.key("a\(yaw).\(pitch)")
         if key == carKey && car.image != nil { return }
         carKey = key
-        car.image = Ps1Thumbs.cached(b, Ps1ThumbSize.top)
+        car.image = Ps1Thumbs.cachedAngle(b, yaw: yaw, pitch: pitch)
         if car.image == nil {
             Task { @MainActor in
-                let img: UIImage? = await Ps1Thumbs.shared.image(b, Ps1ThumbSize.top)
+                let img: UIImage? = await Ps1Thumbs.shared.angle(b, yaw: yaw, pitch: pitch)
                 if self.carKey == key { self.car.image = img }
             }
         }
@@ -246,6 +273,19 @@ struct FollowCamera: Equatable {
     }
 }
 
+/// A stretch of route coloured by road quality (from `RouteConditionsDto.roadSegments`).
+struct MapRoadSegment: Equatable {
+    var grade: String
+    var line: [CLLocationCoordinate2D]
+
+    static func == (a: MapRoadSegment, b: MapRoadSegment) -> Bool {
+        if a.grade != b.grade || a.line.count != b.line.count { return false }
+        return zip(a.line, b.line).allSatisfy { (p: (CLLocationCoordinate2D, CLLocationCoordinate2D)) -> Bool in
+            return p.0.latitude == p.1.latitude && p.0.longitude == p.1.longitude
+        }
+    }
+}
+
 struct ConvoyMapView: UIViewRepresentable {
     let pins: [MapPin]
     let is3D: Bool
@@ -256,6 +296,8 @@ struct ConvoyMapView: UIViewRepresentable {
     var userCoordinate: CLLocationCoordinate2D? = nil
     /// The shared convoy route.
     var route: [CLLocationCoordinate2D] = []
+    /// The route split by road quality, drawn over the plain route line.
+    var roadSegments: [MapRoadSegment] = []
     /// Called (debounced) when the visible area changes, and once the style loads.
     var onViewport: ((GeoBox) -> Void)? = nil
     /// Called when the person long-presses the map.
@@ -313,6 +355,7 @@ struct ConvoyMapView: UIViewRepresentable {
         c.followUser = followUser
         c.syncPins(pins)
         c.setRoute(route)
+        c.setRoadSegments(roadSegments)
         c.setUser(userCoordinate)
         c.applyFollow(follow)
         if c.lastFit != fitToken {
@@ -339,6 +382,9 @@ struct ConvoyMapView: UIViewRepresentable {
         var lastRecenter: Int = 0
         var lastFit: Int = 0
         private var following: Bool = false
+        /// The map bearing and tilt the car-marker frames were last drawn for.
+        private var carBearing: Double = 0
+        private var carTilt: Float = 0
         private var followApplied: FollowCamera?
         var onViewport: ((GeoBox) -> Void)?
         var onLongPress: ((CLLocationCoordinate2D) -> Void)?
@@ -350,6 +396,8 @@ struct ConvoyMapView: UIViewRepresentable {
         private var annotations: [String: PinAnnotation] = [:]
         private var buildingLayers: [MLNFillExtrusionStyleLayer] = []
         private var routeSource: MLNShapeSource?
+        private var roadSources: [String: MLNShapeSource] = [:]
+        private var roadApplied: [MapRoadSegment] = []
         private var puckSource: MLNShapeSource?
         private var routeCoords: [CLLocationCoordinate2D] = []
         private var routeApplied: [CLLocationCoordinate2D] = []
@@ -442,11 +490,13 @@ struct ConvoyMapView: UIViewRepresentable {
             }
 
             addRoute(style, below: firstText)
+            addRoadQuality(style, below: firstText)
             addPuck(style, below: firstText)
 
             applyBuildings()
             applyPitch()
             applyRoute()
+            applyRoadSegments()
             applyUser()
             reportViewport(mapView)
         }
@@ -476,9 +526,25 @@ struct ConvoyMapView: UIViewRepresentable {
             place(line, in: style, below: below)
         }
 
+        /// The route coloured by road surface: one source per grade, over the plain route line and under the labels.
+        private func addRoadQuality(_ style: MLNStyle, below: MLNStyleLayer?) {
+            let colours: [(grade: String, hex: UInt32)] = [
+                ("good", 0x46e08c), ("fair", 0xffb020), ("poor", 0xff3d8b), ("unknown", 0x4a5878)
+            ]
+            for c in colours {
+                let src: MLNShapeSource = MLNShapeSource(identifier: "road-\(c.grade)", shape: nil, options: nil)
+                style.addSource(src)
+                roadSources[c.grade] = src
+                let line: MLNLineStyleLayer = MLNLineStyleLayer(identifier: "road-\(c.grade)", source: src)
+                line.lineColor = NSExpression(forConstantValue: UIColor(hex: c.hex))
+                line.lineWidth = NSExpression(forConstantValue: 5)
+                line.lineOpacity = NSExpression(forConstantValue: 0.95)
+                place(line, in: style, below: below)
+            }
+        }
+
         /// My position as circle layers inserted below the first text layer, so place labels sit on top of it.
-        private func addPuck(_ style: MLNStyle, below: MLNStyleLayer?) {
-            let src: MLNShapeSource = MLNShapeSource(identifier: "puck", shape: nil, options: nil)
+        private func addPuck(_ style: MLNStyle, below: MLNStyleLayer?) {            let src: MLNShapeSource = MLNShapeSource(identifier: "puck", shape: nil, options: nil)
             style.addSource(src)
             puckSource = src
             let halo: MLNCircleStyleLayer = MLNCircleStyleLayer(identifier: "puck-halo", source: src)
@@ -517,8 +583,30 @@ struct ConvoyMapView: UIViewRepresentable {
             }
         }
 
-        func setUser(_ c: CLLocationCoordinate2D?) {
-            let moved: Bool = !(userCoord?.latitude == c?.latitude && userCoord?.longitude == c?.longitude)
+        // MARK: Road quality
+
+        func setRoadSegments(_ segs: [MapRoadSegment]) {
+            if segs == roadApplied { return }
+            roadApplied = segs
+            applyRoadSegments()
+        }
+
+        private func applyRoadSegments() {
+            guard !roadSources.isEmpty else { return }
+            var byGrade: [String: [MLNPolylineFeature]] = [:]
+            for s in roadApplied where s.line.count >= 2 {
+                var pts: [CLLocationCoordinate2D] = s.line
+                byGrade[s.grade, default: []].append(MLNPolylineFeature(coordinates: &pts, count: UInt(pts.count)))
+            }
+            for (grade, src) in roadSources {
+                let shapes: [MLNPolylineFeature] = byGrade[grade] ?? []
+                src.shape = shapes.isEmpty ? nil : MLNShapeCollectionFeature(shapes: shapes.map { (f: MLNPolylineFeature) -> MLNShape in
+                    return f
+                })
+            }
+        }
+
+        func setUser(_ c: CLLocationCoordinate2D?) {            let moved: Bool = !(userCoord?.latitude == c?.latitude && userCoord?.longitude == c?.longitude)
             userCoord = c
             applyUser()
             guard let c = c, let map = map else { return }
@@ -621,6 +709,14 @@ struct ConvoyMapView: UIViewRepresentable {
 
         func mapView(_ mapView: MLNMapView, regionDidChangeAnimated animated: Bool) {
             reportViewport(mapView)
+            // Keep the camera-angle car frames in step as the map turns or tilts.
+            let bearing: Double = mapView.camera.heading
+            let tilt: Float = Float(mapView.camera.pitch)
+            if !following && (abs(bearing - carBearing) >= 2 || abs(tilt - carTilt) >= 5) {
+                carBearing = bearing
+                carTilt = tilt
+                restyleAll()
+            }
         }
 
         private func reportViewport(_ mapView: MLNMapView) {
@@ -727,10 +823,13 @@ struct ConvoyMapView: UIViewRepresentable {
                        edge: UIColor(edge),
                        text: UIColor(text))
             view.setVehicle(ann.symbol == nil ? ann.vehicle : nil)
-            // Flat map: members with a known vehicle show as their car from above, turned to their heading.
+            // Car markers: a plan view on a flat map, a camera-angle frame on a tilted one.
             let carKind: Bool = ann.kind == .lead || ann.kind == .member || ann.kind == .stopped || ann.kind == .sos
-            let useCar: Bool = carKind && ann.symbol == nil && !is3D && !following && ann.vehicle != nil
-            view.setCar(useCar ? ann.vehicle : nil, heading: ann.heading, edge: UIColor(edge), initials: ann.initials)
+            let useCar: Bool = carKind && ann.symbol == nil && !following && ann.vehicle != nil
+            let tilt: Float = Float(map?.camera.pitch ?? 0)
+            let bearing: Double = map?.camera.heading ?? 0
+            view.setCar(useCar ? ann.vehicle : nil, heading: ann.heading, edge: UIColor(edge), initials: ann.initials,
+                        tilt: tilt, bearing: bearing)
         }
 
         /// The map went flat or tilted: pins switch between car and round.
