@@ -31,6 +31,7 @@ export interface ServerDeps {
   logger?: boolean;
   heartbeatMs?: number;
   sweepMs?: number;
+  recheckMs?: number;
 }
 
 /** The whole server: REST + socket, wired to a database. `index.ts` and the tests both come through here. */
@@ -48,6 +49,11 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     routeFinder: (from, to, via) => osrmGeometry(config, doFetch, from, to, via),
     heartbeatMs: deps.heartbeatMs,
     sweepMs: deps.sweepMs,
+    recheckMs: deps.recheckMs,
+    stillValid: config.devAuth ? undefined : async (userId) => {
+      const u = await database.db.selectFrom('users').select(['disabled_at', 'expires_at']).where('id', '=', userId).executeTakeFirst();
+      return !!u && !u.disabled_at && !(u.expires_at && new Date(u.expires_at).getTime() <= Date.now());
+    },
     logger: deps.logger,
     api: {
       db: database.db,

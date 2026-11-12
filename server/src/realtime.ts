@@ -47,6 +47,9 @@ export interface RealtimeOptions {
   routeFinder?: (from: [number, number], to: [number, number], via?: [number, number][]) => Promise<string | null>;
   heartbeatMs?: number;
   sweepMs?: number;
+  /** Re-checked every `recheckMs` for each connected user; false (or a throw is ignored) ends their sockets with CLOSE_SESSION_ENDED. */
+  stillValid?: (userId: string) => Promise<boolean>;
+  recheckMs?: number;
   rooms?: Rooms;
   openCruise?: OpenCruise;
   /** Called when a member raises an SOS, so the push layer can reach members who are not connected. */
@@ -424,8 +427,24 @@ export function attachRealtime(server: http.Server, opts: RealtimeOptions): Real
       if (!invites.size) invitedTo.delete(user);
     }
   }, opts.sweepMs ?? 30_000);
+  // A socket outlives the access token it connected with, so ask again whether the account may still be here
+  // (deleted, disabled, expired guest). One query per connected user.
+  let rechecking = false;
+  const recheckTimer = opts.stillValid ? setInterval(async () => {
+    if (rechecking) return;
+    rechecking = true;
+    try {
+      for (const userId of [...byUser.keys()]) {
+        let ok = true;
+        try { ok = await opts.stillValid!(userId); } catch { continue; }
+        if (ok) continue;
+        for (const conn of [...(byUser.get(userId) ?? [])]) conn.ws.close(CLOSE_SESSION_ENDED, 'session ended');
+      }
+    } finally { rechecking = false; }
+  }, opts.recheckMs ?? 60_000) : null;
   beat.unref();
   sweepTimer.unref();
+  recheckTimer?.unref();
 
   return {
     sendToRoom,
@@ -446,6 +465,7 @@ export function attachRealtime(server: http.Server, opts: RealtimeOptions): Real
     close() {
       clearInterval(beat);
       clearInterval(sweepTimer);
+      if (recheckTimer) clearInterval(recheckTimer);
       server.off('upgrade', onUpgrade);
       for (const conn of [...conns]) conn.ws.terminate();
       wss.close();

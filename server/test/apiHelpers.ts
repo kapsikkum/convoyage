@@ -28,7 +28,7 @@ export interface TestServer {
 
 let counter = 0;
 
-export async function testServer(opts: { config?: Partial<Config>; providers?: Providers; env?: Record<string, string>; database?: Database; push?: PushSender; fetch?: Fetch } = {}): Promise<TestServer> {
+export async function testServer(opts: { config?: Partial<Config>; providers?: Providers; env?: Record<string, string>; database?: Database; push?: PushSender; fetch?: Fetch; recheckMs?: number } = {}): Promise<TestServer> {
   const shared = opts.database;
   const database = shared ?? await createPgliteDatabase();
   if (!shared) await migrate(database);
@@ -37,7 +37,7 @@ export async function testServer(opts: { config?: Partial<Config>; providers?: P
     ...opts.config,
   };
   const media = new MemoryMediaStore();
-  const app = await buildServer({ config, database, media, providers: opts.providers ?? {}, push: opts.push, fetch: opts.fetch, heartbeatMs: 5000 });
+  const app = await buildServer({ config, database, media, providers: opts.providers ?? {}, push: opts.push, fetch: opts.fetch, heartbeatMs: 5000, recheckMs: opts.recheckMs });
   await app.listen({ port: 0, host: '127.0.0.1' });
   const port = (app.server.address() as { port: number }).port;
   const base = `http://127.0.0.1:${port}`;
