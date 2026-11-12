@@ -2,7 +2,7 @@ import Foundation
 
 // Wire models for protocol/openapi.json. Only the fields the app reads are listed and almost everything is optional,
 // so the server can add (or omit) fields within v1 without breaking decoding.
-// TODO(codegen): generate these from openapi.json instead of keeping them in step by hand.
+// Generated, strict mirrors of every schema live in Net/Generated/WireTypes.swift (protocol/codegen/generate.mjs); these hand-written ones stay lenient on purpose.
 
 struct Empty: Decodable {
     init(from decoder: Decoder) throws {}

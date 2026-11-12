@@ -1,7 +1,7 @@
 import Foundation
 
 // Wire models for protocol/convoy.v1.schema.json.
-// TODO(codegen): generate these from the schema instead of keeping them in step by hand.
+// Generated mirrors of every socket message live in Net/Generated/WireTypes.swift (protocol/codegen/generate.mjs); these hand-written ones stay lenient on purpose.
 
 struct Destination: Codable, Equatable {
     var lat: Double

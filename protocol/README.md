@@ -32,3 +32,7 @@ Also added to v1 additively, nothing existing changed:
 Also added to v1 additively: `Member.vehicle` (optional `MemberVehicle` `{kind, build:{paint?, finish?, wheel?, rideHeightMm?}}` or null), the
 member's primary vehicle for their avatar badge. REST: `UserRef.primaryVehicle` (optional `VehicleBadge` or null) and the `/v1/photoscout/*`
 routes, all in `openapi.json`. `convoy.cruise` is unchanged on the wire; the cruise now comes from PhotoScout.
+
+## Generated types
+
+`node protocol/codegen/generate.mjs` writes Swift (`ios/.../Net/Generated/WireTypes.swift`) and Kotlin (`android/.../api/gen/WireTypes.kt`) types for every OpenAPI schema and every socket message. Regenerate and commit after changing either schema; `server/test/codegen.test.ts` fails when they are stale.

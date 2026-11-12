@@ -10,8 +10,8 @@ import kotlinx.serialization.json.JsonClassDiscriminator
 /**
  * Hand-written mirror of protocol/convoy.v1.schema.json (and server/src/convoy/messages.ts).
  *
- * TODO(codegen): generate these from the JSON Schema once the protocol package has a Kotlin generator.
- * Until then, keep in step with the schema by hand; ProtocolTest round-trips every message.
+ * Generated mirrors live in api/gen/WireTypes.kt (protocol/codegen/generate.mjs, checked for staleness by the server tests);
+ * ProtocolTest round-trips every message of this lenient hand-written set.
  *
  * Every frame is one JSON object with a `t` discriminator. Client and server both use some of the same
  * `t` values (`pos`), so they are separate sealed hierarchies.

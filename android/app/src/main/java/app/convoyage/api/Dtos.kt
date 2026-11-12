@@ -8,8 +8,8 @@ import kotlinx.serialization.json.Json
  * Hand-written DTOs for the REST API in protocol/openapi.json (the Hazard type lives in `protocol`, because
  * the WebSocket `hazard` message carries the same object).
  *
- * TODO(codegen): generate these from openapi.json. Until then keep them in step by hand; only the fields the
- * app reads are listed and unknown fields are ignored, so the server can add fields within v1.
+ * Generated mirrors of every schema live in api/gen/WireTypes.kt (protocol/codegen/generate.mjs); these hand-written ones list
+ * only the fields the app reads and ignore unknown fields, so the server can add fields within v1.
  */
 
 @OptIn(ExperimentalSerializationApi::class)
