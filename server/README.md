@@ -65,11 +65,23 @@ Private profile from an admin shell:
 
 ## Moving to data-server
 
-- [x] Real mailer: set `SMTP_URL` (+ `MAIL_FROM`); required when `NODE_ENV=production`.
-- [ ] HTTPS reverse proxy in front (Caddy/nginx) with WebSocket upgrade for `/ws`; set `TRUST_PROXY=1`; stop publishing 8080 publicly.
-- [ ] `NODE_ENV=production` (requires `JWT_SECRET` and `DATABASE_URL`).
-- [ ] Remove `MAIL_DEV` (and never set `CONVOYAGE_DEV_AUTH`).
-- [ ] Strong, unique Postgres password (compose uses `convoyage`/`convoyage`) and not publishing 5432; back up the db and media volumes.
+`../deploy/` is the production stack (Linux host, `podman compose` or `docker compose`): Postgres/PostGIS with no published port, the API,
+Caddy for HTTPS with automatic certificates (including the `/ws` upgrade and LiveKit signalling at `/livekit`), LiveKit on host networking (so
+UDP media works), and an optional self-hosted OSRM. Only 80/443 (Caddy), 7881/tcp and 50000-50100/udp (LiveKit) face the internet.
+
+```
+cp deploy/.env.prod.example deploy/.env.prod        # every required value is enforced: compose refuses to start without it
+docker compose -f deploy/compose.prod.yaml --env-file deploy/.env.prod up -d --build
+deploy/osrm-prepare.sh <geofabrik .osm.pbf URL>     # once, for self-hosted routing; then add --profile osrm
+deploy/backup.sh                                    # nightly from cron: pg_dump + media volume, newest 14 kept
+```
+
+- [x] Real mailer: `SMTP_URL` + `MAIL_FROM`; required when `NODE_ENV=production`.
+- [x] HTTPS reverse proxy with WebSocket upgrade (`deploy/Caddyfile`), `TRUST_PROXY=1`, 8080 not published.
+- [x] `NODE_ENV=production` (config refuses to start without `JWT_SECRET`, `DATABASE_URL`, `SMTP_URL`; refuses `MAIL_DEV` and `CONVOYAGE_DEV_AUTH`).
+- [x] Strong Postgres password from `POSTGRES_PASSWORD` (no default), 5432 not published, `deploy/backup.sh` for db and media.
+- [x] Self-hosted OSRM (`--profile osrm`, `deploy/osrm-prepare.sh`) instead of the rate-limited public demo.
+- [ ] Operator step, needs a host and credentials: DNS for `PUBLIC_HOST`, real SMTP/S3/Apple/Google/FCM/APNs values, firewall rules, a cron entry for `backup.sh`.
 
 ## Scripts
 
@@ -92,6 +104,9 @@ Private profile from an admin shell:
 | `JWT_SECRET` | random per start (dev only) | HS256 access-token secret, 32+ chars; **required in production** |
 | `ACCESS_TTL_SECONDS`, `REFRESH_TTL_DAYS` | `900`, `60` | token lifetimes |
 | `MAIL_DEV` | `0` | `1`: log the magic link **and return it in the response**. Refuses to start in production |
+| `SMTP_URL`, `MAIL_FROM` | unset, `Convoyage <no-reply@localhost>` | nodemailer URL (`smtps://user:pass@host:465`) for magic-link email. **Required in production** |
+| `S3_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_FORCE_PATH_STYLE`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_PREFIX` | unset | media in S3-compatible storage (S3, R2, MinIO) instead of `MEDIA_DIR` |
+| `ADMIN_TOKEN` | unset | 32+ characters; enables the `/admin/*` moderation routes |
 | `MAGIC_LINK_BASE_URL` | `convoyage://auth/magic` | link base; `token=` is appended (15 minute, single use) |
 | `APPLE_AUDIENCES`, `GOOGLE_AUDIENCES` | unset | comma-separated accepted `aud` values (bundle id / client ids). Unset = that provider answers 501 |
 | `CONVOYAGE_DEV_AUTH` | `0` | `1`: sockets also accept `?dev_user=alice`. Refuses to start in production |
@@ -133,19 +148,29 @@ Everything under `/v1` is JSON with `Authorization: Bearer <access token>`. Erro
 - Ride visibility `public | followers | private`; a post can never be more public than the ride it shows.
 - Others only ever see **finished** rides. Hazard reporters are never exposed.
 
-## Stubbed / not built
+## Decisions and what is left
 
-- ~~Mail~~: done. `SMTP_URL` selects an SMTP mailer (nodemailer); without it the mailer is a no-op and only `MAIL_DEV=1` returns links.
-- **Sign in with Apple / Google** verify against the providers' live JWKS, which is only exercised in tests with a
-  locally generated key set. Not tried against a real Apple/Google token.
-- **S3 media**: `S3MediaStore` is a stub (`src/media/store.ts`); local disk only. HEIC uploads are refused
-  (convert to JPEG on the device).
-- `CruiseSource` is `MemoryCruiseSource` (PhotoScout OAuth/events come later).
-- Convoy rooms stay in memory (one process); no Redis, no push.
-- Lat/lng are plain `double precision` columns with Haversine in SQL; PostGIS is in the compose image but unused.
-- No admin/moderation tooling: `reports` rows are only recorded. Access tokens are not re-checked while a socket
-  stays open (up to its lifetime of the connection).
-- Likes/comments counts are computed per page (no denormalised counters); fine at this scale.
+Done: SMTP mailer (`SMTP_URL`), S3 media (`S3_BUCKET`...), PhotoScout cruise source (`PhotoScoutCruiseSource` whenever `PHOTOSCOUT_URL` is set;
+`MemoryCruiseSource` is only the fallback without PhotoScout), operator moderation (`ADMIN_TOKEN`, see below), open sockets are re-checked every
+minute and closed with 4401 when the account is deleted, disabled or an expired guest, like/comment counters are trigger-maintained columns on
+`posts` (migration 008), `GET /v1/users/:handle/followers|following`.
+
+Moderation (`ADMIN_TOKEN`, 32+ characters, `Authorization: Bearer`): `GET /admin/reports?status=open|actioned|dismissed`,
+`POST /admin/reports/:id {status}`, `POST /admin/users/:id/disable|enable` (also revokes refresh tokens), `DELETE /admin/posts/:id`,
+`DELETE /admin/comments/:id`. Hidden from the OpenAPI document; absent (404) when `ADMIN_TOKEN` is unset.
+
+Deliberately not built, with the reason:
+
+- **Convoy rooms stay in memory, one process.** Positions are never stored or logged (a privacy rule); persisting rooms to Redis would break it and
+  the app reconnects and rebuilds a room in seconds. Scaling out means sticky routing by convoy code first; that is not needed at this size.
+- **PostGIS is not used.** Feed "nearby" and hazard bounding boxes use plain `double precision` columns and Haversine in SQL over small, recent sets;
+  an index would not change the plan at this size. The image stays PostGIS so a later migration needs no database swap.
+- **HEIC uploads are refused.** sharp's prebuilt binaries ship without a HEIC decoder (patent-encumbered libheif); both apps convert to JPEG before
+  upload, so there is nothing to gain from a custom libvips build.
+- **LiveKit UDP through the Windows/Podman dev relay.** `scripts/lan-relay.mjs` forwards TCP only, so dev clients use the TCP fallback. The production
+  stack runs LiveKit with host networking and the UDP range open, so production media is UDP.
+- **Sign in with Apple / Google against real tokens** needs the operator's Apple/Google client ids (`APPLE_AUDIENCES`, `GOOGLE_AUDIENCES`) and a device
+  signed into those providers; verification against the live JWKS is covered in tests with a locally generated key set only.
 
 ## Wave A additions
 
@@ -232,4 +257,3 @@ PUBLIC_URL=<PhotoScout's own address>                            # must match wh
 
 Scopes asked: `events:read events:rsvp spots:read checkins:write`. Then set the three variables above in Convoyage's `.env` and redeploy
 (`scripts/down.ps1`, `scripts/up.ps1`). A member can also end the link from PhotoScout's Settings.
-

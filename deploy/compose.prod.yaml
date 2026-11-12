@@ -1,0 +1,131 @@
+# Production stack for a Linux host (data-server). Compose-spec: `podman compose` or `docker compose`.
+#
+#   cp deploy/.env.prod.example deploy/.env.prod     # fill in every value; nothing here has a usable default
+#   docker compose -f deploy/compose.prod.yaml --env-file deploy/.env.prod up -d --build
+#
+# Only Caddy (80/443) and LiveKit (7880/7881 tcp, UDP media) are reachable from outside. Postgres, the API (8080)
+# and OSRM stay on the internal network.
+name: convoyage
+
+services:
+  db:
+    image: docker.io/postgis/postgis:16-3.4
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: convoyage
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD (32+ random characters)}
+      POSTGRES_DB: convoyage
+    volumes:
+      - convoyage-db:/var/lib/postgresql/data
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U convoyage -d convoyage"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  server:
+    build:
+      context: ../server
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://convoyage:${POSTGRES_PASSWORD}@db:5432/convoyage
+      AUTO_MIGRATE: "1"
+      TRUST_PROXY: "1"
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET (48+ random characters)}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+      PUBLIC_BASE_URL: https://${PUBLIC_HOST:?set PUBLIC_HOST (the DNS name Caddy serves)}
+      MAGIC_LINK_BASE_URL: ${MAGIC_LINK_BASE_URL:-convoyage://auth/magic}
+      SMTP_URL: ${SMTP_URL:?set SMTP_URL (smtps://user:pass@host:465)}
+      MAIL_FROM: ${MAIL_FROM:?set MAIL_FROM (Convoyage <no-reply@your.domain>)}
+      APPLE_AUDIENCES: ${APPLE_AUDIENCES:-}
+      GOOGLE_AUDIENCES: ${GOOGLE_AUDIENCES:-}
+      # Media: the S3 bucket when S3_BUCKET is set, else the convoyage-media volume.
+      MEDIA_DIR: /data/media
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_REGION: ${S3_REGION:-}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-0}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      S3_PREFIX: ${S3_PREFIX:-}
+      # Routing: the bundled OSRM (profile osrm) or any other OSRM.
+      OSRM_URL: ${OSRM_URL:-http://osrm:5000}
+      OVERPASS_URL: ${OVERPASS_URL:-https://overpass-api.de/api/interpreter,https://overpass.openstreetmap.fr/api/interpreter}
+      LIVEKIT_URL: wss://${PUBLIC_HOST}/livekit
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?set LIVEKIT_API_KEY}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?set LIVEKIT_API_SECRET (32+ characters)}
+      FCM_SERVICE_ACCOUNT_JSON: ${FCM_SERVICE_ACCOUNT_JSON:-}
+      APNS_KEY_PATH: ${APNS_KEY_PATH:-}
+      APNS_KEY_ID: ${APNS_KEY_ID:-}
+      APNS_TEAM_ID: ${APNS_TEAM_ID:-}
+      APNS_TOPIC: ${APNS_TOPIC:-}
+      APNS_ENV: ${APNS_ENV:-production}
+      PHOTOSCOUT_URL: ${PHOTOSCOUT_URL:-}
+      PHOTOSCOUT_TOKEN_KEY: ${PHOTOSCOUT_TOKEN_KEY:-}
+      PHOTOSCOUT_CLIENT_ID: ${PHOTOSCOUT_CLIENT_ID:-convoyage}
+      PHOTOSCOUT_CLIENT_SECRET: ${PHOTOSCOUT_CLIENT_SECRET:-}
+      TFNSW_API_KEY: ${TFNSW_API_KEY:-}
+      FUELCHECK_API_KEY: ${FUELCHECK_API_KEY:-}
+      FUELCHECK_API_SECRET: ${FUELCHECK_API_SECRET:-}
+      WAZE_HARVESTER_URL: ${WAZE_HARVESTER_URL:-}
+      WAZE_HARVESTER_KEY: ${WAZE_HARVESTER_KEY:-}
+    volumes:
+      - convoyage-media:/data/media
+    networks: [internal]
+
+  # HTTPS in front of the API (including the /ws upgrade) with automatic certificates.
+  caddy:
+    image: docker.io/library/caddy:2
+    restart: unless-stopped
+    depends_on: [server]
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [internal]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # Push-to-talk SFU. Host networking so the WebRTC UDP range is reachable as-is (no relay, so UDP media works).
+  # Open on the firewall: 7881/tcp and 50000-50100/udp. Signalling (7880) is only reached through Caddy at /livekit.
+  livekit:
+    image: docker.io/livekit/livekit-server:latest
+    restart: unless-stopped
+    network_mode: host
+    command: ["--config", "/etc/livekit.yaml", "--node-ip", "${LIVEKIT_NODE_IP:?set LIVEKIT_NODE_IP (the host's public IPv4)}"]
+    environment:
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}"
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+
+  # Optional self-hosted routing: `--profile osrm`, after `deploy/osrm-prepare.sh` has built /data/region.osrm.
+  osrm:
+    profiles: [osrm]
+    image: docker.io/osrm/osrm-backend:latest
+    restart: unless-stopped
+    command: ["osrm-routed", "--algorithm", "mld", "--max-matching-size", "1000", "/data/region.osrm"]
+    volumes:
+      - osrm-data:/data:ro
+    networks: [internal]
+
+networks:
+  internal:
+
+volumes:
+  convoyage-db:
+  convoyage-media:
+  caddy-data:
+  caddy-config:
+  osrm-data:
+    external: false
