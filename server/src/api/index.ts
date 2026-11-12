@@ -9,6 +9,7 @@ import { MAX_UPLOAD_BYTES } from '../media/process.js';
 import { roomBadge } from './common.js';
 import { PhotoScoutError } from '../photoscout/service.js';
 import { photoscoutRoutes } from './routes/photoscout.js';
+import { adminRoutes } from './routes/admin.js';
 import { authRoutes } from './routes/auth.js';
 import { catalogueRoutes } from './routes/catalogue.js';
 import { deviceRoutes } from './routes/devices.js';
@@ -121,5 +122,6 @@ export async function registerApi(app: FastifyInstance, ctx: ApiContext, version
     await voiceRoutes(api, ctx);
     await deviceRoutes(api, ctx);
     await photoscoutRoutes(api, ctx);
+    await adminRoutes(api, ctx);
   });
 }

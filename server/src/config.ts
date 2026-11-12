@@ -26,6 +26,8 @@ export interface Config {
   magicLinkTtlS: number;
   mailDev: boolean;
   magicLinkBaseUrl: string;
+  /** Bearer token for the operator's /admin moderation routes (32+ characters). Null = no admin routes. */
+  adminToken: string | null;
   /** SMTP delivery for magic links. Null = no mail is sent (MAIL_DEV only). */
   smtp: { url: string; from: string } | null;
   devAuth: boolean;
@@ -95,6 +97,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const devAuth = flag(env.CONVOYAGE_DEV_AUTH);
   const smtpUrl = (env.SMTP_URL ?? '').trim();
   const smtp = smtpUrl ? { url: smtpUrl, from: (env.MAIL_FROM ?? '').trim() || 'Convoyage <no-reply@localhost>' } : null;
+  const adminToken = (env.ADMIN_TOKEN ?? '').trim() || null;
+  if (adminToken && adminToken.length < 32) throw new Error('ADMIN_TOKEN must be at least 32 characters');
   if (production && !smtp) throw new Error('SMTP_URL is required in production: magic links cannot be delivered otherwise');
   if (production && mailDev) throw new Error('MAIL_DEV=1 returns magic links in API responses; refusing to start in production');
   if (production && devAuth) throw new Error('CONVOYAGE_DEV_AUTH=1 lets anyone impersonate any user; refusing to start in production');
@@ -128,6 +132,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     mailDev,
     magicLinkBaseUrl: env.MAGIC_LINK_BASE_URL || 'convoyage://auth/magic',
     smtp,
+    adminToken,
     devAuth,
     appleAudiences: list(env.APPLE_AUDIENCES),
     googleAudiences: list(env.GOOGLE_AUDIENCES),
