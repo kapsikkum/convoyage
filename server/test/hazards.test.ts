@@ -178,8 +178,9 @@ test('ws: with CONVOYAGE_DEV_AUTH the dev login works next to JWTs', async () =>
 
 test('configuration refuses insecure production settings', async () => {
   const { loadConfig } = await import('../src/config.js');
-  const prod = { NODE_ENV: 'production', JWT_SECRET: 'p'.repeat(40), DATABASE_URL: 'postgres://x/y' };
+  const prod = { NODE_ENV: 'production', JWT_SECRET: 'p'.repeat(40), DATABASE_URL: 'postgres://x/y', SMTP_URL: 'smtp://mail.example.com' };
   assert.doesNotThrow(() => loadConfig(prod));
+  assert.throws(() => loadConfig({ ...prod, SMTP_URL: '' }), /SMTP_URL/);
   assert.throws(() => loadConfig({ ...prod, MAIL_DEV: '1' }), /MAIL_DEV/);
   assert.throws(() => loadConfig({ ...prod, CONVOYAGE_DEV_AUTH: '1' }), /DEV_AUTH/);
   assert.throws(() => loadConfig({ ...prod, JWT_SECRET: '' }), /JWT_SECRET/);

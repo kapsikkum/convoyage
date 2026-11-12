@@ -1,12 +1,12 @@
-import type { FastifyInstance } from 'fastify';
+﻿import type { FastifyInstance } from 'fastify';
 import { buildApp } from './app.js';
 import { Tokens } from './api/tokens.js';
 import { providersFromConfig, type Providers } from './api/providers.js';
 import { devAuthenticator, firstOf, jwtAuthenticator } from './auth.js';
 import type { Config } from './config.js';
 import type { Database } from './db/index.js';
-import { noopMailer, type Mailer } from './mail.js';
-import { LocalDiskMediaStore, type MediaStore } from './media/store.js';
+import { noopMailer, smtpMailer, type Mailer } from './mail.js';
+import { LocalDiskMediaStore, S3MediaStore, type MediaStore } from './media/store.js';
 import type { CruiseSource, RestStopFinder } from './ports.js';
 import { Notifier } from './push/notifier.js';
 import { pushFromConfig, type PushSender } from './push/sender.js';
@@ -53,9 +53,9 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       db: database.db,
       config,
       tokens,
-      mailer: deps.mailer ?? noopMailer,
+      mailer: deps.mailer ?? (deps.config.smtp ? smtpMailer(deps.config.smtp) : noopMailer),
       providers: deps.providers ?? providersFromConfig(config),
-      media: deps.media ?? new LocalDiskMediaStore(config.mediaDir),
+      media: deps.media ?? (config.s3 ? new S3MediaStore(config.s3) : new LocalDiskMediaStore(config.mediaDir)),
       notifier,
       fetch: doFetch,
       photoscout,
@@ -68,3 +68,4 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   sweep.unref();
   return app;
 }
+

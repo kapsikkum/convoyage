@@ -1,4 +1,4 @@
-# Convoyage server
+﻿# Convoyage server
 
 Node 22, TypeScript (strict, ESM), Fastify 5, Kysely on Postgres, and a plain `ws` socket on `/ws`.
 
@@ -65,7 +65,7 @@ Private profile from an admin shell:
 
 ## Moving to data-server
 
-- [ ] A real `Mailer` implementation (`src/mail.ts`) sending the magic link.
+- [x] Real mailer: set `SMTP_URL` (+ `MAIL_FROM`); required when `NODE_ENV=production`.
 - [ ] HTTPS reverse proxy in front (Caddy/nginx) with WebSocket upgrade for `/ws`; set `TRUST_PROXY=1`; stop publishing 8080 publicly.
 - [ ] `NODE_ENV=production` (requires `JWT_SECRET` and `DATABASE_URL`).
 - [ ] Remove `MAIL_DEV` (and never set `CONVOYAGE_DEV_AUTH`).
@@ -135,7 +135,7 @@ Everything under `/v1` is JSON with `Authorization: Bearer <access token>`. Erro
 
 ## Stubbed / not built
 
-- **Mail**: `Mailer` (`src/mail.ts`) defaults to a no-op; magic links only reach people with `MAIL_DEV=1`.
+- ~~Mail~~: done. `SMTP_URL` selects an SMTP mailer (nodemailer); without it the mailer is a no-op and only `MAIL_DEV=1` returns links.
 - **Sign in with Apple / Google** verify against the providers' live JWKS, which is only exercised in tests with a
   locally generated key set. Not tried against a real Apple/Google token.
 - **S3 media**: `S3MediaStore` is a stub (`src/media/store.ts`); local disk only. HEIC uploads are refused
@@ -232,3 +232,4 @@ PUBLIC_URL=<PhotoScout's own address>                            # must match wh
 
 Scopes asked: `events:read events:rsvp spots:read checkins:write`. Then set the three variables above in Convoyage's `.env` and redeploy
 (`scripts/down.ps1`, `scripts/up.ps1`). A member can also end the link from PhotoScout's Settings.
+

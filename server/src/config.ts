@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+﻿import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 
 /** The PhotoScout connection. Absent (null in Config) until PHOTOSCOUT_URL is set. */
@@ -26,10 +26,14 @@ export interface Config {
   magicLinkTtlS: number;
   mailDev: boolean;
   magicLinkBaseUrl: string;
+  /** SMTP delivery for magic links. Null = no mail is sent (MAIL_DEV only). */
+  smtp: { url: string; from: string } | null;
   devAuth: boolean;
   appleAudiences: string[];
   googleAudiences: string[];
   mediaDir: string;
+  /** S3-compatible media bucket (S3_BUCKET). Null = local disk at mediaDir. */
+  s3: { bucket: string; endpoint?: string; region?: string; forcePathStyle: boolean; accessKeyId?: string; secretAccessKey?: string; prefix?: string } | null;
   trustProxy: boolean;
   /** OSRM base URL for GET /v1/route. */
   osrmUrl: string;
@@ -89,6 +93,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const warnings: string[] = [];
   const mailDev = flag(env.MAIL_DEV);
   const devAuth = flag(env.CONVOYAGE_DEV_AUTH);
+  const smtpUrl = (env.SMTP_URL ?? '').trim();
+  const smtp = smtpUrl ? { url: smtpUrl, from: (env.MAIL_FROM ?? '').trim() || 'Convoyage <no-reply@localhost>' } : null;
+  if (production && !smtp) throw new Error('SMTP_URL is required in production: magic links cannot be delivered otherwise');
   if (production && mailDev) throw new Error('MAIL_DEV=1 returns magic links in API responses; refusing to start in production');
   if (production && devAuth) throw new Error('CONVOYAGE_DEV_AUTH=1 lets anyone impersonate any user; refusing to start in production');
 
@@ -120,10 +127,22 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     magicLinkTtlS: int(env.MAGIC_LINK_TTL_SECONDS, 15 * 60),
     mailDev,
     magicLinkBaseUrl: env.MAGIC_LINK_BASE_URL || 'convoyage://auth/magic',
+    smtp,
     devAuth,
     appleAudiences: list(env.APPLE_AUDIENCES),
     googleAudiences: list(env.GOOGLE_AUDIENCES),
     mediaDir: path.resolve(env.MEDIA_DIR || 'data/media'),
+    s3: env.S3_BUCKET
+      ? {
+          bucket: env.S3_BUCKET,
+          endpoint: env.S3_ENDPOINT || undefined,
+          region: env.S3_REGION || undefined,
+          forcePathStyle: flag(env.S3_FORCE_PATH_STYLE),
+          accessKeyId: env.S3_ACCESS_KEY_ID || undefined,
+          secretAccessKey: env.S3_SECRET_ACCESS_KEY || undefined,
+          prefix: env.S3_PREFIX || undefined,
+        }
+      : null,
     trustProxy: flag(env.TRUST_PROXY),
     // The public demo server is rate-limited and not for production use: run your own OSRM and point OSRM_URL at it.
     osrmUrl: (env.OSRM_URL || 'https://router.project-osrm.org').replace(/\/+$/, ''),
@@ -152,3 +171,4 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     warnings,
   };
 }
+

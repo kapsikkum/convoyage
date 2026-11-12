@@ -1,5 +1,6 @@
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 
 /** Where media bytes live. Rows in the `media` table point at it by `storage_key`. */
 export interface MediaStore {
@@ -44,14 +45,58 @@ export class MemoryMediaStore implements MediaStore {
   async delete(key: string): Promise<void> { this.files.delete(key); }
 }
 
-/**
- * S3-compatible object storage (S3, R2, MinIO). Not built: wire an S3 client here and select it in
- * `server.ts` when an S3 bucket is configured.
- * TODO(s3): implement put/get/delete with @aws-sdk/client-s3 (or presigned URLs, so apps fetch from the bucket directly).
- */
+/** The slice of the S3 client the store uses, so tests can pass a fake. */
+export interface S3Like {
+  send(command: unknown): Promise<any>;
+}
+
+export interface S3Options {
+  bucket: string;
+  endpoint?: string;
+  region?: string;
+  /** Path-style addressing, needed by MinIO and some self-hosted stores. */
+  forcePathStyle?: boolean;
+  accessKeyId?: string;
+  secretAccessKey?: string;
+  /** Key prefix inside the bucket, e.g. "media/". */
+  prefix?: string;
+}
+
+/** S3-compatible object storage (S3, R2, MinIO). Bytes are proxied through the API, so media stays behind the auth checks. */
 export class S3MediaStore implements MediaStore {
-  constructor(_opts: { bucket: string; endpoint?: string; region?: string }) {}
-  async put(): Promise<void> { throw new Error('S3MediaStore is not implemented'); }
-  async get(): Promise<Buffer | null> { throw new Error('S3MediaStore is not implemented'); }
-  async delete(): Promise<void> { throw new Error('S3MediaStore is not implemented'); }
+  private client: S3Like;
+  private prefix: string;
+  constructor(private opts: S3Options, client?: S3Like) {
+    this.prefix = opts.prefix ?? '';
+    this.client = client ?? new S3Client({
+      region: opts.region ?? 'auto',
+      endpoint: opts.endpoint,
+      forcePathStyle: opts.forcePathStyle,
+      credentials: opts.accessKeyId && opts.secretAccessKey ? { accessKeyId: opts.accessKeyId, secretAccessKey: opts.secretAccessKey } : undefined,
+    });
+  }
+
+  private key(key: string): string {
+    if (key.includes('..')) throw new Error('media key escapes the store');
+    return this.prefix + key;
+  }
+
+  async put(key: string, data: Buffer, mime: string): Promise<void> {
+    await this.client.send(new PutObjectCommand({ Bucket: this.opts.bucket, Key: this.key(key), Body: data, ContentType: mime }));
+  }
+
+  async get(key: string): Promise<Buffer | null> {
+    try {
+      const res = await this.client.send(new GetObjectCommand({ Bucket: this.opts.bucket, Key: this.key(key) }));
+      return Buffer.from(await res.Body.transformToByteArray());
+    } catch (err) {
+      const e = err as { name?: string; $metadata?: { httpStatusCode?: number } };
+      if (e.name === 'NoSuchKey' || e.$metadata?.httpStatusCode === 404) return null;
+      throw err;
+    }
+  }
+
+  async delete(key: string): Promise<void> {
+    await this.client.send(new DeleteObjectCommand({ Bucket: this.opts.bucket, Key: this.key(key) }));
+  }
 }
