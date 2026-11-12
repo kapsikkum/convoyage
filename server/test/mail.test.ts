@@ -1,4 +1,4 @@
-﻿import { test } from 'node:test';
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { smtpMailer } from '../src/mail.js';
 import { loadConfig } from '../src/config.js';

@@ -1,4 +1,4 @@
-﻿import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { buildApp } from './app.js';
 import { Tokens } from './api/tokens.js';
 import { providersFromConfig, type Providers } from './api/providers.js';

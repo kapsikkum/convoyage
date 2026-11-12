@@ -75,6 +75,8 @@ export interface PostsTable {
   id: Generated<string>; author_id: string; kind: 'ride' | 'build' | 'photo' | 'text'; ride_id: OptNull<string>;
   vehicle_id: OptNull<string>; body: Opt<string>; visibility: Opt<'public' | 'followers'>; lat: OptNull<number>;
   lng: OptNull<number>; created_at: Ts;
+  /** Kept by triggers on post_likes / comments (migration 008). */
+  like_count: Generated<number>; comment_count: Generated<number>;
 }
 
 export interface PostMediaTable { post_id: string; media_id: string; position: Opt<number> }

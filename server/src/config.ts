@@ -1,4 +1,4 @@
-﻿import { randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 
 /** The PhotoScout connection. Absent (null in Config) until PHOTOSCOUT_URL is set. */

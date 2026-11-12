@@ -1,4 +1,4 @@
-﻿import test, { after, before } from 'node:test';
+import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import WebSocket from 'ws';
 import { testServer, type TestServer } from './apiHelpers.js';

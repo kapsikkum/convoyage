@@ -1,4 +1,4 @@
-﻿# Convoyage server
+# Convoyage server
 
 Node 22, TypeScript (strict, ESM), Fastify 5, Kysely on Postgres, and a plain `ws` socket on `/ws`.
 

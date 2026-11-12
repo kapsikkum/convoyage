@@ -29,7 +29,7 @@ export async function postRoutes(app: FastifyInstance, ctx: ApiContext): Promise
     const authorIds = [...new Set(rows.map((r) => r.author_id))];
     const rideIds = [...new Set(rows.flatMap((r) => (r.ride_id ? [r.ride_id] : [])))];
     const vehicleIds = [...new Set(rows.flatMap((r) => (r.vehicle_id ? [r.vehicle_id] : [])))];
-    const [authors, media, rides, vehicles, likes, comments, mine] = await Promise.all([
+    const [authors, media, rides, vehicles, mine] = await Promise.all([
       db.selectFrom('profiles').select(['user_id', 'handle', 'display_name', 'avatar_media_id']).where('user_id', 'in', authorIds).execute(),
       db.selectFrom('post_media').innerJoin('media', 'media.id', 'post_media.media_id').selectAll('media').select(['post_media.post_id', 'post_media.position'])
         .where('post_media.post_id', 'in', ids).orderBy('post_media.position').execute(),
@@ -37,16 +37,12 @@ export async function postRoutes(app: FastifyInstance, ctx: ApiContext): Promise
         ? db.selectFrom('rides').selectAll().select(visibleTo(viewer, 'rides.owner_id', 'rides.visibility').as('can_view')).where('id', 'in', rideIds).execute()
         : [],
       vehicleIds.length ? db.selectFrom('vehicles').selectAll().where('id', 'in', vehicleIds).execute() : [],
-      db.selectFrom('post_likes').select(['post_id', (eb) => eb.fn.countAll<number>().as('n')]).where('post_id', 'in', ids).groupBy('post_id').execute(),
-      db.selectFrom('comments').select(['post_id', (eb) => eb.fn.countAll<number>().as('n')]).where('post_id', 'in', ids).groupBy('post_id').execute(),
       db.selectFrom('post_likes').select('post_id').where('post_id', 'in', ids).where('user_id', '=', viewer).execute(),
     ]);
     const badges = await vehicleBadges(db, viewer, authorIds);
     const authorBy = new Map(authors.map((a) => [a.user_id, { id: a.user_id, handle: a.handle, displayName: a.display_name, avatarMediaId: a.avatar_media_id, primaryVehicle: badges.get(a.user_id) ?? null }]));
     const rideBy = new Map(rides.filter((r) => r.can_view).map((r) => [r.id, { ...rideSummaryDto(r), preview: routePreview(r.polyline, r.polyline_precision) }]));
     const vehicleBy = new Map(vehicles.map((v) => [v.id, vehicleDto(v)]));
-    const likeBy = new Map(likes.map((l) => [l.post_id, Number(l.n)]));
-    const commentBy = new Map(comments.map((c) => [c.post_id, Number(c.n)]));
     const likedByMe = new Set(mine.map((m) => m.post_id));
     return rows.map((p) => ({
       id: p.id, kind: p.kind, author: authorBy.get(p.author_id)!, body: p.body, visibility: p.visibility, createdAt: iso(p.created_at),
@@ -54,7 +50,7 @@ export async function postRoutes(app: FastifyInstance, ctx: ApiContext): Promise
       ride: p.ride_id ? rideBy.get(p.ride_id) ?? null : null,
       vehicle: p.vehicle_id ? vehicleBy.get(p.vehicle_id) ?? null : null,
       media: media.filter((m) => m.post_id === p.id).map(mediaDto),
-      likeCount: likeBy.get(p.id) ?? 0, commentCount: commentBy.get(p.id) ?? 0, likedByMe: likedByMe.has(p.id),
+      likeCount: Number(p.like_count), commentCount: Number(p.comment_count), likedByMe: likedByMe.has(p.id),
     }));
   }
 

@@ -145,3 +145,20 @@ test('feed items carry author, counts and my like', async () => {
   assert.equal((await t.req('DELETE', `/v1/posts/${post.id}`, { token: a.token })).status, 200);
   assert.equal((await t.req('GET', `/v1/posts/${post.id}`, { token: a.token })).status, 404);
 });
+
+test('counters follow unlike and comment deletion (triggers)', async () => {
+  const post = (await text(a, 'counter drift')).body;
+  await t.req('POST', `/v1/posts/${post.id}/like`, { token: a.token });
+  await t.req('POST', `/v1/posts/${post.id}/like`, { token: b.token });
+  await t.req('POST', `/v1/posts/${post.id}/like`, { token: b.token });
+  const c = (await t.req('POST', `/v1/posts/${post.id}/comments`, { token: b.token, body: { body: 'one' } })).body;
+  await t.req('POST', `/v1/posts/${post.id}/comments`, { token: a.token, body: { body: 'two' } });
+  let item = (await feed(a)).items.find((i: any) => i.id === post.id);
+  assert.deepEqual([item.likeCount, item.commentCount], [2, 2]);
+  await t.req('DELETE', `/v1/posts/${post.id}/like`, { token: b.token });
+  await t.req('DELETE', `/v1/comments/${c.id}`, { token: b.token });
+  item = (await feed(a)).items.find((i: any) => i.id === post.id);
+  assert.deepEqual([item.likeCount, item.commentCount], [1, 1]);
+  const row = await t.database.db.selectFrom('posts').select(['like_count', 'comment_count']).where('id', '=', post.id).executeTakeFirstOrThrow();
+  assert.deepEqual([Number(row.like_count), Number(row.comment_count)], [1, 1]);
+});
