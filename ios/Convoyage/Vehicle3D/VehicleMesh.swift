@@ -1,8 +1,8 @@
 import Foundation
 import simd
 
-// The four vehicles, built in code the way design-tools/ps1.html builds its car: extruded side profiles, boxes and
-// 8-sided wheels. Port of android/.../render/Ps1Mesh.kt and Ps1Models.kt.
+// The vehicle mesh helpers: profiles are extruded, boxes are built face by face and wheels are 8-sided, the way
+// design-tools/ps1.html builds its car. Port of android/.../render/Ps1Mesh.kt.
 // x is forward (the lights at +x), y is up and z is across. Model units are ps1.html's, about 20 px each in the profiles.
 
 typealias V2 = SIMD2<Float>

@@ -141,6 +141,7 @@ struct RouteDetailSheet: View {
     @State private var visibility: String = ""
     @State private var confirmDelete: Bool = false
     @State private var saved: Bool = false
+    @State private var conditions: RouteConditionsStore?
 
     var body: some View {
         let line: [CLLocationCoordinate2D] = route.line
@@ -153,11 +154,16 @@ struct RouteDetailSheet: View {
                 }
                 Text(route.stats).font(CvFont.text(13)).foregroundStyle(theme.inkMuted)
                 if let n = route.notes, !n.isEmpty { Text(n).font(CvFont.text(15)) }
-                ConvoyMapView(pins: pins(line), is3D: false, recenterToken: 0, theme: theme,
-                              route: line, fitToken: 1,
+                ConvoyMapView(pins: pins(line, conditions?.value), is3D: false, recenterToken: 0, theme: theme,
+                              route: line, roadSegments: roadSegments, fitToken: 1,
                               fitCoordinates: line + (route.staging.map { [CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lng)] } ?? []))
                     .frame(height: 220)
                     .allowsHitTesting(false)
+                if let c = conditions {
+                    ConditionsCard(store: c) {
+                        Task { await c.refresh(routeId: route.id) }
+                    }
+                }
                 if let e = error { Text(e).font(CvFont.text(13)).foregroundStyle(theme.pulse) }
                 CvButton(title: inConvoy ? "Share with the convoy" : "Drive as a convoy", icon: "person.3.fill") {
                     error = app.convoy.driveSavedRoute(route)
@@ -207,14 +213,41 @@ struct RouteDetailSheet: View {
         }
         .background(theme.surface100.ignoresSafeArea())
         .onAppear { visibility = route.visibility ?? "followers" }
+        .task {
+            let store: RouteConditionsStore
+            if let existing = conditions {
+                store = existing
+            } else {
+                store = RouteConditionsStore(api: app.api)
+                conditions = store
+            }
+            await store.loadSaved(routeId: route.id)
+        }
     }
 
-    private func pins(_ line: [CLLocationCoordinate2D]) -> [MapPin] {
+    private var roadSegments: [MapRoadSegment] {
+        let segs: [(grade: String, line: [CLLocationCoordinate2D])] = conditions?.value?.roadSegments ?? []
+        return segs.map { (s: (grade: String, line: [CLLocationCoordinate2D])) -> MapRoadSegment in
+            return MapRoadSegment(grade: s.grade, line: s.line)
+        }
+    }
+
+    private func pins(_ line: [CLLocationCoordinate2D], _ c: RouteConditionsDto?) -> [MapPin] {
         var out: [MapPin] = []
         if let s = line.first { out.append(MapPin(id: "start", initials: "GO", kind: .lead, coordinate: s)) }
         if let e = line.last, !route.isCircuit { out.append(MapPin(id: "end", initials: "END", kind: .destination, coordinate: e)) }
         if let st = route.staging {
             out.append(MapPin(id: "staging", initials: "MEET", kind: .rest, coordinate: CLLocationCoordinate2D(latitude: st.lat, longitude: st.lng)))
+        }
+        if let c = c {
+            for p in c.conditionPins() {
+                out.append(MapPin(id: p.id, initials: p.label, kind: p.kind == "police" ? .police : .hazard,
+                                  coordinate: CLLocationCoordinate2D(latitude: p.lat, longitude: p.lng)))
+            }
+            for s in c.stopPins() {
+                out.append(MapPin(id: s.id, initials: s.label, kind: .rest,
+                                  coordinate: CLLocationCoordinate2D(latitude: s.lat, longitude: s.lng)))
+            }
         }
         return out
     }

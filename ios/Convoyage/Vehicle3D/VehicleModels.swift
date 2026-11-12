@@ -347,10 +347,10 @@ enum Ps1Models {
                 let wz: Float = hw - ww / 2 + 0.05
                 for side: Float in [1, -1] {
                     if kit.contains(.flares) && !underDeck {
-                        arch(mb, ax, 0, side * (hw + 0.01), r * 1.36, side, Ps1Models.dark)
+                        wheelArch(mb, ax, 0, side * (hw + 0.01), r * 1.36, side, Ps1Models.dark)
                     }
                     if !underDeck {
-                        arch(mb, ax, 0, side * (hw + 0.018), r * 1.18, side, Ps1Models.arch)
+                        wheelArch(mb, ax, 0, side * (hw + 0.018), r * 1.18, side, Ps1Models.arch)
                     }
                     Ps1Geo.wheel(mb, ax, 0, side * wz, radius: r, width: ww, Ps1Models.tyre, rim, segments: 12)
                 }
@@ -653,7 +653,7 @@ enum Ps1Models {
     }
 
     /// The dark wheel-arch opening on a body side: a fan over the top of the wheel, facing out along `side` z.
-    private static func arch(_ mb: MeshBuilder, _ cx: Float, _ cy: Float, _ z: Float, _ r: Float, _ side: Float, _ s: Surf = Ps1Models.arch) {
+    private static func wheelArch(_ mb: MeshBuilder, _ cx: Float, _ cy: Float, _ z: Float, _ r: Float, _ side: Float, _ s: Surf = Ps1Models.arch) {
         let n: Int = 8
         let centre: Int = mb.vertex(V3(cx, cy - r * 0.15, z), V3(0, 0, side), V2(0.5, 0.5), s)
         var ring: [Int] = []

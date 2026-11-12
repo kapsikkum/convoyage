@@ -19,6 +19,7 @@ struct RouteBuilderView: View {
     @State private var error: String?
     @State private var saving: Bool = false
     @State private var fitToken: Int = 0
+    @State private var conditions: RouteConditionsStore?
 
     /// Snapping more points than this is left to straight lines (the router's limit).
     private static let maxSnapped: Int = 25
@@ -42,6 +43,7 @@ struct RouteBuilderView: View {
             ConvoyMapView(pins: pins, is3D: false, recenterToken: 0, theme: theme,
                           userCoordinate: app.convoy.location.latest?.coordinate,
                           route: line,
+                          roadSegments: roadSegments,
                           onTap: { (c: CLLocationCoordinate2D) in tapped(c) },
                           fitToken: fitToken,
                           fitCoordinates: app.convoy.location.latest.map { [$0.coordinate] } ?? [])
@@ -65,6 +67,40 @@ struct RouteBuilderView: View {
         .background(theme.void.ignoresSafeArea())
         .onAppear { fitToken += 1 }
         .task(id: snapKey) { await snap() }
+        .task(id: road?.geometry) {
+            guard let geometry = road?.geometry else { return }
+            let store: RouteConditionsStore
+            if let existing = conditions {
+                store = existing
+            } else {
+                store = RouteConditionsStore(api: app.api)
+                conditions = store
+            }
+            await store.loadLine(geometry: geometry, durationS: road?.durationS)
+        }
+    }
+
+    /// What the conditions check found, in one line above the controls.
+    private var conditionsLine: String? {
+        guard let v = conditions?.value else { return nil }
+        var parts: [String] = ["Traffic " + v.traffic.level]
+        parts.append(v.police.isEmpty ? "no police" : "\(v.police.count) police")
+        if let p = v.weather.points.first {
+            var word: String = p.label
+            if let t = p.tempC { word += " " + String(Int(t.rounded())) + "°" }
+            parts.append(word)
+        }
+        if let r = v.roads {
+            parts.append(r.unpavedKm > 0 ? String(format: "%.1f km unsealed", r.unpavedKm) : "sealed")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private var roadSegments: [MapRoadSegment] {
+        let segs: [(grade: String, line: [CLLocationCoordinate2D])] = conditions?.value?.roadSegments ?? []
+        return segs.map { (s: (grade: String, line: [CLLocationCoordinate2D])) -> MapRoadSegment in
+            return MapRoadSegment(grade: s.grade, line: s.line)
+        }
     }
 
     private var hint: String {
@@ -86,6 +122,12 @@ struct RouteBuilderView: View {
                 Text("Circuit").tag(true)
             }
             .pickerStyle(.segmented)
+            if let line = conditionsLine {
+                Text(line)
+                    .font(CvFont.text(11))
+                    .foregroundStyle(theme.inkMuted)
+                    .lineLimit(2)
+            }
             HStack(spacing: 8) {
                 CvButton(title: "Follow roads", kind: followRoads ? .primary : .ghost) { followRoads.toggle() }
                 CvButton(title: staging != nil ? "Staging set" : "Staging point",

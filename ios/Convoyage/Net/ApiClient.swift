@@ -389,6 +389,21 @@ final class ApiClient: @unchecked Sendable {
         return await send("GET", "/v1/roads", query: [URLQueryItem(name: "bbox", value: box.param())], as: RoadsDto.self)
     }
 
+    /// `POST /v1/conditions`: traffic, police, weather, road surfaces and stops along a route line (polyline precision 6).
+    func routeConditions(geometry: String, durationS: Double?) async -> ApiResult<RouteConditionsDto> {
+        var body: [String: Any] = ["geometry": geometry]
+        if let d = durationS { body["durationS"] = d }
+        return await send("POST", "/v1/conditions", json: body, as: RouteConditionsDto.self)
+    }
+
+    /// `GET /v1/routes/:id/conditions`: the saved snapshot, or a fresh check.
+    func savedRouteConditions(id: String, refresh: Bool = false, cachedOnly: Bool = false) async -> ApiResult<RouteConditionsDto> {
+        var q: [URLQueryItem] = []
+        if refresh { q.append(URLQueryItem(name: "refresh", value: "true")) }
+        if cachedOnly { q.append(URLQueryItem(name: "cachedOnly", value: "true")) }
+        return await send("GET", "/v1/routes/\(id)/conditions", query: q, as: RouteConditionsDto.self)
+    }
+
     // MARK: Routing and voice
 
     /// `GET /v1/route`. Points are `lng,lat`; `profile` is "car" or "motorcycle".
