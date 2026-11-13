@@ -1,0 +1,42 @@
+name: server
+
+# Runs the server test suite (in-memory pglite: no services needed) and fails when the committed
+# OpenAPI document or the generated wire types are stale against the code.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, ios-parity]
+    paths: ['server/**', 'protocol/**']
+  pull_request:
+    paths: ['server/**', 'protocol/**']
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install dependencies
+        working-directory: server
+        run: npm ci
+
+      - name: Test
+        working-directory: server
+        run: npm test
+
+      - name: OpenAPI document is fresh
+        working-directory: server
+        run: |
+          npm run openapi
+          git diff --exit-code ../protocol/openapi.json
+
+      - name: Generated wire types are fresh
+        run: node protocol/codegen/generate.mjs --check
