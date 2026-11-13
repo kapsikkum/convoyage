@@ -1,11 +1,11 @@
 import Foundation
 
-/// Where the backend lives. The user can change it (Welcome and Profile); the default is a placeholder.
+/// Where the backend lives. The user can change it (Welcome and Profile); the default is production.
 enum ServerConfig {
-    static let defaultURLString: String = "https://api.convoyage.app"
+    static let defaultURLString: String = "https://convoy.24thframe.media"
     private static let key: String = "serverURL"
 
-    /// The saved server URL, or the placeholder default.
+    /// The saved server URL, or the production default.
     static var urlString: String {
         let saved: String = UserDefaults.standard.string(forKey: key) ?? ""
         let trimmed: String = saved.trimmingCharacters(in: .whitespacesAndNewlines)

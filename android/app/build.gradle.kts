@@ -21,7 +21,7 @@ android {
 
     // Server base URL, per build type; -PconvoyServerUrl=... overrides both.
     //   debug:   http://127.0.0.1:8090, which the emulator reaches through `adb reverse tcp:8090 tcp:8090`.
-    //   release: placeholder below.
+    //   release: the production origin below (WAF vhost -> data-server).
     // Example: ./gradlew assembleDebug -PconvoyServerUrl=http://192.168.1.20:8080
     val serverUrlOverride = project.findProperty("convoyServerUrl") as String?
 
@@ -30,8 +30,8 @@ android {
             buildConfigField("String", "SERVER_URL", "\"${serverUrlOverride ?: "http://127.0.0.1:8090"}\"")
         }
         release {
-            // TODO(deploy): replace the placeholder with the real production API origin once it exists.
-            buildConfigField("String", "SERVER_URL", "\"${serverUrlOverride ?: "https://api.convoyage.app"}\"")
+            // Production origin: the WAF vhost on 24thframe.media, which proxies to data-server:3006.
+            buildConfigField("String", "SERVER_URL", "\"${serverUrlOverride ?: "https://convoy.24thframe.media"}\"")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
