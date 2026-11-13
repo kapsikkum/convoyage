@@ -166,8 +166,15 @@ struct RideView: View {
         .accessibilityElement(children: .combine)
     }
 
-    /// Ride settings: the opt-in crash detection, and a DEBUG item that starts the countdown.
+    /// Ride settings: automatic recording when a convoy starts or is joined, the opt-in crash detection, and a
+    /// DEBUG item that starts the countdown.
     private var rideMenu: some View {
+        let autoBinding: Binding<Bool> = Binding<Bool>(
+            get: { return app.autoRecordConvoy },
+            set: { (v: Bool) in
+                app.autoRecordConvoy = v
+            }
+        )
         let crashBinding: Binding<Bool> = Binding<Bool>(
             get: { return app.crash.enabled },
             set: { (v: Bool) in
@@ -176,6 +183,7 @@ struct RideView: View {
             }
         )
         return Menu {
+            Toggle("Record convoy rides automatically", isOn: autoBinding)
             Toggle("Crash detection", isOn: crashBinding)
             #if DEBUG
             Button("Test crash alert") { app.crash.debugTrigger() }

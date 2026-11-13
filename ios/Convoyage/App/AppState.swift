@@ -1,4 +1,5 @@
 import Foundation
+import CoreLocation
 import Observation
 
 /// How this device is signed in: a real account (JWT in the Keychain) or the DEBUG-only dev socket auth.
@@ -68,6 +69,10 @@ final class AppState {
     var convoyReadChat: Bool = UserDefaults.standard.bool(forKey: "convoyReadChat") {
         didSet { UserDefaults.standard.set(convoyReadChat, forKey: "convoyReadChat") }
     }
+    /// Start a ride when a convoy starts or is joined (Android's "Record convoy rides automatically").
+    var autoRecordConvoy: Bool = UserDefaults.standard.bool(forKey: "autoRecordConvoy") {
+        didSet { UserDefaults.standard.set(autoRecordConvoy, forKey: "autoRecordConvoy") }
+    }
     var layerTraffic: Bool = UserDefaults.standard.object(forKey: "layerTraffic") as? Bool ?? true {
         didSet { UserDefaults.standard.set(layerTraffic, forKey: "layerTraffic") }
     }
@@ -106,6 +111,8 @@ final class AppState {
     /// The APNs token iOS handed us, and the one the server last accepted (so sign-out can forget it).
     @ObservationIgnored private var apnsToken: String?
     @ObservationIgnored private var pushRegisteredFor: String?
+    /// The convoy code of the last room change, so joining (nil -> a code) can start an automatic recording.
+    @ObservationIgnored private var lastConvoyCode: String?
 
     init() {
         let store: UserDefaults = UserDefaults.standard
@@ -170,7 +177,9 @@ final class AppState {
             self?.hazards.onSocketHazard(room: room, hazard: hazard)
         }
         convoyModel.onRoomChange = { [weak self] in
-            self?.updateServices()
+            guard let self = self else { return }
+            self.updateServices()
+            self.autoRecordForConvoy()
         }
         convoyModel.onNotice = { [weak self] (n: ConvoyNotice) in
             guard let self = self else { return }
@@ -469,6 +478,18 @@ final class AppState {
         } else {
             voice.leave()
         }
+    }
+
+    /// "Record convoy rides automatically": entering a convoy (starting or joining one) starts a ride when the
+    /// setting is on, no ride is running yet and location is allowed. Leaving the convoy leaves the ride going.
+    private func autoRecordForConvoy() {
+        let code: String? = convoy.room?.code
+        let entered: Bool = code != nil && lastConvoyCode == nil
+        lastConvoyCode = code
+        guard entered, autoRecordConvoy, !recorder.isActive, let convoyCode = code else { return }
+        let status: CLAuthorizationStatus = convoy.location.authorization
+        guard status == .authorizedWhenInUse || status == .authorizedAlways else { return }
+        recorder.start(vehicleId: garage.primary?.id, convoyCode: convoyCode)
     }
 
     private func maybeAskAlways() {
