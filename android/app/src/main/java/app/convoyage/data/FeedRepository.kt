@@ -49,7 +49,7 @@ class FeedRepository(
 
     fun setCommentCount(postId: String, count: Int) = everywhere(postId) { it.copy(commentCount = count) }
 
-    fun bumpComments(postId: String) = everywhere(postId) { it.copy(commentCount = it.commentCount + 1) }
+    fun bumpComments(postId: String, delta: Int = 1) = everywhere(postId) { it.copy(commentCount = (it.commentCount + delta).coerceAtLeast(0)) }
 
     fun remove(postId: String) = pagers.values.forEach { it.remove(postId) }
 

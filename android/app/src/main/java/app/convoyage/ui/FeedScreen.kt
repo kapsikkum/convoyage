@@ -126,6 +126,16 @@ class FeedViewModel(private val container: AppContainer) : ViewModel() {
 
     suspend fun report(postId: String, reason: String): ApiResult<*> = api.report(CreateReport("post", postId, reason))
 
+    /** Deletes a comment and takes it out of the open list; the post's count goes down with it. */
+    suspend fun deleteComment(postId: String, commentId: String): ApiResult<*> {
+        val r = api.deleteComment(commentId)
+        if (r is ApiResult.Ok) {
+            comments(postId).remove(commentId)
+            feed.bumpComments(postId, -1)
+        }
+        return r
+    }
+
     suspend fun delete(postId: String): ApiResult<*> = api.deletePost(postId).also { if (it is ApiResult.Ok) feed.remove(postId) }
 
     /** Posts text and/or one photo. */
@@ -377,6 +387,7 @@ private fun CommentsSection(post: Post, vm: FeedViewModel) {
     val c = Cv.colors
     val pager = remember(post.id) { vm.comments(post.id) }
     val state by pager.state.collectAsStateWithLifecycle()
+    val me by LocalContainer.current.account.me.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var draft by rememberSaveable(post.id) { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
@@ -388,16 +399,13 @@ private fun CommentsSection(post: Post, vm: FeedViewModel) {
         if (state.refreshing && state.items.isEmpty()) Eyebrow("LOADING COMMENTS...")
         if (state.loadedOnce && state.items.isEmpty()) Eyebrow("NO COMMENTS YET")
         state.items.forEach { cm ->
-            Row(horizontalArrangement = Arrangement.spacedBy(Space.s2), verticalAlignment = Alignment.Top) {
-                CvAvatar(cm.author.avatarPath, cm.author.primaryVehicle, Roster.initials(cm.author.name), size = 28.dp)
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        CvText(cm.author.name, Cv.type.bodyStrong, c.ink, maxLines = 1)
-                        Eyebrow(Fmt.timeAgo(cm.createdAt))
-                    }
-                    CvText(cm.body, Cv.type.bodyS, c.ink)
-                }
-            }
+            CommentRow(
+                cm,
+                // Mine to delete, or anyone's on a post of mine (as the server allows).
+                canDelete = me?.let { it.id == cm.author.id || it.id == post.author.id } == true,
+                onDelete = { vm.deleteComment(post.id, cm.id) },
+                onError = { error = it },
+            )
         }
         if (state.nextCursor != null) {
             CvButton(if (state.loadingMore) "Loading..." else "More comments", pager::loadMore, Modifier.fillMaxWidth(), CvButtonKind.Ghost, enabled = !state.loadingMore)
@@ -420,6 +428,35 @@ private fun CommentsSection(post: Post, vm: FeedViewModel) {
             },
             Modifier.fillMaxWidth(), enabled = draft.isNotBlank() && !sending,
         )
+    }
+}
+
+/** One comment. Its author (or the post's) gets a bin, and a second tap confirms, like deleting a post. */
+@Composable
+private fun CommentRow(cm: Comment, canDelete: Boolean, onDelete: suspend () -> ApiResult<*>, onError: (String) -> Unit) {
+    val c = Cv.colors
+    val scope = rememberCoroutineScope()
+    var confirmDelete by remember(cm.id) { mutableStateOf(false) }
+
+    Row(horizontalArrangement = Arrangement.spacedBy(Space.s2), verticalAlignment = Alignment.Top) {
+        CvAvatar(cm.author.avatarPath, cm.author.primaryVehicle, Roster.initials(cm.author.name), size = 28.dp)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                CvText(cm.author.name, Cv.type.bodyStrong, c.ink, maxLines = 1)
+                Eyebrow(Fmt.timeAgo(cm.createdAt))
+            }
+            CvText(cm.body, Cv.type.bodyS, c.ink)
+        }
+        if (canDelete) {
+            Box(
+                Modifier.defaultMinTarget().clickableNoRipple {
+                    if (confirmDelete) scope.launch { (onDelete() as? ApiResult.Err)?.let { onError(it.message) } } else confirmDelete = true
+                },
+                contentAlignment = Alignment.Center,
+            ) {
+                if (confirmDelete) Eyebrow("DELETE?", color = c.pulse) else CvIcon(CvIcons.Trash, c.inkMuted, size = 20.dp)
+            }
+        }
     }
 }
 

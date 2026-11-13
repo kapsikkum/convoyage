@@ -74,7 +74,7 @@ fun EventSheet(event: PsEvent, onNavigate: (Place) -> Unit, onJoinCruise: (() ->
     var error by remember { mutableStateOf<String?>(null) }
     // The list in the repository updates after an RSVP; show the latest copy of this event.
     val layers by container.layers.state.collectAsStateWithLifecycle()
-    val e = layers.events.firstOrNull { it.id == event.id } ?: event
+    val e = layers.events.firstOrNull { it.id == event.id } ?: layers.homeEvents.firstOrNull { it.id == event.id } ?: event
     val community = e.source == "community"
 
     fun rsvp(status: String?) {

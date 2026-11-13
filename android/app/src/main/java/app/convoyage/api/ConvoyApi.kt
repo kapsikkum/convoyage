@@ -288,6 +288,9 @@ class ConvoyApi(
     suspend fun addComment(postId: String, text: String): ApiResult<Comment> =
         send("POST", "v1/posts/$postId/comments", ApiJson.encodeToString(CreateComment.serializer(), CreateComment(text)), Comment.serializer())
 
+    /** Deletes [id]: my comment, or any on my post. 404 once it is gone. */
+    suspend fun deleteComment(id: String): ApiResult<OkBody> = send("DELETE", "v1/comments/$id", null, OkBody.serializer())
+
     suspend fun report(body: CreateReport): ApiResult<OkBody> =
         send("POST", "v1/reports", ApiJson.encodeToString(CreateReport.serializer(), body), OkBody.serializer())
 

@@ -25,8 +25,16 @@ data class LayersState(
     val available: Boolean = false,
     val spots: List<PsSpot> = emptyList(),
     val events: List<PsEvent> = emptyList(),
+    /** The Home tab's five soonest events within 150 km, filled by [PhotoScoutLayers.loadHomeEvents]. */
+    val homeEvents: List<PsEvent> = emptyList(),
     val error: String? = null,
 )
+
+/** How far around the driver the Home tab looks for events. */
+private const val HOME_RADIUS_KM: Double = 150.0
+
+/** An event that started over an hour ago is over: Home stops showing it. */
+private const val HOME_GRACE_MS: Long = 3_600_000L
 
 /**
  * PhotoScout spots and events for the Drive map. Spots load for the visible box; events for a radius around its centre
@@ -49,6 +57,7 @@ class PhotoScoutLayers(
     private var eventsAt = 0L
     private var spotsJob: Job? = null
     private var eventsJob: Job? = null
+    private var homeJob: Job? = null
 
     /** Asks the server whether PhotoScout is there and linked. Call after sign-in and when Settings links it. */
     fun refreshStatus() {
@@ -66,6 +75,7 @@ class PhotoScoutLayers(
 
     fun clear() {
         spotsBox = null; eventsCentre = null; spotsAt = 0; eventsAt = 0
+        homeJob?.cancel()
         _state.value = LayersState()
     }
 
@@ -110,6 +120,33 @@ class PhotoScoutLayers(
         }
     }
 
+    /**
+     * The Home tab's events: within [HOME_RADIUS_KM] of [lat],[lng], soonest first, at most five. Ones that started
+     * over an hour ago are over and are left out. Only loads when the account is linked.
+     */
+    fun loadHomeEvents(lat: Double, lng: Double) {
+        if (!_state.value.available) {
+            _state.update { it.copy(homeEvents = emptyList()) }
+            return
+        }
+        homeJob?.cancel()
+        homeJob = scope.launch {
+            when (val r = api.photoscoutEvents(lat, lng, HOME_RADIUS_KM)) {
+                is ApiResult.Ok -> {
+                    val cutoff = now() - HOME_GRACE_MS
+                    val upcoming = r.value.mapNotNull { e -> startMs(e)?.let { it to e } }
+                        .filter { it.first >= cutoff }
+                        .sortedBy { it.first }
+                        .take(5)
+                        .map { it.second }
+                    _state.update { it.copy(homeEvents = upcoming) }
+                }
+                // The Drive map shows its own error for the layer; Home keeps what it had.
+                is ApiResult.Err -> Unit
+            }
+        }
+    }
+
     /** The consent page to open, or an error to show. */
     suspend fun connectUrl(): Result<String> = when (val r = api.photoscoutConnect()) {
         is ApiResult.Ok -> Result.success(r.value.authorizeUrl)
@@ -126,8 +163,12 @@ class PhotoScoutLayers(
         val body = if (status == null) PsRsvpRequest(going = false) else PsRsvpRequest(status = status)
         return when (val r = api.photoscoutRsvp(event.id, body)) {
             is ApiResult.Ok -> {
+                val v = r.value
                 _state.update { s ->
-                    s.copy(events = s.events.map { if (it.id == event.id) it.copy(myRsvp = r.value.myRsvp, going = r.value.going, interested = r.value.interested) else it })
+                    s.copy(
+                        events = s.events.map { e -> if (e.id == event.id) e.copy(myRsvp = v.myRsvp, going = v.going, interested = v.interested) else e },
+                        homeEvents = s.homeEvents.map { e -> if (e.id == event.id) e.copy(myRsvp = v.myRsvp, going = v.going, interested = v.interested) else e },
+                    )
                 }
                 null
             }
@@ -135,6 +176,9 @@ class PhotoScoutLayers(
         }
     }
 }
+
+/** When [e] starts, in epoch milliseconds; null when the server sent a time we cannot read. */
+private fun startMs(e: PsEvent): Long? = runCatching { java.time.Instant.parse(e.startTime).toEpochMilli() }.getOrNull()
 
 /** True when [inner] lies wholly inside this box (no antimeridian handling: the boxes here are small). */
 internal fun Bbox.covers(inner: Bbox) = inner.south >= south && inner.north <= north && inner.west >= west && inner.east <= east
