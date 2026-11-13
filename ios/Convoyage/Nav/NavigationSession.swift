@@ -24,6 +24,10 @@ final class NavigationSession {
     var muted: Bool = false
     var rerouting: Bool = false
     var hazardAhead: (hazard: HazardDto, meters: Double)?
+    /// Traffic, police, weather, road surfaces and fuel for the route being driven.
+    let conditions: RouteConditionsStore
+    /// The person closed the compact conditions card for this route.
+    var showConditions: Bool = true
     /// True while the person has asked to see the whole route instead of following their position.
     var overview: Bool = false
     /// Direction the camera faces: the last course while moving.
@@ -51,6 +55,7 @@ final class NavigationSession {
         self.api = api
         self.location = location
         self.hazards = hazards
+        self.conditions = RouteConditionsStore(api: api)
     }
 
     /// A convoy event, through the navigation voice (so it ducks music the same way and respects mute).
@@ -105,6 +110,8 @@ final class NavigationSession {
         route = nil
         progress = nil
         overview = false
+        showConditions = true
+        conditions.clear()
         onActiveChange?()
         routeTask?.cancel()
         routeTask = Task { [weak self] in
@@ -126,6 +133,7 @@ final class NavigationSession {
         destination = nil
         tracker = nil
         hazardAhead = nil
+        conditions.clear()
         rerouting = false
         overview = false
         errorText = nil
@@ -174,6 +182,7 @@ final class NavigationSession {
             offRoute.reset()
             progress = nil
             phase = .navigating
+            loadConditions(nav)
             if !isReroute {
                 if let first = nav.steps.first(where: { (s: NavStep) -> Bool in return s.type == "depart" }) ?? nav.steps.first {
                     let name: String = first.name.isEmpty ? "" : " on \(first.name)"
@@ -183,6 +192,19 @@ final class NavigationSession {
                 voice.speak("Route updated")
             }
             if let here = location.latest { process(here) }
+        }
+    }
+
+    /// Asks for traffic, police, weather, road surfaces and stops along the route just built. The store keeps one
+    /// request at a time, so a reroute replaces the check for the old line (the same key Android uses).
+    private func loadConditions(_ nav: NavRoute) {
+        let coords: [CLLocationCoordinate2D] = nav.line.points.map { (p: GeoPoint) -> CLLocationCoordinate2D in
+            return CLLocationCoordinate2D(latitude: p.lat, longitude: p.lng)
+        }
+        let geometry: String = Polyline.encode(coords, precision: 6)
+        let duration: Double = nav.durationS
+        Task { [weak self] in
+            await self?.conditions.loadLine(geometry: geometry, durationS: duration)
         }
     }
 

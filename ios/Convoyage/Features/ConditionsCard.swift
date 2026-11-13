@@ -529,3 +529,75 @@ struct ConditionsCard: View {
         return theme.hazard
     }
 }
+
+/// The route at a glance while driving: traffic, police, weather, road surface and fuel in one line, plus the
+/// cheapest U91 on the way. This is the compact shape of the Android ETA sheet; the full card stays on Routes.
+struct ConditionsSummary: View {
+    let store: RouteConditionsStore
+    /// "Police 300 m ahead", when navigation has one.
+    var hazardAhead: String? = nil
+    let onDismiss: () -> Void
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        if let v: RouteConditionsDto = store.value {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .center, spacing: 8) {
+                    SectionLabel(text: "Conditions")
+                    Spacer(minLength: 8)
+                    Button(action: onDismiss) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(theme.inkMuted)
+                            .frame(width: 28, height: 28)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Hide conditions")
+                }
+                Text(summary(v))
+                    .font(CvFont.text(13))
+                    .foregroundStyle(theme.ink)
+                    .lineLimit(2)
+                if let fuel: String = cheapestFuel(v) {
+                    Text(fuel)
+                        .font(CvFont.mono(12, weight: .medium))
+                        .foregroundStyle(theme.signal)
+                        .lineLimit(1)
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .cvPanel(fill: theme.surface200, edge: theme.line, cut: Cut.s)
+        }
+    }
+
+    /// "Traffic light · 2 police · Light rain 14° · sealed · 6 servos", with a hazard in front when there is one.
+    private func summary(_ v: RouteConditionsDto) -> String {
+        var parts: [String] = []
+        if let hazard: String = hazardAhead, !hazard.isEmpty { parts.append(hazard) }
+        parts.append("Traffic " + v.traffic.level)
+        parts.append(v.police.isEmpty ? "no police" : "\(v.police.count) police")
+        if let p: RouteWeatherPointDto = v.weather.points.first {
+            let temp: String = p.tempC.map { (t: Double) -> String in return " \(Int(t.rounded()))°" } ?? ""
+            parts.append(p.label + temp)
+        }
+        if let roads: RouteRoadsDto = v.roads {
+            parts.append(roads.unpavedKm > 0 ? "\(fmtKm(roads.unpavedKm)) km unsealed" : "sealed")
+        }
+        let servos: Int = v.stops.filter { (s: RouteStopDto) -> Bool in return s.kind == "fuel" }.count
+        if servos > 0 { parts.append("\(servos) servo\(servos == 1 ? "" : "s")") }
+        return parts.joined(separator: " · ")
+    }
+
+    /// "Cheapest U91 199.9 at km 12", when any servo on the route has a price.
+    private func cheapestFuel(_ v: RouteConditionsDto) -> String? {
+        let priced: [RouteStopDto] = v.stops.filter { (s: RouteStopDto) -> Bool in
+            return s.kind == "fuel" && s.prices["U91"] != nil
+        }
+        guard let s: RouteStopDto = priced.min(by: { (a: RouteStopDto, b: RouteStopDto) -> Bool in
+            return (a.prices["U91"] ?? 0) < (b.prices["U91"] ?? 0)
+        }), let price: Double = s.prices["U91"] else { return nil }
+        return "Cheapest U91 \(String(format: "%.1f", price)) at km \(fmtKm(s.km))"
+    }
+}

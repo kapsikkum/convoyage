@@ -253,6 +253,11 @@ struct NavigationScreen: View {
                 if nav.rerouting {
                     Banner(title: "Finding a new route...", kind: .info, icon: "arrow.triangle.2.circlepath")
                 }
+                if nav.showConditions {
+                    ConditionsSummary(store: nav.conditions,
+                                      hazardAhead: hazardAheadText(nav),
+                                      onDismiss: { nav.showConditions = false })
+                }
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 12)
@@ -284,6 +289,14 @@ struct NavigationScreen: View {
 
     private func roundTo10(_ m: Double) -> Double {
         return m >= 100 ? (m / 10).rounded() * 10 : m.rounded()
+    }
+
+    /// "Police 300 m ahead" for the conditions card; nil when nothing is close.
+    private func hazardAheadText(_ nav: NavigationSession) -> String? {
+        guard let h = nav.hazardAhead else { return nil }
+        let dto: HazardDto = h.hazard
+        let what: String = dto.isPolice ? "Police" : hazardLabel(kind: dto.kind, subkind: dto.subkind)
+        return what + " " + Formatters.distanceText(roundTo10(h.meters)) + " ahead"
     }
 
     private func maneuverCard(_ nav: NavigationSession) -> some View {

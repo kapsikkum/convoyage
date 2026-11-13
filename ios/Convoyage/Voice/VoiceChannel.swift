@@ -22,7 +22,8 @@ struct VoiceSpeaker: Equatable {
 /// Receives LiveKit callbacks (on any thread) and hands plain values to closures.
 private final class VoiceBridge: NSObject, RoomDelegate, @unchecked Sendable {
     var onSpeakers: (@Sendable ([VoiceSpeaker]) -> Void)?
-    var onDisconnect: (@Sendable (String?) -> Void)?
+    var onDisconnect: (@Sendable (LiveKit.Room, String?) -> Void)?
+    var onConnectionState: (@Sendable (LiveKit.Room, LiveKit.ConnectionState) -> Void)?
 
     func room(_ room: LiveKit.Room, didUpdateSpeakingParticipants participants: [Participant]) {
         var out: [VoiceSpeaker] = []
@@ -33,8 +34,12 @@ private final class VoiceBridge: NSObject, RoomDelegate, @unchecked Sendable {
         onSpeakers?(out)
     }
 
+    func room(_ room: LiveKit.Room, didUpdateConnectionState connectionState: LiveKit.ConnectionState, from oldConnectionState: LiveKit.ConnectionState) {
+        onConnectionState?(room, connectionState)
+    }
+
     func room(_ room: LiveKit.Room, didDisconnectWithError error: LiveKitError?) {
-        onDisconnect?(error?.localizedDescription)
+        onDisconnect?(room, error?.localizedDescription)
     }
 }
 
@@ -42,7 +47,8 @@ private final class VoiceBridge: NSObject, RoomDelegate, @unchecked Sendable {
 ///
 /// The server only offers LiveKit over TCP (no UDP forwarding), so the SDK's own TCP fallback does the work; nothing
 /// here changes the ICE settings. The microphone stays muted until the button is held. The audio session belongs to
-/// LiveKit (play and record, Bluetooth allowed for helmet comms); this class never configures it.
+/// LiveKit (play and record, Bluetooth allowed for helmet comms); this class never configures it except to put the
+/// session back into that voice category if a reconnect finds something else (a spoken prompt) holding it.
 @Observable
 @MainActor
 final class VoiceChannel {
@@ -56,11 +62,17 @@ final class VoiceChannel {
     /// The person closed the "Voice unavailable" banner for this convoy.
     var bannerDismissed: Bool = false
 
+    /// Auto-reconnect pace: 1 s, 2 s, 4 s ... capped at 30 s, then give up so the banner offers Retry.
+    private static let reconnectLimit: Int = 10
+    private static let reconnectMaxDelayS: Double = 30
+
     @ObservationIgnored private let api: ApiClient
     @ObservationIgnored private let bridge: VoiceBridge = VoiceBridge()
     @ObservationIgnored private var room: LiveKit.Room?
     @ObservationIgnored private var code: String?
     @ObservationIgnored private var connectTask: Task<Void, Never>?
+    @ObservationIgnored private var reconnectTask: Task<Void, Never>?
+    @ObservationIgnored private var reconnectAttempts: Int = 0
     @ObservationIgnored private var micOn: Bool = false
     @ObservationIgnored private var desiredMic: Bool = false
     @ObservationIgnored private var applying: Bool = false
@@ -72,9 +84,14 @@ final class VoiceChannel {
                 self?.speakers = s
             }
         }
-        bridge.onDisconnect = { [weak self] (message: String?) in
+        bridge.onDisconnect = { [weak self] (r: LiveKit.Room, message: String?) in
             Task { @MainActor in
-                self?.connectionLost(message)
+                self?.connectionLost(r, message)
+            }
+        }
+        bridge.onConnectionState = { [weak self] (r: LiveKit.Room, connection: LiveKit.ConnectionState) in
+            Task { @MainActor in
+                self?.connectionStateChanged(r, connection)
             }
         }
     }
@@ -102,6 +119,9 @@ final class VoiceChannel {
     func leave() {
         connectTask?.cancel()
         connectTask = nil
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        reconnectAttempts = 0
         code = nil
         state = .off
         speakers = []
@@ -117,30 +137,40 @@ final class VoiceChannel {
     }
 
     private func connect(_ target: String) async {
+        guard let r: LiveKit.Room = await openRoom(target) else { return }
+        if Task.isCancelled || code != target {
+            await r.disconnect()
+            return
+        }
+        room = r
+        state = .ready
+    }
+
+    /// Fetches a token and joins the room; nil when that failed (with `state` saying why unless `quiet`).
+    private func openRoom(_ target: String, quiet: Bool = false) async -> LiveKit.Room? {
         let result: ApiResult<VoiceTokenDto> = await api.voiceToken(convoyCode: target)
-        if Task.isCancelled || code != target { return }
+        if Task.isCancelled || code != target { return nil }
         switch result {
         case .failure(let f):
-            state = .unavailable(VoiceChannel.reason(status: f.status, fallback: f.message))
+            if !quiet {
+                state = .unavailable(VoiceChannel.reason(status: f.status, fallback: f.message))
+            }
+            return nil
         case .ok(let t):
             let r: LiveKit.Room = LiveKit.Room(delegate: bridge,
-                                         connectOptions: ConnectOptions(autoSubscribe: true, reconnectAttempts: 8),
-                                         roomOptions: RoomOptions())
+                                             connectOptions: ConnectOptions(autoSubscribe: true, reconnectAttempts: 8),
+                                             roomOptions: RoomOptions())
             do {
                 // The microphone is not enabled on connect: the track is only created when the button is first held.
                 try await r.connect(url: t.url, token: t.token)
             } catch {
                 await r.disconnect()
-                if Task.isCancelled || code != target { return }
-                state = .unavailable("Could not reach the voice server")
-                return
+                if !quiet && !Task.isCancelled && code == target {
+                    state = .unavailable("Could not reach the voice server")
+                }
+                return nil
             }
-            if Task.isCancelled || code != target {
-                await r.disconnect()
-                return
-            }
-            room = r
-            state = .ready
+            return r
         }
     }
 
@@ -153,15 +183,90 @@ final class VoiceChannel {
         }
     }
 
-    private func connectionLost(_ message: String?) {
-        // An intentional disconnect (leave) already cleared `room`.
-        guard room != nil else { return }
+    /// A connection the SDK has given up on: forget it and start talking again on our own, slowly.
+    private func connectionLost(_ dropped: LiveKit.Room, _ message: String?) {
+        // An intentional disconnect (leave) already cleared `room`; a room we have replaced is not ours any more.
+        guard dropped === room, let target: String = code else { return }
         room = nil
         micOn = false
         desiredMic = false
         talking = false
         speakers = []
+        startReconnect(target)
+    }
+
+    /// LiveKit's own reconnect (quick or full) shows as connecting until it is back.
+    private func connectionStateChanged(_ changed: LiveKit.Room, _ connection: LiveKit.ConnectionState) {
+        guard changed === room else { return }
+        switch connection {
+        case .reconnecting:
+            state = .connecting
+            // The button is not held any more as far as the connection is concerned: close the mic so a drop
+            // while talking cannot leave it open once the room is back.
+            talking = false
+            desiredMic = false
+            reconcile()
+        case .connected:
+            state = .ready
+        default:
+            break
+        }
+    }
+
+    /// Tries the room again with a capped exponential backoff (1 s, 2 s, 4 s ... 30 s, ten times), like the Android
+    /// voice chat. Nothing else in the app waits on it.
+    private func startReconnect(_ target: String) {
+        if reconnectTask != nil { return }
+        reconnectAttempts = 0
+        state = .connecting
+        reconnectTask = Task { [weak self] in
+            await self?.reconnectLoop(target)
+        }
+    }
+
+    private func reconnectLoop(_ target: String) async {
+        while !Task.isCancelled, reconnectAttempts < VoiceChannel.reconnectLimit {
+            reconnectAttempts += 1
+            let delay: Double = min(VoiceChannel.reconnectMaxDelayS, pow(2.0, Double(reconnectAttempts - 1)))
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            if Task.isCancelled || code != target { return }
+            state = .connecting
+            guard let r: LiveKit.Room = await openRoom(target, quiet: true) else {
+                if Task.isCancelled || code != target { return }
+                continue
+            }
+            if Task.isCancelled || code != target {
+                await r.disconnect()
+                return
+            }
+            VoiceChannel.ensureVoiceAudioSession()
+            room = r
+            micOn = false
+            desiredMic = false
+            talking = false
+            reconnectAttempts = 0
+            reconnectTask = nil
+            state = .ready
+            return
+        }
+        if Task.isCancelled || code != target { return }
+        reconnectTask = nil
         state = .unavailable("Lost the voice connection")
+    }
+
+    /// LiveKit takes the session as play-and-record when it connects; put it back if a spoken prompt left it in
+    /// playback while the connection was down. A session that is already right is left untouched.
+    private static func ensureVoiceAudioSession() {
+        let session: AVAudioSession = AVAudioSession.sharedInstance()
+        guard session.category != .playAndRecord else { return }
+        // The SDK's own speaker preset, so a reconnected room sounds like one that just connected.
+        let configuration: AudioSessionConfiguration = AudioSessionConfiguration.playAndRecordSpeaker
+        do {
+            try session.setCategory(configuration.category, mode: configuration.mode, options: configuration.categoryOptions)
+            try session.setActive(true)
+        } catch {
+            // The connection still stands; the audio route sorts itself out on the next connect.
+        }
     }
 
     // MARK: Push to talk
