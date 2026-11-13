@@ -447,7 +447,9 @@ test('guest: short-lived session, can join a convoy and get a voice token, 403 o
 });
 
 test('guest: sign-up is rate limited per IP', async () => {
-  const d = await testServer({ env: { RATE_LIMIT_DISABLED: '0', RATE_LIMIT_AUTH_MAX: '4' } }); // strict limit: 2 a minute
+  // strict limit: 2 per window. A long window keeps the three attempts inside it even when the
+  // machine is busy with the other test files (a 60 s window can expire between requests under load).
+  const d = await testServer({ env: { RATE_LIMIT_DISABLED: '0', RATE_LIMIT_AUTH_MAX: '4', RATE_LIMIT_WINDOW_MS: '600000' } });
   assert.equal((await d.req('POST', '/auth/guest', { body: { name: 'one' } })).status, 200);
   assert.equal((await d.req('POST', '/auth/guest', { body: { name: 'two' } })).status, 200);
   assert.equal((await d.req('POST', '/auth/guest', { body: { name: 'three' } })).status, 429);

@@ -193,10 +193,21 @@ test('a provider with no configured audiences answers 501', async () => {
 });
 
 test('auth endpoints are rate limited', async () => {
-  const limited = await testServer({ database: t.database, config: { rateLimit: { enabled: true, authMax: 4, writeMax: 100, windowMs: 60_000 } } });
+  // A server and database of its own: the counter lives in this process, and nothing about the
+  // window may depend on how fast the machine is. Three test files run at once, so a request can
+  // be starved for seconds; with a window far longer than this test's runtime, the four attempts
+  // the limit allows and the ones it refuses cannot drift apart.
+  const limited = await testServer({ config: { rateLimit: { enabled: true, authMax: 4, writeMax: 100, windowMs: 10 * 60_000 } } });
+  const attempt = () => limited.req('POST', '/auth/refresh', { body: { refreshToken: 'q'.repeat(43) } });
   const statuses: number[] = [];
-  for (let i = 0; i < 6; i++) statuses.push((await limited.req('POST', '/auth/refresh', { body: { refreshToken: 'q'.repeat(43) } })).status);
-  assert.deepEqual(statuses, [401, 401, 401, 401, 429, 429]);
+  for (let i = 0; i < 6; i++) statuses.push((await attempt()).status);
+  // The first four reach the handler and fail on the unknown token; every later one is refused
+  // by the limiter before it gets there, and a refused caller is told when to come back.
+  assert.deepEqual(statuses.slice(0, 4), [401, 401, 401, 401], `statuses ${statuses}`);
+  assert.deepEqual(statuses.slice(4), [429, 429], `statuses ${statuses}`);
+  const refused = await attempt();
+  assert.equal(refused.status, 429, `statuses ${[...statuses, refused.status]}`);
+  assert.ok(Number(refused.headers.get('retry-after')) > 0, 'a refused caller is told when to retry');
   await limited.close();
 });
 
