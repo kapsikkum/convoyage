@@ -342,7 +342,9 @@ class RouteHazardTest {
     private val route = Fixture.route()
     private fun hazard(id: String, along: Double, off: Double, kind: String = "police"): Hazard {
         val p = Fixture.at(route, along, off)
-        return Hazard(id, kind, lat = p.lat, lng = p.lng)
+        return Hazard(id = id, kind = kind, subkind = "", lat = p.lat, lng = p.lng,
+                      createdAt = "2026-11-03T04:30:00Z", expiresAt = "2026-11-03T05:00:00Z",
+                      confirmations = 0, dismissals = 0)
     }
 
     @Test
@@ -557,7 +559,11 @@ class NavigationControllerTest {
         val scope = backgroundScope
         val fixes = MutableStateFlow<Fix?>(null)
         val p = Fixture.at(route, 700.0, 10.0)
-        val hazards = MutableStateFlow(listOf(Hazard("h1", "police", lat = p.lat, lng = p.lng), Hazard("h2", "hazard", lat = -33.0, lng = 150.0)))
+        val near = Hazard("h1", "police", "", p.lat, p.lng, createdAt = "2026-11-03T04:30:00Z",
+                          expiresAt = "2026-11-03T05:00:00Z", confirmations = 0, dismissals = 0)
+        val far = Hazard("h2", "hazard", "", -33.0, 150.0, createdAt = "2026-11-03T04:30:00Z",
+                         expiresAt = "2026-11-03T05:00:00Z", confirmations = 0, dismissals = 0)
+        val hazards = MutableStateFlow(listOf(near, far))
         val nav = NavigationController(scope, FakeApi(ArrayDeque(listOf(ApiResult.Ok(Fixture.response())))), fixes, hazards, Said(), { "car" })
         nav.navigateTo(dest, fix(Fixture.at(route, 0.0), 0))
         assertEquals(listOf("h1"), nav.state.value.routeHazards.map { it.hazard.id })

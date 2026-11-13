@@ -6,9 +6,12 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonClassDiscriminator
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
 
 /**
- * Hand-written mirror of protocol/convoy.v1.schema.json (and server/src/convoy/messages.ts).
+ * Hand-written mirror of protocol/convoy.v1.schema.json (and server/src/convoy/messages.ts). The one exception is the
+ * `hazard` frame's payload, which is the generated GenWsHazard (the REST Hazard has vote counts the wire does not).
  *
  * Generated mirrors live in api/gen/WireTypes.kt (protocol/codegen/generate.mjs, checked for staleness by the server tests);
  * ProtocolTest round-trips every message of this lenient hand-written set.
@@ -80,39 +83,38 @@ data class Room(
 )
 
 /**
- * A road hazard. The same object comes from REST (`GET /v1/hazards`, with vote counts and [myAction]) and from
- * the socket's `hazard` message (no vote counts, no reporter), so everything but the core fields has a default.
+ * A road hazard (`GET /v1/hazards`, with vote counts and [myAction]) — the generated, strict mirror of openapi.json
+ * (`GenHazard`), aliased here because the REST API and the socket's `hazard` frame feed the same store. The socket
+ * payload has no votes: it arrives as [app.convoyage.api.gen.GenWsHazard] and is folded in with [toHazard].
  * [kind] stays a string so a kind added later by the server does not break parsing.
  */
-@Serializable
-data class Hazard(
-    val id: String,
-    val kind: String,
-    val subkind: String = "",
-    val lat: Double,
-    val lng: Double,
-    /** Direction of travel of the reporter when reporting, degrees. */
-    val heading: Double? = null,
-    /** ISO-8601 instants. */
-    val createdAt: String = "",
-    val expiresAt: String = "",
-    val confirmations: Int = 0,
-    val dismissals: Int = 0,
-    /** "confirm" | "dismiss" | null: my own vote (REST only). */
-    val myAction: String? = null,
-) {
-    /** Expiry as ms since the epoch, or null when absent/unparseable. */
-    fun expiresAtMs(): Long? = parseInstantMs(expiresAt)
+typealias Hazard = app.convoyage.api.gen.GenHazard
 
-    val isPolice: Boolean get() = kind == "police"
+/** True for a police report: its pin and banner are blue. */
+val Hazard.isPolice: Boolean get() = kind == "police"
 
-    companion object {
-        fun parseInstantMs(iso: String): Long? = try {
-            if (iso.isBlank()) null else java.time.Instant.parse(iso).toEpochMilli()
-        } catch (_: Exception) {
-            null
-        }
-    }
+/** Expiry as ms since the epoch, or null when absent/unparseable. */
+fun Hazard.expiresAtMs(): Long? = parseInstantMs(expiresAt)
+
+/** The socket's `hazard` payload (no vote counts, no reporter) as the REST DTO the app reads. */
+fun app.convoyage.api.gen.GenWsHazard.toHazard(): Hazard = Hazard(
+    id = id,
+    kind = (kind as? JsonPrimitive)?.takeIf { it !is JsonNull }?.content.orEmpty(),
+    subkind = subkind,
+    lat = lat,
+    lng = lng,
+    heading = heading,
+    createdAt = createdAt,
+    expiresAt = expiresAt,
+    confirmations = 0,
+    dismissals = 0,
+    myAction = null,
+)
+
+private fun parseInstantMs(iso: String): Long? = try {
+    if (iso.isBlank()) null else java.time.Instant.parse(iso).toEpochMilli()
+} catch (_: Exception) {
+    null
 }
 
 /** An Open Cruise driver nearby (position rounded to ~100 m by the server). */
@@ -261,7 +263,7 @@ sealed interface ServerMessage {
     data class Notify(val title: String, val body: String, val data: Map<String, String> = emptyMap()) : ServerMessage
 
     @Serializable @SerialName("hazard")
-    data class HazardReported(val room: String, val hazard: Hazard) : ServerMessage
+    data class HazardReported(val room: String, val hazard: app.convoyage.api.gen.GenWsHazard) : ServerMessage
 
     @Serializable @SerialName("cruise.state")
     data class CruiseState(val on: Boolean) : ServerMessage

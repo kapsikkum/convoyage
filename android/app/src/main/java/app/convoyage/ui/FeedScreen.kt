@@ -56,6 +56,11 @@ import app.convoyage.api.CreateReport
 import app.convoyage.api.FeedScope
 import app.convoyage.api.Post
 import app.convoyage.api.ReportReasons
+import app.convoyage.api.avatarPath
+import app.convoyage.api.name
+import app.convoyage.api.toRideSummary
+import app.convoyage.api.toVehicle
+import app.convoyage.api.vehicleBadge
 import app.convoyage.data.ImageSource
 import app.convoyage.data.PageOf
 import app.convoyage.data.Pager
@@ -281,7 +286,7 @@ private fun PostCard(post: Post, mine: Boolean, vm: FeedViewModel, onView: (Imag
     CvCard(Modifier.fillMaxWidth(), shape = CutLShape) {
         Column(Modifier.padding(Space.s4), verticalArrangement = Arrangement.spacedBy(Space.s3)) {
             Row(horizontalArrangement = Arrangement.spacedBy(Space.s3), verticalAlignment = Alignment.CenterVertically) {
-                CvAvatar(post.author.avatarPath, post.author.primaryVehicle, Roster.initials(post.author.name))
+                CvAvatar(post.author.avatarPath, post.author.vehicleBadge, Roster.initials(post.author.name))
                 Column(Modifier.weight(1f)) {
                     Row {
                         CvText(post.author.name, Cv.type.bodyStrong, c.ink, maxLines = 1)
@@ -293,8 +298,8 @@ private fun PostCard(post: Post, mine: Boolean, vm: FeedViewModel, onView: (Imag
             }
 
             when (post.kind) {
-                "ride" -> post.ride?.let { RidePostBody(it, vm) } ?: Eyebrow("THIS RIDE IS NO LONGER AVAILABLE")
-                "build" -> post.vehicle?.let { v ->
+                "ride" -> post.ride?.let { RidePostBody(it.toRideSummary(), vm) } ?: Eyebrow("THIS RIDE IS NO LONGER AVAILABLE")
+                "build" -> post.vehicle?.toVehicle()?.let { v ->
                     VehicleViewport(v, Modifier.fillMaxWidth().height(150.dp))
                     CvText(v.displayName, Cv.type.title, c.ink)
                     CvText(buildSummary(v), Cv.type.bodyS, c.inkMuted)
@@ -439,7 +444,7 @@ private fun CommentRow(cm: Comment, canDelete: Boolean, onDelete: suspend () -> 
     var confirmDelete by remember(cm.id) { mutableStateOf(false) }
 
     Row(horizontalArrangement = Arrangement.spacedBy(Space.s2), verticalAlignment = Alignment.Top) {
-        CvAvatar(cm.author.avatarPath, cm.author.primaryVehicle, Roster.initials(cm.author.name), size = 28.dp)
+        CvAvatar(cm.author.avatarPath, cm.author.vehicleBadge, Roster.initials(cm.author.name), size = 28.dp)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 CvText(cm.author.name, Cv.type.bodyStrong, c.ink, maxLines = 1)

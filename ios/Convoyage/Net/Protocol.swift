@@ -1,7 +1,7 @@
 import Foundation
 
 // Wire models for protocol/convoy.v1.schema.json.
-// Generated mirrors of every socket message live in Net/Generated/WireTypes.swift (protocol/codegen/generate.mjs); these hand-written ones stay lenient on purpose.
+// Generated mirrors of every socket message live in Net/Generated/WireTypes.swift (protocol/codegen/generate.mjs); these hand-written ones stay lenient on purpose, except the `hazard` payload, which is the generated GenWsHazard folded into HazardDto.
 
 struct Destination: Codable, Equatable {
     var lat: Double
@@ -145,6 +145,23 @@ struct PositionUpdate: Equatable {
     var ts: Int64
 }
 
+/// The socket's `hazard` frame carries the wire `Hazard` (convoy.v1.schema.json): no vote counts and no `myAction`, and
+/// the kind is the schema's enum. Decoded as the generated mirror, then folded into `HazardDto` for the rest of the app.
+extension GenWsHazard {
+    var hazardDto: HazardDto {
+        return HazardDto(id: id, kind: kind.text, subkind: subkind, lat: lat, lng: lng, heading: heading,
+                         createdAt: createdAt, expiresAt: expiresAt, confirmations: 0, dismissals: 0, myAction: nil)
+    }
+}
+
+extension GenJSON {
+    /// The string an untyped or enum field carries; "" for anything else.
+    var text: String {
+        if case .string(let s) = self { return s }
+        return ""
+    }
+}
+
 /// Everything the server can send. Decoded on the `t` field.
 enum ServerMessage: Decodable {
     case pong
@@ -225,8 +242,8 @@ enum ServerMessage: Decodable {
             self = .chat(room: room, message: message)
         case "hazard":
             let room: String = try c.decode(String.self, forKey: .room)
-            let hazard: HazardDto = try c.decode(HazardDto.self, forKey: .hazard)
-            self = .hazard(room: room, hazard: hazard)
+            let frame: GenWsHazard = try c.decode(GenWsHazard.self, forKey: .hazard)
+            self = .hazard(room: room, hazard: frame.hazardDto)
         case "status", "convoy.status":
             var who: String = try c.decodeIfPresent(String.self, forKey: .id) ?? ""
             if who.isEmpty { who = try c.decodeIfPresent(String.self, forKey: .userId) ?? "" }

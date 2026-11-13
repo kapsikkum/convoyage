@@ -42,6 +42,8 @@ import app.convoyage.api.ApiResult
 import app.convoyage.api.badge
 import app.convoyage.api.Post
 import app.convoyage.api.RideSummary
+import app.convoyage.api.toRideSummary
+import app.convoyage.api.toVehicle
 import app.convoyage.data.AuthKind
 import app.convoyage.data.ImageSource
 import app.convoyage.data.LatLngD
@@ -297,14 +299,14 @@ private fun PostsTab(posts: app.convoyage.data.PagerState<Post>?, hasHandle: Boo
                             Eyebrow(Fmt.timeAgo(p.createdAt))
                             Eyebrow(p.kind.uppercase(), color = c.signal)
                         }
-                        p.ride?.let { r ->
+                        p.ride?.toRideSummary()?.let { r ->
                             CvText(r.title.ifBlank { "Ride" }, Cv.type.bodyStrong, c.ink)
                             Row(horizontalArrangement = Arrangement.spacedBy(Space.s4)) {
                                 r.distanceM?.let { StatText(Fmt.km(it), "KM") }
                                 r.durationS?.let { StatText(Fmt.clock(it), "") }
                             }
                         }
-                        p.vehicle?.let { CvText(it.displayName, Cv.type.bodyStrong, c.ink) }
+                        p.vehicle?.toVehicle()?.let { CvText(it.displayName, Cv.type.bodyStrong, c.ink) }
                         if (p.body.isNotBlank()) CvText(p.body, Cv.type.bodyS, c.ink, maxLines = 3)
                         Row(horizontalArrangement = Arrangement.spacedBy(Space.s4)) {
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) { CvIcon(CvIcons.Heart, c.inkMuted, size = 16.dp); CvText("${p.likeCount}", Cv.type.telemetry, c.ink) }

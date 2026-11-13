@@ -73,6 +73,7 @@ import app.convoyage.nav.Maneuvers
 import app.convoyage.nav.NavPhase
 import app.convoyage.nav.NavState
 import app.convoyage.nav.Place
+import app.convoyage.protocol.isPolice
 import org.maplibre.android.geometry.LatLng
 
 /** The glyph for a maneuver. */

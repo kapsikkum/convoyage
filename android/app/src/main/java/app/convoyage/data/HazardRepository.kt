@@ -5,6 +5,8 @@ import app.convoyage.api.CreateHazard
 import app.convoyage.api.HazardApi
 import app.convoyage.protocol.Hazard
 import app.convoyage.protocol.ServerMessage
+import app.convoyage.protocol.expiresAtMs
+import app.convoyage.protocol.toHazard
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -83,7 +85,7 @@ class HazardRepository(
     val alert: StateFlow<HazardAlert?> = _alert.asStateFlow()
 
     init {
-        scope.launch { incoming.collect { onSocketHazard(it.room, it.hazard) } }
+        scope.launch { incoming.collect { onSocketHazard(it.room, it.hazard.toHazard()) } }
     }
 
     /** Folds a live report in. A report from someone else raises [alert]. */

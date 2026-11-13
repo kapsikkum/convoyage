@@ -13,6 +13,7 @@ import app.convoyage.design.CvIcons
 import app.convoyage.design.PinKind
 import app.convoyage.map.MapPinData
 import app.convoyage.protocol.Hazard
+import app.convoyage.protocol.isPolice
 import kotlinx.coroutines.delay
 
 /** "Debris", "Speed camera", "Road works"... from the server's kind + subkind. */

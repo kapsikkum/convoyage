@@ -196,15 +196,15 @@ struct PostCard: View {
                 }
             }
 
-            if let caption = post.body, !caption.isEmpty {
-                Text(caption).font(CvFont.text(15)).foregroundStyle(theme.ink)
+            if !post.body.isEmpty {
+                Text(post.body).font(CvFont.text(15)).foregroundStyle(theme.ink)
             }
 
             switch post.kind {
             case "ride":
                 if let ride = post.ride { rideBlock(ride) }
             case "build":
-                if let v = post.vehicle { vehicleBlock(v) }
+                if let v = post.vehicle { vehicleBlock(v.asVehicleDto) }
             default:
                 EmptyView()
             }
@@ -237,16 +237,16 @@ struct PostCard: View {
         .cvPanel(fill: theme.surface200, edge: theme.line)
     }
 
-    private func rideBlock(_ ride: RideDto) -> some View {
+    private func rideBlock(_ ride: GenPostRide) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            if let t = ride.title, !t.isEmpty {
-                Text(t).font(CvFont.display(20))
+            if !ride.title.isEmpty {
+                Text(ride.title).font(CvFont.display(20))
             }
             HStack {
                 let d = Formatters.distance(ride.distanceM ?? 0)
                 Readout(caption: "Distance", value: d.value, unit: d.unit, size: 24)
                 Spacer()
-                Readout(caption: "Time", value: Formatters.duration(ride.durationS ?? 0), size: 24)
+                Readout(caption: "Time", value: Formatters.duration(Double(ride.durationS ?? 0)), size: 24)
                 Spacer()
                 Readout(caption: "Avg", value: "\(Formatters.kmh(ride.avgSpeedMps))", unit: "km/h", size: 24)
             }
@@ -261,17 +261,17 @@ struct PostCard: View {
 
     @ViewBuilder
     private var mediaBlock: some View {
-        let media: [MediaDto] = post.media ?? []
+        let media: [GenPostMediaItem] = post.media
         if media.count == 1, let m = media.first {
-            RemoteImage(path: m.fullPath)
+            RemoteImage(path: m.url)
                 .frame(maxWidth: .infinity)
                 .frame(height: 260)
                 .clipShape(ChamferShape(cut: Cut.s))
         } else if media.count > 1 {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    ForEach(media) { (m: MediaDto) in
-                        RemoteImage(path: m.thumbPath)
+                    ForEach(media, id: \.id) { (m: GenPostMediaItem) in
+                        RemoteImage(path: m.thumbUrl)
                             .frame(width: 200, height: 200)
                             .clipShape(ChamferShape(cut: Cut.s))
                     }

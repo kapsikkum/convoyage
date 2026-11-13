@@ -4,7 +4,8 @@ import kotlinx.serialization.Serializable
 
 /**
  * DTOs for vehicles, rides, media, posts and comments (protocol/openapi.json). Same rule as [ApiJson]:
- * only the fields the app reads, unknown fields ignored.
+ * only the fields the app reads, unknown fields ignored. UserRef and Post are the generated mirrors of their schemas
+ * (see the posts section); the rest are hand-written and stay lenient on purpose.
  */
 
 // ---- vehicles ----------------------------------------------------------------------------------
@@ -258,37 +259,84 @@ data class AttachPhoto(val mediaId: String, val lat: Double? = null, val lng: Do
 
 // ---- posts -------------------------------------------------------------------------------------
 
-@Serializable
-data class UserRef(
-    val id: String,
-    val handle: String = "",
-    val displayName: String = "",
-    val avatarMediaId: String? = null,
-    /** Their primary vehicle, for the avatar badge; null when they have none or the viewer may not see it. */
-    val primaryVehicle: VehicleBadge? = null,
-) {
-    /** Server-relative path of the profile photo, or null. */
-    val avatarPath: String? get() = avatarMediaId?.let { "/v1/media/$it/thumb" }
-    val name: String get() = displayName.ifBlank { handle }.ifBlank { "Driver" }
-}
+// UserRef and Post are the two shapes that change most often, so they are not hand-written: they are the generated,
+// strict mirrors of openapi.json (app.convoyage.api.gen, from protocol/codegen/generate.mjs). The server validates
+// responses against those same schemas, so a drift fails codegen instead of decoding silently. Only the conveniences
+// the UI reads live here, as extensions.
 
-@Serializable
-data class Post(
-    val id: String,
-    /** `ride`, `build`, `photo` or `text`. */
-    val kind: String,
-    val author: UserRef,
-    val body: String = "",
-    val visibility: String = "public",
-    val createdAt: String = "",
-    val lat: Double? = null,
-    val lng: Double? = null,
-    val ride: RideSummary? = null,
-    val vehicle: Vehicle? = null,
-    val media: List<Media> = emptyList(),
-    val likeCount: Int = 0,
-    val commentCount: Int = 0,
-    val likedByMe: Boolean = false,
+typealias UserRef = app.convoyage.api.gen.GenUserRef
+typealias Post = app.convoyage.api.gen.GenPost
+
+/** The avatar badge's view of a primary vehicle (the generated schema names its own build type). */
+val UserRef.vehicleBadge: VehicleBadge?
+    get() = primaryVehicle?.let { VehicleBadge(it.kind, it.build.toBadgeBuild()) }
+
+/** `Post.author` is its own copy of the UserRef schema. */
+val app.convoyage.api.gen.GenPostAuthor.vehicleBadge: VehicleBadge?
+    get() = primaryVehicle?.let { VehicleBadge(it.kind, it.build.toBadgeBuild()) }
+
+/** Server-relative path of the profile photo, or null. */
+val UserRef.avatarPath: String? get() = avatarMediaId?.let { "/v1/media/$it/thumb" }
+
+/** The display name, else the handle, else a placeholder. */
+val UserRef.name: String get() = displayName.ifBlank { handle }.ifBlank { "Driver" }
+
+val app.convoyage.api.gen.GenPostAuthor.avatarPath: String? get() = avatarMediaId?.let { "/v1/media/$it/thumb" }
+
+val app.convoyage.api.gen.GenPostAuthor.name: String get() = displayName.ifBlank { handle }.ifBlank { "Driver" }
+
+private fun app.convoyage.api.gen.GenUserRefPrimaryVehicleBuild.toBadgeBuild() = Build(
+    paint = paint, finish = finish, wheel = wheel, rideHeightMm = rideHeightMm, body = body, shape = shape,
+)
+
+private fun app.convoyage.api.gen.GenPostAuthorPrimaryVehicleBuild.toBadgeBuild() = Build(
+    paint = paint, finish = finish, wheel = wheel, rideHeightMm = rideHeightMm, body = body, shape = shape,
+)
+
+/** The post's ride as the summary the ride UI reads. */
+fun app.convoyage.api.gen.GenPostRide.toRideSummary() = RideSummary(
+    id = id,
+    ownerId = ownerId,
+    vehicleId = vehicleId,
+    title = title,
+    status = status,
+    visibility = visibility,
+    startedAt = startedAt,
+    endedAt = endedAt,
+    startLat = startLat,
+    startLng = startLng,
+    distanceM = distanceM,
+    durationS = durationS?.toLong(),
+    maxSpeedMps = maxSpeedMps,
+    avgSpeedMps = avgSpeedMps,
+    elevationGainM = elevationGainM,
+    maxLeanDeg = maxLeanDeg,
+    convoyCode = convoyCode,
+    createdAt = createdAt,
+)
+
+/** The post's vehicle as the garage's [Vehicle]. */
+fun app.convoyage.api.gen.GenPostVehicle.toVehicle() = Vehicle(
+    id = id,
+    ownerId = ownerId,
+    kind = kind,
+    make = make,
+    model = model,
+    year = year,
+    nickname = nickname,
+    build = Build(
+        paint = build.paint,
+        finish = build.finish,
+        wheel = build.wheel,
+        rideHeightMm = build.rideHeightMm,
+        decals = build.decals?.map { Decal(it.id, it.slot, it.color) },
+        body = build.body,
+        shape = build.shape,
+    ),
+    isPrimary = isPrimary,
+    soldAt = soldAt,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
 )
 
 @Serializable

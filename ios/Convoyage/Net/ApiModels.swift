@@ -1,8 +1,14 @@
 import Foundation
 
 // Wire models for protocol/openapi.json. Only the fields the app reads are listed and almost everything is optional,
-// so the server can add (or omit) fields within v1 without breaking decoding.
-// Generated, strict mirrors of every schema live in Net/Generated/WireTypes.swift (protocol/codegen/generate.mjs); these hand-written ones stay lenient on purpose.
+// so the server can add fields within v1 without breaking decoding.
+//
+// UserRef, Post and Hazard are the three shapes that change most often, so they are not hand-written here: they are the
+// generated, strict mirrors of openapi.json (`GenUserRef`, `GenPost`, `GenHazard` in Net/Generated/WireTypes.swift, from
+// protocol/codegen/generate.mjs), aliased below with only the conveniences the UI reads added as extensions. The server
+// validates responses against those same schemas, so a schema change fails codegen instead of drifting silently.
+// The rest of this file stays hand-written and lenient on purpose: those shapes are stable, and the tolerance costs nothing.
+// Generated, strict mirrors of every schema live in Net/Generated/WireTypes.swift (protocol/codegen/generate.mjs).
 
 struct Empty: Decodable {
     init(from decoder: Decoder) throws {}
@@ -55,27 +61,56 @@ struct BadgeBuildDto: Codable, Equatable {
     var rideHeightMm: Int?
 }
 
-struct UserRefDto: Decodable, Equatable {
-    var id: String
-    var handle: String?
-    var displayName: String?
-    var avatarMediaId: String?
-    var primaryVehicle: VehicleBadgeDto?
+// MARK: - Generated wire types
 
+/// A person on the wire. `Post.author` carries its own copy of the schema (`GenPostAuthor`), so the shared read-only
+/// view of a person is this protocol and both generated shapes conform.
+protocol UserRefWire {
+    var id: String { get }
+    var handle: String { get }
+    var displayName: String { get }
+    var avatarMediaId: String? { get }
+}
+
+extension UserRefWire {
+    /// The display name, else the handle, else a placeholder.
     var shownName: String {
-        let n: String = displayName ?? ""
-        if !n.isEmpty { return n }
-        return handle ?? "Driver"
+        if !displayName.isEmpty { return displayName }
+        return handle.isEmpty ? "Driver" : handle
     }
 
     var avatarPath: String? {
         guard let m = avatarMediaId, !m.isEmpty else { return nil }
         return "/v1/media/\(m)/thumb"
     }
+}
 
+typealias UserRefDto = GenUserRef
+
+extension GenUserRef: UserRefWire {
     var vehicleBuild: VehicleBuild? {
-        guard let v = primaryVehicle else { return nil }
-        return VehicleBuild(badge: v)
+        return primaryVehicle?.vehicleBuild
+    }
+}
+
+extension GenUserRefPrimaryVehicle {
+    var vehicleBuild: VehicleBuild {
+        return VehicleBuild(kind: kind, paint: build.paint, finish: build.finish, wheel: build.wheel,
+                            rideHeightMm: build.rideHeightMm, body: build.body, shape: build.shape)
+    }
+}
+
+/// `Post.author`: the same shape as `GenUserRef`, generated separately because it is a separate schema.
+extension GenPostAuthor: UserRefWire {
+    var vehicleBuild: VehicleBuild? {
+        return primaryVehicle?.vehicleBuild
+    }
+}
+
+extension GenPostAuthorPrimaryVehicle {
+    var vehicleBuild: VehicleBuild {
+        return VehicleBuild(kind: kind, paint: build.paint, finish: build.finish, wheel: build.wheel,
+                            rideHeightMm: build.rideHeightMm, body: build.body, shape: build.shape)
     }
 }
 
@@ -182,21 +217,22 @@ struct RideDto: Decodable, Identifiable, Equatable {
     var photos: [RidePhotoDto]?
 }
 
-struct PostDto: Decodable, Identifiable, Equatable {
-    var id: String
-    var kind: String
-    var author: UserRefDto
-    var body: String?
-    var visibility: String?
-    var createdAt: String?
-    var lat: Double?
-    var lng: Double?
-    var ride: RideDto?
-    var vehicle: VehicleDto?
-    var media: [MediaDto]?
-    var likeCount: Int
-    var commentCount: Int
-    var likedByMe: Bool
+typealias PostDto = GenPost
+
+extension GenPost: Identifiable {}
+
+extension GenPostVehicle {
+    /// The post's vehicle as the garage's `VehicleDto`, so the same card draws it.
+    var asVehicleDto: VehicleDto {
+        let b: GenPostVehicleBuild = build
+        return VehicleDto(id: id, kind: kind, make: make, model: model, year: year, nickname: nickname,
+                          build: BuildDto(body: b.body, shape: b.shape, paint: b.paint, finish: b.finish,
+                                          wheel: b.wheel, rideHeightMm: b.rideHeightMm,
+                                          decals: b.decals?.map { (d: GenPostVehicleBuildDecalsItem) -> DecalDto in
+                                              return DecalDto(id: d.id, slot: d.slot, color: d.color)
+                                          }),
+                          isPrimary: isPrimary, soldAt: soldAt)
+    }
 }
 
 struct FeedPageDto: Decodable {
@@ -222,21 +258,13 @@ struct LikeStateDto: Decodable {
     var likedByMe: Bool
 }
 
-/// A road hazard. The same object comes from REST (`GET /v1/hazards`, with vote counts and `myAction`) and from
-/// the socket's `hazard` message (no vote counts), so almost everything but the core fields is optional.
-struct HazardDto: Decodable, Identifiable, Equatable {
-    var id: String
-    var kind: String
-    var subkind: String?
-    var lat: Double
-    var lng: Double
-    var heading: Double?
-    var createdAt: String?
-    var expiresAt: String?
-    var confirmations: Int?
-    var dismissals: Int?
-    var myAction: String?
+/// A road hazard, from REST (`GET /v1/hazards`, with vote counts and `myAction`). The socket's `hazard` message has no
+/// vote counts: `GenWsHazard` is decoded there and folded into this shape (`hazardDto` in Net/Protocol.swift).
+typealias HazardDto = GenHazard
 
+extension GenHazard: Identifiable {}
+
+extension GenHazard {
     var isPolice: Bool { return kind == "police" }
 
     /// "dismiss" | "confirm" | nil (the server may send an empty string for "no vote").
@@ -246,8 +274,7 @@ struct HazardDto: Decodable, Identifiable, Equatable {
     }
 
     var expiresAtDate: Date? {
-        guard let s = expiresAt else { return nil }
-        return Iso.parse(s)
+        return Iso.parse(expiresAt)
     }
 }
 

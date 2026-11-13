@@ -6,7 +6,7 @@ import app.convoyage.api.FeedScope
 import app.convoyage.api.LikeState
 import app.convoyage.api.Post
 import app.convoyage.api.RideSummary
-import app.convoyage.api.UserRef
+import app.convoyage.api.gen.GenPostAuthor
 import app.convoyage.api.Vehicle
 import app.convoyage.api.Build
 import app.convoyage.data.BuildText
@@ -26,7 +26,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 private fun post(id: String, likes: Int = 0, liked: Boolean = false) = Post(
-    id = id, kind = "text", author = UserRef("u1", "alex", "Alex"), body = "hi $id", likeCount = likes, likedByMe = liked,
+    id = id, kind = "text", author = GenPostAuthor("u1", "alex", "Alex"), body = "hi $id",
+    visibility = "public", createdAt = "2026-11-03T04:30:00Z", media = emptyList(),
+    likeCount = likes, commentCount = 0, likedByMe = liked,
 )
 
 /** A server with [total] posts, newest first, `pageSize` per page; the cursor is the id of the last post sent. */

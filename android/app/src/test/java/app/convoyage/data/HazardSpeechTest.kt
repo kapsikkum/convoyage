@@ -8,7 +8,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HazardSpeechTest {
-    private fun h(kind: String, sub: String = "") = Hazard("h1", kind, sub, -33.4, 149.5)
+    private fun h(kind: String, sub: String = "") =
+        Hazard("h1", kind, sub, -33.4, 149.5, createdAt = "2026-11-03T04:30:00Z", expiresAt = "2026-11-03T05:00:00Z", confirmations = 0, dismissals = 0)
 
     @Test fun camerasAndKindsAreSpokenWithRoundedDistance() {
         assertEquals("Speed camera ahead in 600 metres", RouteHazards.spoken(HazardAhead(h("police", "speed_camera"), 612.0)))
