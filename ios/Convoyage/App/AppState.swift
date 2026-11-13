@@ -103,6 +103,9 @@ final class AppState {
     let photoscout: PhotoScoutLayers
 
     @ObservationIgnored private let defaults: UserDefaults = UserDefaults.standard
+    /// The APNs token iOS handed us, and the one the server last accepted (so sign-out can forget it).
+    @ObservationIgnored private var apnsToken: String?
+    @ObservationIgnored private var pushRegisteredFor: String?
 
     init() {
         let store: UserDefaults = UserDefaults.standard
@@ -314,6 +317,7 @@ final class AppState {
         connectSocket()
         recorder.restoreIfAny()
         Task { await garage.load() }
+        Task { await registerPushIfPossible() }
     }
 
     private func nameOf(_ m: MeDto) -> String {
@@ -343,6 +347,25 @@ final class AppState {
             await loadMe()
             await garage.load()
         }
+        Task { await registerPushIfPossible() }
+    }
+
+    // MARK: Push
+
+    /// The APNs token from `UIApplicationDelegate`; register it once there is a session to tie it to.
+    func pushTokenReceived(_ hex: String) {
+        apnsToken = hex
+        guard isSignedIn else { return }
+        guard hex != pushRegisteredFor else { return }
+        Task { await registerPushIfPossible() }
+    }
+
+    /// `POST /v1/me/devices`. Guests have no account to push to, so nothing is sent for them.
+    private func registerPushIfPossible() async {
+        guard isSignedIn, authKind == .account, let token = apnsToken, token != pushRegisteredFor else { return }
+        let r: ApiResult<OkDto> = await api.registerDevice(platform: "ios", token: token)
+        // Offline or refused: the next launch, sign-in or token delivery tries again.
+        if r.value != nil { pushRegisteredFor = token }
     }
 
     // MARK: Profile
@@ -463,13 +486,19 @@ final class AppState {
 
     // MARK: Sign-out
 
-    /// Signs out on this device at once and tells the server in the background (which revokes the session family).
+    /// Signs out on this device at once and tells the server in the background (which revokes the session family
+    /// and forgets this phone's push token).
     func signOut() {
         let refresh: String? = tokens.load()?.refresh
-        tokens.save(nil)
-        if let rt = refresh {
-            let client: ApiClient = api
-            Task { await client.logout(refreshToken: rt) }
+        let device: String? = pushRegisteredFor
+        pushRegisteredFor = nil
+        let client: ApiClient = api
+        let store: TokenStore = tokens
+        // Both calls need the old session: the device delete carries its bearer, and logout the refresh token.
+        Task {
+            if let t = device { _ = await client.forgetDevice(token: t) }
+            if store.load()?.refresh == refresh { store.save(nil) }
+            if let rt = refresh { await client.logout(refreshToken: rt) }
         }
         clearSession()
     }

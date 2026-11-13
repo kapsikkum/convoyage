@@ -152,6 +152,16 @@ final class ApiClient: @unchecked Sendable {
         return await send("PATCH", "/v1/me", json: body, as: MeDto.self)
     }
 
+    /// `POST /v1/me/devices`: pushes (SOS, hazards, convoy follows) go to this token. Idempotent; guests get 403.
+    func registerDevice(platform: String, token: String) async -> ApiResult<OkDto> {
+        return await send("POST", "/v1/me/devices", json: ["platform": platform, "token": token], as: OkDto.self)
+    }
+
+    /// `DELETE /v1/me/devices`: forgets a token on sign-out. The token travels in the body, like the server wants.
+    func forgetDevice(token: String) async -> ApiResult<OkDto> {
+        return await send("DELETE", "/v1/me/devices", json: ["token": token], as: OkDto.self)
+    }
+
     // MARK: Hazards
 
     func createHazard(kind: String, subkind: String?, lat: Double, lng: Double, heading: Double?) async -> ApiResult<HazardDto> {
