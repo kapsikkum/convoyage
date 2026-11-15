@@ -82,12 +82,19 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="convoyage" android:host="photoscout" android:pathPrefix="/linked" />
             </intent-filter>
-            <!-- Magic link emailed by the server: convoyage://auth/magic?token=... (MAGIC_LINK_BASE_URL). -->
+            <!-- Magic link emailed by the server: convoyage://auth/magic?token=..., and the production https form
+                 https://convoy.24thframe.media/auth/magic?token=... (the server's MAGIC_LINK_BASE_URL). -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="convoyage" android:host="auth" android:pathPrefix="/magic" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="convoy.24thframe.media" android:pathPrefix="/auth/magic" />
             </intent-filter>
         </activity>
 

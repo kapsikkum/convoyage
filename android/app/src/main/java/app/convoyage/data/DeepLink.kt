@@ -9,12 +9,25 @@ sealed interface AppLink {
     data class PhotoScoutLinked(val error: String?) : AppLink
 }
 
-/** Parses `convoyage://join/<CODE>` and `https://convoyage.app/join/<CODE>` (plus the magic-link scheme). Pure. */
+/**
+ * Parses `convoyage://join/<CODE>` and `https://convoyage.app/join/<CODE>` (plus the magic link, which the server
+ * emails either as `convoyage://auth/magic` or, in production, as `https://<origin>/auth/magic`). Pure.
+ */
 object DeepLink {
     const val CODE_LENGTH = 8
 
     /** Same alphabet as the server: no 0/O, 1/I/L. */
     private const val ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+
+    /**
+     * True for the magic link as an https URL (`https://<origin>/auth/magic?token=...`), which is what the server
+     * emails once MAGIC_LINK_BASE_URL points at the production origin. Any origin counts: the path is the server's.
+     */
+    private fun isHttpsMagic(lower: String): Boolean {
+        if (!lower.startsWith("https://")) return false
+        val path = lower.removePrefix("https://").substringAfter('/', "")
+        return path.startsWith("auth/magic") && (path.length == 10 || path[10] in "/?#")
+    }
 
     fun joinUrl(code: String) = "convoyage://join/$code"
     fun webUrl(code: String) = "https://convoyage.app/join/$code"
@@ -34,7 +47,7 @@ object DeepLink {
         if (text.isEmpty()) return null
         val lower = text.lowercase()
         val prefixes = listOf("convoyage://join/", "https://convoyage.app/join/", "https://www.convoyage.app/join/")
-        if (lower.startsWith("convoyage://auth")) return AppLink.Auth(text)
+        if (lower.startsWith("convoyage://auth") || isHttpsMagic(lower)) return AppLink.Auth(text)
         if (lower.startsWith("convoyage://photoscout/linked")) {
             val error = text.substringAfter('?', "").split('&').firstOrNull { it.startsWith("error=") }?.substringAfter('=')?.ifBlank { null }
             return AppLink.PhotoScoutLinked(error)

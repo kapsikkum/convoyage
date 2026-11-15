@@ -40,6 +40,11 @@ class DeepLinkTest {
     @Test fun magicLinksStillRouteToSignIn() {
         val link = "convoyage://auth/magic?token=abc"
         assertEquals(AppLink.Auth(link), DeepLink.parse(link))
+        // The server emails the https form on the production origin once MAGIC_LINK_BASE_URL is set to it.
+        val https = "https://convoy.24thframe.media/auth/magic?token=abc"
+        assertEquals(AppLink.Auth(https), DeepLink.parse(https))
+        assertEquals("abc", app.convoyage.data.extractMagicToken(https))
+        assertNull(DeepLink.parse("https://convoy.24thframe.media/auth/magicx?token=abc"))
     }
 
     @Test fun shareTextHasBothLinksAndTheCode() {
