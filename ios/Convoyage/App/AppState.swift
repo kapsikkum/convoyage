@@ -85,6 +85,8 @@ final class AppState {
     }
     /// A short note after linking PhotoScout (shown as a banner on the map).
     var photoscoutNote: String?
+    /// A short note after picking a place from the convoy view; clears itself after a few seconds.
+    var convoyHint: String?
 
     let userId: String
     let tokens: TokenStore
@@ -113,6 +115,8 @@ final class AppState {
     @ObservationIgnored private var pushRegisteredFor: String?
     /// The convoy code of the last room change, so joining (nil -> a code) can start an automatic recording.
     @ObservationIgnored private var lastConvoyCode: String?
+    /// The timer that clears `convoyHint`.
+    @ObservationIgnored private var convoyHintTask: Task<Void, Never>?
 
     init() {
         let store: UserDefaults = UserDefaults.standard
@@ -490,6 +494,52 @@ final class AppState {
         let status: CLAuthorizationStatus = convoy.location.authorization
         guard status == .authorizedWhenInUse || status == .authorizedAlways else { return }
         recorder.start(vehicleId: garage.primary?.id, convoyCode: convoyCode)
+    }
+
+    // MARK: Convoy navigation
+
+    /// A search pick from the convoy view. With the convoy heading somewhere it is a stop for me only, then on to the
+    /// convoy's goal; leading with nowhere set it becomes everyone's destination; otherwise it is just this phone.
+    func pickInConvoy(_ place: NavPlace) {
+        let room: Room? = convoy.room
+        let dest: Destination? = room?.destination
+        let stops: [[Double]] = room?.route?.stops ?? []
+        let lastStop: [Double]? = stops.last
+        let routeName: String = (room?.route?.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        var goal: NavPlace? = nil
+        if let d = dest {
+            let label: String = d.label.trimmingCharacters(in: .whitespacesAndNewlines)
+            goal = NavPlace(coordinate: CLLocationCoordinate2D(latitude: d.lat, longitude: d.lng),
+                            title: label.isEmpty ? "Convoy destination" : label,
+                            subtitle: "Convoy")
+        } else if let stop = lastStop, stop.count >= 2 {
+            // A route stop is [lng, lat].
+            goal = NavPlace(coordinate: CLLocationCoordinate2D(latitude: stop[1], longitude: stop[0]),
+                            title: routeName.isEmpty ? "Convoy route" : routeName,
+                            subtitle: "Convoy")
+        }
+        if room != nil, let to = goal {
+            nav.detour(to: place, resume: to)
+            hint("A stop for you only. Continue with the route when you are done.")
+        } else if room != nil && convoy.isLeader {
+            convoy.setDestination(place.coordinate, label: place.title)
+            nav.start(to: place)
+            hint("Everyone is navigating to \(place.title)")
+        } else {
+            nav.start(to: place)
+            if room != nil { hint("Navigating just you. The leader sets where the convoy goes.") }
+        }
+    }
+
+    /// A line on the convoy view, gone again in three seconds.
+    private func hint(_ text: String) {
+        convoyHint = text
+        convoyHintTask?.cancel()
+        convoyHintTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            if Task.isCancelled { return }
+            self?.convoyHint = nil
+        }
     }
 
     private func maybeAskAlways() {

@@ -235,7 +235,7 @@ struct NavigationScreen: View {
     private func drivingLayer(_ nav: NavigationSession, _ vm: ConvoyViewModel) -> some View {
         ZStack {
             VStack(spacing: 8) {
-                maneuverCard(nav)
+                ManeuverCard(nav: nav)
                 if let h = nav.hazardAhead {
                     let dto: HazardDto = h.hazard
                     Banner(title: "\(hazardLabel(kind: dto.kind, subkind: dto.subkind)) ahead",
@@ -297,52 +297,6 @@ struct NavigationScreen: View {
         let dto: HazardDto = h.hazard
         let what: String = dto.isPolice ? "Police" : hazardLabel(kind: dto.kind, subkind: dto.subkind)
         return what + " " + Formatters.distanceText(roundTo10(h.meters)) + " ahead"
-    }
-
-    private func maneuverCard(_ nav: NavigationSession) -> some View {
-        let step: NavStep? = nav.currentStep
-        let dist: Double = nav.progress?.distanceToManeuver ?? 0
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 14) {
-                Image(systemName: Maneuver.symbol(type: step?.type ?? "depart", modifier: step?.modifier))
-                    .font(.system(size: 38, weight: .bold))
-                    .foregroundStyle(theme.signal)
-                    .frame(width: 56, height: 56)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(Formatters.distanceText(roundTo10(dist)))
-                        .font(CvFont.mono(34))
-                        .foregroundStyle(theme.signal)
-                    Text(step.map { (s: NavStep) -> String in return Maneuver.title(for: s) } ?? "Follow the route")
-                        .font(CvFont.display(18))
-                        .lineLimit(2)
-                }
-                Spacer(minLength: 0)
-            }
-            if let next = nav.followingStep {
-                HStack(spacing: 8) {
-                    Image(systemName: Maneuver.symbol(type: next.type, modifier: next.modifier))
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(theme.inkMuted)
-                    Text("then " + thenText(next))
-                        .font(CvFont.text(13))
-                        .foregroundStyle(theme.inkMuted)
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
-                }
-                .padding(.top, 8)
-                .overlay(alignment: .top) {
-                    Rectangle().fill(theme.line).frame(height: 1)
-                }
-            }
-        }
-        .padding(14)
-        .cvPanel(fill: theme.surface200, edge: theme.signal, cut: Cut.l)
-        .shadow(color: Color.black.opacity(0.4), radius: 12, y: 6)
-    }
-
-    private func thenText(_ s: NavStep) -> String {
-        let v: String = Maneuver.verb(type: s.type, modifier: s.modifier)
-        return s.name.isEmpty ? v : "\(v) \u{00B7} \(s.name)"
     }
 
     private func railButton(_ symbol: String, tint: Color, label: String, action: @escaping () -> Void) -> some View {

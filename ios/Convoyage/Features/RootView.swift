@@ -38,7 +38,8 @@ struct RootView: View {
                     }
                 }
                 VStack(spacing: 8) {
-                    if app.nav.phase != .idle && !app.showNav && (app.tab == .home || app.tab == .convoy) {
+                    if app.nav.phase != .idle && !app.showNav
+                        && (app.tab == .home || (app.tab == .convoy && app.convoy.room == nil)) {
                         NavMiniBar()
                     }
                     TabBar(selection: tabBinding)

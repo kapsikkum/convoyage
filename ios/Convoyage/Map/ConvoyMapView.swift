@@ -298,6 +298,9 @@ struct ConvoyMapView: UIViewRepresentable {
     var route: [CLLocationCoordinate2D] = []
     /// The route split by road quality, drawn over the plain route line.
     var roadSegments: [MapRoadSegment] = []
+    /// Off track while following: the car, and the point on the route to head back to. Dashed line between them.
+    var rejoinFrom: CLLocationCoordinate2D? = nil
+    var rejoinTo: CLLocationCoordinate2D? = nil
     /// Called (debounced) when the visible area changes, and once the style loads.
     var onViewport: ((GeoBox) -> Void)? = nil
     /// Called when the person long-presses the map.
@@ -356,6 +359,7 @@ struct ConvoyMapView: UIViewRepresentable {
         c.syncPins(pins)
         c.setRoute(route)
         c.setRoadSegments(roadSegments)
+        c.setRejoin(from: rejoinFrom, to: rejoinTo)
         c.setUser(userCoordinate)
         c.applyFollow(follow)
         if c.lastFit != fitToken {
@@ -397,10 +401,14 @@ struct ConvoyMapView: UIViewRepresentable {
         private var buildingLayers: [MLNFillExtrusionStyleLayer] = []
         private var routeSource: MLNShapeSource?
         private var roadSources: [String: MLNShapeSource] = [:]
+        private var rejoinSource: MLNShapeSource?
         private var roadApplied: [MapRoadSegment] = []
         private var puckSource: MLNShapeSource?
         private var routeCoords: [CLLocationCoordinate2D] = []
         private var routeApplied: [CLLocationCoordinate2D] = []
+        /// The rejoin line the map was last drawn for.
+        private var rejoinFrom: CLLocationCoordinate2D?
+        private var rejoinTo: CLLocationCoordinate2D?
         private var userCoord: CLLocationCoordinate2D?
         private var userApplied: CLLocationCoordinate2D?
         private var centeredOnUser: Bool = false
@@ -490,12 +498,14 @@ struct ConvoyMapView: UIViewRepresentable {
             }
 
             addRoute(style, below: firstText)
+            addRejoin(style, below: firstText)
             addRoadQuality(style, below: firstText)
             addPuck(style, below: firstText)
 
             applyBuildings()
             applyPitch()
             applyRoute()
+            applyRejoin()
             applyRoadSegments()
             applyUser()
             reportViewport(mapView)
@@ -523,6 +533,22 @@ struct ConvoyMapView: UIViewRepresentable {
             let line: MLNLineStyleLayer = MLNLineStyleLayer(identifier: "convoy-route", source: src)
             line.lineColor = NSExpression(forConstantValue: UIColor(hex: 0x2de2e6))
             line.lineWidth = NSExpression(forConstantValue: 4)
+            place(line, in: style, below: below)
+        }
+
+        /// The way back to the route while off track: a dashed line from the car to the nearest point on it.
+        private func addRejoin(_ style: MLNStyle, below: MLNStyleLayer?) {
+            let src: MLNShapeSource = MLNShapeSource(identifier: "rejoin", shape: nil, options: nil)
+            style.addSource(src)
+            rejoinSource = src
+            let line: MLNLineStyleLayer = MLNLineStyleLayer(identifier: "rejoin", source: src)
+            // Purple, outside the route's cyan and the alert colours, so it never reads as either.
+            line.lineColor = NSExpression(forConstantValue: UIColor(hex: 0xa66bff))
+            line.lineWidth = NSExpression(forConstantValue: 4)
+            line.lineOpacity = NSExpression(forConstantValue: 0.9)
+            line.lineDashPattern = NSExpression(forConstantValue: [1.5, 1.5])
+            line.lineCap = NSExpression(forConstantValue: "round")
+            line.lineJoin = NSExpression(forConstantValue: "round")
             place(line, in: style, below: below)
         }
 
@@ -581,6 +607,27 @@ struct ConvoyMapView: UIViewRepresentable {
                 var pts: [CLLocationCoordinate2D] = routeCoords
                 src.shape = MLNPolylineFeature(coordinates: &pts, count: UInt(pts.count))
             }
+        }
+
+        // MARK: Rejoin
+
+        func setRejoin(from: CLLocationCoordinate2D?, to: CLLocationCoordinate2D?) {
+            let sameFrom: Bool = rejoinFrom?.latitude == from?.latitude && rejoinFrom?.longitude == from?.longitude
+            let sameTo: Bool = rejoinTo?.latitude == to?.latitude && rejoinTo?.longitude == to?.longitude
+            if sameFrom && sameTo { return }
+            rejoinFrom = from
+            rejoinTo = to
+            applyRejoin()
+        }
+
+        private func applyRejoin() {
+            guard let src = rejoinSource else { return }
+            guard let a = rejoinFrom, let b = rejoinTo else {
+                src.shape = nil
+                return
+            }
+            var pts: [CLLocationCoordinate2D] = [a, b]
+            src.shape = MLNPolylineFeature(coordinates: &pts, count: UInt(pts.count))
         }
 
         // MARK: Road quality

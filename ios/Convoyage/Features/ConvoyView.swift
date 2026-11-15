@@ -86,11 +86,15 @@ struct ConvoyView: View {
             let sheetH: CGFloat = inConvoy ? min(max(base - dragY, m.peek), m.full) : m.peek
             let railBottom: CGFloat = min(max(sheetH, m.peek), m.half) + 12 + keyboard
             let railVisible: Bool = sheetH <= m.half + 30
+            let hint: (from: CLLocationCoordinate2D, to: CLLocationCoordinate2D)? = rejoinHint(vm)
+            let guiding: Bool = vm.room != nil && app.nav.guiding
 
             ZStack(alignment: .bottom) {
                 ConvoyMapView(pins: photoscoutPins + areaPins + hazardPins + cruisePins + vm.mapPins, is3D: is3D, recenterToken: recenter, theme: theme,
                               userCoordinate: vm.location.latest?.coordinate,
-                              route: vm.mapRoute,
+                              route: guiding ? app.nav.remainingCoordinates : vm.mapRoute,
+                              rejoinFrom: hint?.from,
+                              rejoinTo: hint?.to,
                               onViewport: { (box: GeoBox) in
                                   Task { await app.hazards.refresh(box: box) }
                                   app.area.onViewport(box, on: app.layerTraffic)
@@ -99,7 +103,8 @@ struct ConvoyView: View {
                               onLongPress: { (c: CLLocationCoordinate2D) in
                                   longPressed(c)
                               },
-                              followUser: follow,
+                              follow: guiding ? app.nav.followCamera : nil,
+                              followUser: follow && !guiding,
                               onUserMoved: { follow = false },
                               onPinTap: { (id: String) in pinTapped(id) })
                     .frame(width: geo.size.width, height: geo.size.height)
@@ -257,6 +262,13 @@ struct ConvoyView: View {
             if vm.room == nil && app.nav.phase == .idle {
                 WhereToBar { app.showNav = true }
             }
+            if vm.room != nil {
+                if app.nav.guiding {
+                    ManeuverCard(nav: app.nav)
+                    DetourBanner(nav: app.nav)
+                }
+                ConvoySearch(label: searchLabel(vm))
+            }
             bannerView(vm)
             HStack(spacing: 8) {
                 toggleChip("3D", on: is3D) { is3D.toggle() }
@@ -270,12 +282,29 @@ struct ConvoyView: View {
         .padding(.top, DeviceInsets.top + 8)
     }
 
+    /// "Add a stop" once there is something to head for, else the plain search.
+    private func searchLabel(_ vm: ConvoyViewModel) -> String {
+        return (app.nav.guiding || vm.room?.destination != nil) ? "Add a stop" : "Where to?"
+    }
+
+    /// Where the map should hint a way back to the line, while we are off it.
+    private func rejoinHint(_ vm: ConvoyViewModel) -> (from: CLLocationCoordinate2D, to: CLLocationCoordinate2D)? {
+        guard vm.room != nil, let me = app.convoy.location.latest?.coordinate else { return nil }
+        let line: [CLLocationCoordinate2D] = app.nav.guiding ? app.nav.routeCoordinates : vm.mapRoute
+        guard let t = Rejoin.target(line: line, me: me) else { return nil }
+        return (from: me, to: t)
+    }
+
     @ViewBuilder
     private func bannerView(_ vm: ConvoyViewModel) -> some View {
         VStack(spacing: 8) {
             HazardAlertBanner()
             StatusBanners()
             VoiceBanner()
+            if let hint = app.convoyHint {
+                Banner(title: hint, kind: .info, icon: "flag.fill",
+                       actionTitle: "OK", action: { app.convoyHint = nil })
+            }
             if let inv = vm.invite, vm.room == nil {
                 Banner(title: (inv.fromName.map { Formatters.shownName($0) } ?? "A driver") + " invited you",
                        subtitle: "Join " + ((inv.name ?? "").isEmpty ? "their convoy" : inv.name!) + "?",

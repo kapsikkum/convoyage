@@ -17,6 +17,8 @@ enum NavPhase: Equatable {
 final class NavigationSession {
     var phase: NavPhase = .idle
     var destination: NavPlace?
+    /// On a detour: where to carry on to afterwards (the convoy's destination, or the drive we left).
+    var resumeTo: NavPlace?
     var route: NavRoute?
     var progress: NavProgress?
     /// Shown on the nav screen; cleared by the next successful route or by the person.
@@ -72,11 +74,41 @@ final class NavigationSession {
         return phase == .routing || phase == .navigating
     }
 
+    /// True while the route is being followed or has just been finished (guidance is on screen).
+    var guiding: Bool {
+        return phase == .navigating || phase == .arrived
+    }
+
     var routeCoordinates: [CLLocationCoordinate2D] {
         guard let r = route else { return [] }
         return r.line.points.map { (p: GeoPoint) -> CLLocationCoordinate2D in
             return CLLocationCoordinate2D(latitude: p.lat, longitude: p.lng)
         }
+    }
+
+    /// The part of the route still ahead: from where we are on it to the end. The whole line before the first fix.
+    var remainingCoordinates: [CLLocationCoordinate2D] {
+        let all: [CLLocationCoordinate2D] = routeCoordinates
+        guard let r = route, let p = progress, all.count >= 2 else { return all }
+        let points: [GeoPoint] = r.line.points
+        if points.count < 2 { return all }
+        // The segment the snapped point is on, and where on it.
+        var seg: Int = 0
+        while seg < points.count - 2 && r.line.cumulative[seg + 1] < p.along {
+            seg += 1
+        }
+        let a: GeoPoint = points[seg]
+        let b: GeoPoint = points[seg + 1]
+        let start: Double = r.line.cumulative[seg]
+        let span: Double = max(0.001, r.line.cumulative[seg + 1] - start)
+        let t: Double = max(0, min(1, (p.along - start) / span))
+        let here: GeoPoint = GeoPoint(lat: a.lat + (b.lat - a.lat) * t, lng: a.lng + (b.lng - a.lng) * t)
+        var out: [CLLocationCoordinate2D] = [CLLocationCoordinate2D(latitude: here.lat, longitude: here.lng)]
+        let next: Int = seg + 1
+        if next < all.count {
+            out.append(contentsOf: all[next...])
+        }
+        return out
     }
 
     /// The camera target while following; nil in overview or when there is no fix.
@@ -98,13 +130,14 @@ final class NavigationSession {
 
     // MARK: Start and stop
 
-    /// Picks a destination and fetches the route from where I am.
-    func start(to place: NavPlace) {
+    /// Picks a destination and fetches the route from where I am. `resumeTo` marks a detour that carries on there after.
+    func start(to place: NavPlace, resumeTo back: NavPlace? = nil) {
         guard let here = location.latest else {
             errorText = "Waiting for a GPS fix. Check that location is on."
             return
         }
         destination = place
+        resumeTo = back
         errorText = nil
         phase = .routing
         route = nil
@@ -120,6 +153,18 @@ final class NavigationSession {
         startLoop()
     }
 
+    /// A stop on the way: guide to `place` now, then offer to carry on to `resume` (or wherever we were already going).
+    func detour(to place: NavPlace, resume: NavPlace? = nil) {
+        let back: NavPlace? = resume ?? resumeTo ?? (phase != .idle ? destination : nil)
+        start(to: place, resumeTo: back)
+    }
+
+    /// After a detour: back on to where we were going (which also forgets the detour's goal).
+    func resume() {
+        guard let to = resumeTo else { return }
+        start(to: to)
+    }
+
     /// Ends navigation and forgets the destination.
     func end() {
         routeTask?.cancel()
@@ -131,6 +176,7 @@ final class NavigationSession {
         route = nil
         progress = nil
         destination = nil
+        resumeTo = nil
         tracker = nil
         hazardAhead = nil
         conditions.clear()
