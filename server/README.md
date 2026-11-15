@@ -270,3 +270,29 @@ PUBLIC_URL=<PhotoScout's own address>                            # must match wh
 Scopes asked: `events:read events:rsvp spots:read routes:read checkins:write spots:suggest` (a member linked before `routes:read` or
 `spots:suggest` existed keeps working for the rest; the new scope asks them to link again). Then set the three variables above in
 Convoyage's `.env` and redeploy (`scripts/down.ps1`, `scripts/up.ps1`). A member can also end the link from PhotoScout's Settings.
+
+### End-to-end check against a local PhotoScout
+
+`scripts/e2e-spot-report.mjs` proves the whole loop against a **real** PhotoScout instance, with no mocks: Convoyage sign-in
+(dev magic link), the PhotoScout consent page in a browser's place (PKCE, CSRF cookie and hidden fields, the 303 to the
+callback), `status`, `POST /v1/photoscout/suggestions`, its photo upload, then PhotoScout's staff queue: approve the
+suggestion, see the public spot with its tags and photo, and read it back through `GET /v1/photoscout/spots`. It also
+checks the negatives (an unlinked member is 409; a link made without `spots:suggest` is 403 and relinking fixes it).
+
+Prerequisites: Convoyage running with `PHOTOSCOUT_URL`, `PUBLIC_BASE_URL` and `PHOTOSCOUT_TOKEN_KEY` set and `MAIL_DEV=1`; PhotoScout
+running with `PUBLIC_URL` = `PHOTOSCOUT_URL`, `PUBLIC_READS=1` and Convoyage in `OAUTH_CLIENTS`; and two PhotoScout sessions minted
+on PhotoScout's host (a user's, and a staff member's whose `provider:id` is in `ADMIN_IDS`):
+
+```
+npx tsx -e "(async()=>{const {db}=await import('./server/src/db.js');const {upsertOAuthUser,createSession}=await import('./server/src/authStore.js');const u=upsertOAuthUser(db,{provider:'google',providerId:'1',name:'Tester',avatar:''});console.log(createSession(db,u.id).token)})()"
+```
+
+Then, from `server/`:
+
+```
+CONVOYAGE_URL=http://localhost:8080 PHOTOSCOUT_URL=http://localhost:3003 \
+  PS_SESSION=<user cookie value> PS_ADMIN_SESSION=<staff cookie value> node scripts/e2e-spot-report.mjs
+```
+
+(On PowerShell, set the variables with `$env:NAME='...'` first.) It prints a PASS/FAIL line per step and exits non-zero if any
+step failed. `PS_ADMIN_SESSION` is optional: without it the approval steps fail, the rest still runs.
