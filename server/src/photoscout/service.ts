@@ -4,16 +4,21 @@ import type { PhotoScoutConfig } from '../config.js';
 import type { DB } from '../db/index.js';
 import { HttpError } from '../errors.js';
 import type { Fetch } from '../http.js';
+import type { ProcessedImage } from '../media/process.js';
 import { open, seal } from './seal.js';
 
 /** What Convoyage asks PhotoScout for. These must be scopes PhotoScout offers (see the README). */
-export const PHOTOSCOUT_SCOPES = 'events:read events:rsvp spots:read routes:read checkins:write';
+export const PHOTOSCOUT_SCOPES = 'events:read events:rsvp spots:read routes:read checkins:write spots:suggest';
+/** The scope a suggestion needs; a link made before PhotoScout offered it has to be made again. */
+export const SUGGEST_SCOPE = 'spots:suggest';
 export const APP_LINKED_URL = 'convoyage://photoscout/linked';
 
 const STATE_TTL_MS = 10 * 60_000;
 /** Refresh this long before the access token runs out. */
 const EXPIRY_SKEW_MS = 30_000;
 const TIMEOUT_MS = 8000;
+/** An upload carries a JPEG going out to PhotoScout, so give it longer than a JSON call. */
+const UPLOAD_TIMEOUT_MS = 30_000;
 
 /** A failure with the HTTP status and the machine-readable `error` code the REST layer answers with. */
 export class PhotoScoutError extends HttpError {
@@ -21,6 +26,11 @@ export class PhotoScoutError extends HttpError {
   get status(): number { return this.statusCode; }
 }
 export const notLinked = () => new PhotoScoutError(409, 'photoscout_not_linked', 'Link your PhotoScout account first');
+/** The link exists but was granted without the scope this call needs: the member has to consent again. */
+export const insufficientScope = (what = 'this') =>
+  new PhotoScoutError(403, 'photoscout_insufficient_scope', `Relink your PhotoScout account to allow ${what}`);
+
+const scopeHas = (scope: string, wanted: string) => scope.split(/\s+/).includes(wanted);
 
 const sha256 = (v: string) => createHash('sha256').update(v).digest('hex');
 const b64url = (n: number) => randomBytes(n).toString('base64url');
@@ -32,7 +42,7 @@ interface LinkRow {
 
 interface TokenResponse { accessToken: string; refreshToken: string; expiresIn: number; scope: string; psUserId: string | null; psUsername: string | null }
 
-export interface LinkStatus { linked: boolean; username: string | null; scope: string; linkedAt: string | null }
+export interface LinkStatus { linked: boolean; username: string | null; scope: string; linkedAt: string | null; canSuggest: boolean }
 
 /** The link between a Convoyage user and their PhotoScout account: connect flow, token storage and refresh, authenticated calls. */
 export class PhotoScoutService {
@@ -95,8 +105,12 @@ export class PhotoScoutService {
   async status(userId: string): Promise<LinkStatus> {
     const l = await this.link(userId);
     return l
-      ? { linked: true, username: l.ps_username, scope: l.scope, linkedAt: new Date(l.created_at).toISOString() }
-      : { linked: false, username: null, scope: '', linkedAt: null };
+      ? {
+          linked: true, username: l.ps_username, scope: l.scope, linkedAt: new Date(l.created_at).toISOString(),
+          // An earlier consent did not include spots:suggest: the app can offer to link again.
+          canSuggest: scopeHas(l.scope, SUGGEST_SCOPE),
+        }
+      : { linked: false, username: null, scope: '', linkedAt: null, canSuggest: false };
   }
 
   /** The PhotoScout identity captured at link time, when PhotoScout told us. */
@@ -206,15 +220,18 @@ export class PhotoScoutService {
 
   // ---- calling PhotoScout as the user ------------------------------------------------------------------------------
 
-  /** A raw response from PhotoScout's API for this user. One refresh-and-retry on a 401. Network failure is 502. */
-  async request(userId: string, path: string, init: { method?: string; body?: unknown } = {}): Promise<Response> {
+  /**
+   * A raw response from PhotoScout's API for this user. One refresh-and-retry on a 401. Network failure is 502.
+   * `form` sends multipart/form-data (an upload); otherwise `body` is JSON.
+   */
+  async request(userId: string, path: string, init: { method?: string; body?: unknown; form?: FormData; timeoutMs?: number } = {}): Promise<Response> {
     const send = async (token: string): Promise<Response> => {
       try {
         return await this.fetcher(`${this.config.url}${path}`, {
           method: init.method ?? 'GET',
-          headers: { authorization: `Bearer ${token}`, accept: 'application/json', ...(init.body !== undefined ? { 'content-type': 'application/json' } : {}) },
-          body: init.body === undefined ? undefined : JSON.stringify(init.body),
-          signal: AbortSignal.timeout(TIMEOUT_MS),
+          headers: { authorization: `Bearer ${token}`, accept: 'application/json', ...(init.body !== undefined && !init.form ? { 'content-type': 'application/json' } : {}) },
+          body: init.form ?? (init.body === undefined ? undefined : JSON.stringify(init.body)),
+          signal: AbortSignal.timeout(init.timeoutMs ?? TIMEOUT_MS),
         });
       } catch { throw new PhotoScoutError(502, 'photoscout_unavailable', 'PhotoScout did not answer'); }
     };
@@ -228,7 +245,7 @@ export class PhotoScoutService {
   }
 
   /** Parsed JSON from PhotoScout, or a PhotoScoutError that says what happened in Convoyage's terms. */
-  async json<T = unknown>(userId: string, path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
+  async json<T = unknown>(userId: string, path: string, init: { method?: string; body?: unknown; form?: FormData; timeoutMs?: number } = {}): Promise<T> {
     const res = await this.checked(await this.request(userId, path, init));
     return res.json() as Promise<T>;
   }
@@ -239,8 +256,40 @@ export class PhotoScoutService {
     const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
     const msg = typeof body?.error === 'string' ? body.error.slice(0, 200) : `PhotoScout answered ${res.status}`;
     if (res.status === 404) throw new PhotoScoutError(404, 'photoscout_not_found', msg);
-    if (res.status === 403) throw new PhotoScoutError(403, 'photoscout_forbidden', msg);
+    if (res.status === 403) {
+      // A link made before PhotoScout offered a scope answers insufficient_scope: only consenting again fixes it.
+      if (typeof body?.error === 'string' && /insufficient[_\s]?scope/i.test(body.error)) throw insufficientScope();
+      throw new PhotoScoutError(403, 'photoscout_forbidden', msg);
+    }
     if (res.status === 400 || res.status === 409 || res.status === 429) throw new PhotoScoutError(res.status, 'photoscout_rejected', msg);
     throw new PhotoScoutError(502, 'photoscout_unavailable', msg);
+  }
+
+  // ---- suggesting a spot (scope spots:suggest) ---------------------------------------------------------------------
+
+  /** The link must have been granted `spots:suggest`. An unlinked member is 409, an older consent 403 (relink). */
+  private async requireScope(userId: string, wanted: string, what: string): Promise<void> {
+    const l = await this.link(userId);
+    if (!l) throw notLinked();
+    // PhotoScout does not always echo the scope; when it did, a missing one is known before the call.
+    if (l.scope && !scopeHas(l.scope, wanted)) throw insufficientScope(what);
+  }
+
+  /** Suggest a spot to PhotoScout (it waits for a PhotoScout moderator, so it is not on the map yet). */
+  async suggestSpot(userId: string, body: { name: string; notes?: string; lat: number; lng: number; tags?: string[] }): Promise<unknown> {
+    await this.requireScope(userId, SUGGEST_SCOPE, 'suggesting spots');
+    return this.json(userId, '/api/suggestions', { method: 'POST', body });
+  }
+
+  /** Attach a photo to one of my suggestions. The image is re-encoded by this server first (metadata removed). */
+  async suggestSpotPhoto(userId: string, suggestionId: string, img: ProcessedImage): Promise<unknown> {
+    await this.requireScope(userId, SUGGEST_SCOPE, 'suggesting spots');
+    const form = new FormData();
+    form.append('photo', new Blob([new Uint8Array(img.data)], { type: img.mime }), `photo.${img.ext}`);
+    form.append('thumb', new Blob([new Uint8Array(img.thumb)], { type: 'image/jpeg' }), 'thumb.jpg');
+    form.append('w', String(img.width));
+    form.append('h', String(img.height));
+    if (img.takenAt) form.append('takenAt', img.takenAt.toISOString());
+    return this.json(userId, `/api/suggestions/${encodeURIComponent(suggestionId)}/photo`, { method: 'POST', form, timeoutMs: UPLOAD_TIMEOUT_MS });
   }
 }

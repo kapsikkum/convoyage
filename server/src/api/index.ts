@@ -30,13 +30,16 @@ export type { ApiContext, ConvoyLink } from './common.js';
 
 /** Adds the multipart request body, which route schemas cannot describe, to the generated document. */
 function patchOpenApi(doc: Record<string, any>): void {
-  const post = doc.paths?.['/v1/media']?.post;
-  if (post) {
+  const multipart = (path: string, field: string, description: string) => {
+    const post = doc.paths?.[path]?.post;
+    if (!post) return;
     post.requestBody = {
       required: true,
-      content: { 'multipart/form-data': { schema: { type: 'object', required: ['file'], properties: { file: { type: 'string', contentEncoding: 'binary', description: 'JPEG, PNG or WebP, up to 15 MB.' } } } } },
+      content: { 'multipart/form-data': { schema: { type: 'object', required: [field], properties: { [field]: { type: 'string', contentEncoding: 'binary', description } } } } },
     };
-  }
+  };
+  multipart('/v1/media', 'file', 'JPEG, PNG or WebP, up to 15 MB.');
+  multipart('/v1/photoscout/suggestions/{id}/photo', 'file', 'JPEG, PNG or WebP, up to 15 MB. `photo` is accepted as the field name too.');
   const text: Record<string, string> = {
     200: 'OK', 201: 'Created', 202: 'Accepted', 400: 'Bad request', 401: 'Missing, invalid or expired credentials', 403: 'Forbidden',
     404: 'Not found (also used when the viewer may not see the thing)', 409: 'Conflict with the current state', 413: 'Too large',

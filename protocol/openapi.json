@@ -2413,6 +2413,10 @@
               "string"
             ],
             "format": "date-time"
+          },
+          "canSuggest": {
+            "type": "boolean",
+            "description": "True when the stored grant includes `spots:suggest`. False on an older link: the app should offer to link PhotoScout again before suggesting a spot."
           }
         },
         "required": [
@@ -2420,7 +2424,8 @@
           "linked",
           "username",
           "scope",
-          "linkedAt"
+          "linkedAt",
+          "canSuggest"
         ],
         "additionalProperties": false
       },
@@ -2746,6 +2751,76 @@
           "lat",
           "lng",
           "body"
+        ],
+        "additionalProperties": false
+      },
+      "PsSuggestion": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "lat": {
+            "type": "number"
+          },
+          "lng": {
+            "type": "number"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "photo": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "thumbUrl": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "thumbUrl"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The suggestion's photo. The URL is on PhotoScout's origin and only the member who suggested it can fetch it there; null until a photo is added."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "waiting",
+              "approved",
+              "rejected"
+            ],
+            "description": "`waiting` until a PhotoScout moderator has looked at it; only `approved` suggestions reach the map."
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "notes",
+          "lat",
+          "lng",
+          "tags",
+          "photo",
+          "status",
+          "createdAt"
         ],
         "additionalProperties": false
       },
@@ -12806,6 +12881,319 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/photoscout/suggestions": {
+      "post": {
+        "summary": "Suggest a new spot to PhotoScout",
+        "tags": [
+          "photoscout"
+        ],
+        "description": "Asks PhotoScout to consider a new spot; it waits for a PhotoScout moderator, so it is not on the map (or in `/v1/photoscout/spots`) until it is approved. The answer is `status: \"waiting\"`; add a photo with `POST /v1/photoscout/suggestions/{id}/photo`. Needs the `spots:suggest` scope: a link made before PhotoScout offered it answers 403 `photoscout_insufficient_scope` and the member has to link PhotoScout again (see `GET /v1/photoscout/status` `canSuggest`). PhotoScout allows 10 new suggestions a day and 20 waiting (429 `photoscout_rejected` with its message). Guests cannot suggest.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120,
+                    "description": "The spot's name."
+                  },
+                  "notes": {
+                    "type": "string",
+                    "maxLength": 1000,
+                    "description": "What is there: access, parking, the view."
+                  },
+                  "lat": {
+                    "type": "number",
+                    "minimum": -90,
+                    "maximum": 90
+                  },
+                  "lng": {
+                    "type": "number",
+                    "minimum": -180,
+                    "maximum": 180
+                  },
+                  "tags": {
+                    "type": "array",
+                    "maxItems": 8,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 30
+                    },
+                    "description": "At most 8 tags of 1 to 30 characters."
+                  }
+                },
+                "required": [
+                  "name",
+                  "lat",
+                  "lng"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PsSuggestion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (also used when the viewer may not see the thing)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict with the current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream (routing or PhotoScout) server failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Not configured on this server (PhotoScout)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/photoscout/suggestions/{id}/photo": {
+      "post": {
+        "summary": "Add a photo to a spot I suggested on PhotoScout",
+        "tags": [
+          "photoscout"
+        ],
+        "description": "multipart/form-data with the image in a `file` field (or `photo`): JPEG, PNG or WebP up to 15 MB, identified by magic bytes. Like `POST /v1/media`, the image is re-encoded first (upright, longest edge 2560 px, metadata stripped except the capture time) and a 512 px JPEG thumbnail goes with it, so PhotoScout receives a clean JPEG. Answers the updated suggestion, now with `photo`. Only my own suggestion, only while it has no photo and has not been settled (409 `photoscout_rejected`), at most a few a day (429). HEIC is refused: convert to JPEG on the device.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "description": "The suggestion id from POST /v1/photoscout/suggestions."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PsSuggestion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (also used when the viewer may not see the thing)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict with the current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream (routing or PhotoScout) server failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Not configured on this server (PhotoScout)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "contentEncoding": "binary",
+                    "description": "JPEG, PNG or WebP, up to 15 MB. `photo` is accepted as the field name too."
+                  }
                 }
               }
             }

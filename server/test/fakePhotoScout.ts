@@ -28,6 +28,14 @@ export class FakePhotoScout {
   spots: unknown[] = [];
   rsvps: { method: string; path: string; body: unknown }[] = [];
   checkins: unknown[] = [];
+  /** POST /api/suggestions bodies, in order. */
+  suggestions: Record<string, unknown>[] = [];
+  /** The suggestion objects PhotoScout minted: the answer to POST /api/suggestions, then updated by a photo. */
+  created: Record<string, unknown>[] = [];
+  /** Every POST /api/suggestions/:id/photo: what was uploaded (the raw multipart body is enough to check the fields). */
+  suggestionPhotos: { id: string; contentType: string; body: string }[] = [];
+  /** Make POST /api/suggestions/:id/photo answer 403 insufficient_scope (a link without spots:suggest). */
+  suggestPhotoScopeDenied = false;
 
   private codes = new Map<string, { challenge: string; redirect: string; grant: Grant; spent: boolean }>();
   private access = new Map<string, { grant: Grant; expires: number }>();
@@ -119,7 +127,8 @@ export class FakePhotoScout {
     const token = /^Bearer (\S+)$/.exec(auth ?? '')?.[1] ?? '';
     const a = this.access.get(token);
     if (!a || a.expires <= Date.now() || a.grant.revoked) return this.json(res, 401, { error: 'Invalid or expired access token' });
-    const body = raw ? JSON.parse(raw) : undefined;
+    const isJson = /^application\/json\b/i.test(String(req.headers['content-type'] ?? ''));
+    const body = raw && isJson ? JSON.parse(raw) : undefined;
 
     if (url.pathname === '/api/events' && req.method === 'GET') return this.json(res, 200, this.events);
     if (url.pathname === '/api/community-events' && req.method === 'GET') return this.json(res, 200, this.communityEvents);
@@ -145,6 +154,30 @@ export class FakePhotoScout {
       this.checkins.push(body);
       if (body.spotId === 'private') return this.json(res, 404, { error: 'No such public spot' });
       return this.json(res, 201, { id: 'post-1', kind: 'checkin', created_at: '2030-01-05T09:00:00.000Z', author: { username: a.grant.user.username, avatar: '' }, body: body.body ?? '', place_name: 'Mount Panorama', lat: -33.44, lng: 149.55, link: null, votes: 0, comments: 0, voted: false });
+    }
+    if (url.pathname === '/api/suggestions' && req.method === 'POST') {
+      this.suggestions.push(body);
+      // Names that make PhotoScout misbehave, for the error-mapping tests.
+      if (body.name === 'nope') return this.json(res, 400, { error: 'A name is required' });
+      if (body.name === 'toslow') return this.json(res, 429, { error: 'You can suggest 10 spots a day' });
+      if (body.name === 'scope') return this.json(res, 403, { error: 'insufficient_scope' });
+      const made = {
+        id: `sug-${this.suggestions.length}`, name: body.name, notes: body.notes ?? '', lat: body.lat, lng: body.lng, tags: body.tags ?? [],
+        photo: null, createdAt: '2030-02-01T08:00:00.000Z', suggestedBy: { id: a.grant.user.id, username: a.grant.user.username },
+        resolvedAt: null, outcome: null, spotId: null,
+      };
+      this.created.push(made);
+      return this.json(res, 201, made);
+    }
+    m = /^\/api\/suggestions\/([^/]+)\/photo$/.exec(url.pathname);
+    if (m && req.method === 'POST') {
+      this.suggestionPhotos.push({ id: m[1], contentType: String(req.headers['content-type'] ?? ''), body: raw });
+      if (this.suggestPhotoScopeDenied) return this.json(res, 403, { error: 'insufficient_scope' });
+      if (m[1] === 'settled') return this.json(res, 409, { error: 'This suggestion has already been settled' });
+      const made = this.created.find((s) => s.id === m![1]);
+      if (!made) return this.json(res, 404, { error: 'No such suggestion' });
+      made.photo = { url: `/api/suggestions/${m[1]}/photo.jpg`, thumbUrl: `/api/suggestions/${m[1]}/thumb.jpg`, w: 64, h: 48, takenAt: null };
+      return this.json(res, 201, made);
     }
     return this.json(res, 404, { error: 'Not found' });
   }

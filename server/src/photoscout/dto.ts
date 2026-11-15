@@ -116,6 +116,38 @@ export function rsvpDto(eventId: string, source: PsRsvp['source'], v: unknown): 
   return { eventId, source, going: count(r.going), interested: count(r.interested), myRsvp: rsvp(r.mine) };
 }
 
+/**
+ * A spot suggested to PhotoScout. It waits for a PhotoScout moderator (`status: waiting`) before it appears on the map;
+ * PhotoScout's own bookkeeping (who suggested it, the outcome note) is not exposed to the app.
+ */
+export interface PsSuggestion {
+  id: string;
+  name: string;
+  notes: string;
+  lat: number;
+  lng: number;
+  tags: string[];
+  /** PhotoScout's thumbnail for the suggestion, on PhotoScout's origin (only the owner may fetch it there). */
+  photo: { thumbUrl: string } | null;
+  status: 'waiting' | 'approved' | 'rejected';
+  createdAt: string;
+}
+
+/** `photosBase` (PhotoScout's origin) makes a relative photo URL absolute; PhotoScout may already send one. */
+export function suggestionDto(v: unknown, photosBase = ''): PsSuggestion {
+  const s = obj(v);
+  const raw = text(obj(s.photo).thumbUrl, 500);
+  const thumbUrl = raw && !/^https?:\/\//i.test(raw) && photosBase ? `${photosBase}${raw.startsWith('/') ? '' : '/'}${raw}` : raw;
+  const outcome = s.outcome === 'approved' || s.outcome === 'rejected' ? s.outcome : null;
+  const status: PsSuggestion['status'] = outcome ?? (s.resolvedAt ? (text(s.spotId, 64) ? 'approved' : 'rejected') : 'waiting');
+  return {
+    id: text(s.id, 64), name: text(s.name, 120), notes: text(s.notes, 1000),
+    lat: numOrNull(s.lat) ?? 0, lng: numOrNull(s.lng) ?? 0,
+    tags: strings(s.tags).slice(0, 8).map((t) => t.slice(0, 30)).filter(Boolean),
+    photo: thumbUrl ? { thumbUrl } : null, status, createdAt: text(s.createdAt ?? s.created_at, 40),
+  };
+}
+
 /** Great-circle distance in kilometres. */
 export function distanceKm(aLat: number, aLng: number, bLat: number, bLng: number): number {
   const rad = Math.PI / 180;

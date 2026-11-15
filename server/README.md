@@ -212,11 +212,12 @@ Deliberately not built, with the reason:
 ## Wave C additions: PhotoScout link
 
 A member can link their PhotoScout account (OAuth 2 authorization code + PKCE; PhotoScout's "connect an app" flow) and the server
-then proxies PhotoScout events, spots, RSVPs and check-ins as that member, in small Convoyage-shaped DTOs (see `openapi.json`).
+then proxies PhotoScout events, spots, RSVPs, check-ins and spot suggestions as that member, in small Convoyage-shaped DTOs (see
+`openapi.json`).
 
 | route (bearer) | what |
 | --- | --- |
-| `GET /v1/photoscout/status` | `{configured, linked, username, scope, linkedAt}`. Always 200. `username` is null unless PhotoScout puts `username` in its token response (it does not today). |
+| `GET /v1/photoscout/status` | `{configured, linked, username, scope, linkedAt, canSuggest}`. Always 200. `username` is null unless PhotoScout puts `username` in its token response (it does not today). `canSuggest` is false until the link carries `spots:suggest`. |
 | `GET /v1/photoscout/connect` | `{authorizeUrl}`: open it in a browser or custom tab. Guests: 403. |
 | `GET /v1/photoscout/callback` | (no bearer) PhotoScout sends the browser here; the server swaps the code, stores the tokens and 302s to `convoyage://photoscout/linked` or `...linked?error=<code>`. |
 | `DELETE /v1/photoscout/link` | revoke at PhotoScout (`/oauth/revoke`), then delete the tokens. |
@@ -224,9 +225,19 @@ then proxies PhotoScout events, spots, RSVPs and check-ins as that member, in sm
 | `GET /v1/photoscout/spots?bbox=s,w,n,e` | spots with good times and a cover `photo`; photo bytes via `GET /v1/photoscout/photos/:id/thumb\|file` (bearer needed, like `/v1/media`). |
 | `POST /v1/photoscout/events/:id/rsvp` | `{}` / `{status: going\|interested}` / `{going:false}`. A uuid id is a community event (going only), anything else a crawled event. |
 | `POST /v1/photoscout/checkins` | `{spotId}`, `{eventId}` or `{lat,lng,placeName}`, plus optional `body`. |
+| `POST /v1/photoscout/suggestions` | `{name (1-120), notes (<=1000), lat, lng, tags? (<=8 of 1-30 chars)}`: suggests a new spot to PhotoScout. 201 `PsSuggestion` with `status: waiting`; it only reaches the map once a PhotoScout moderator approves it (10 a day, 20 waiting). |
+| `POST /v1/photoscout/suggestions/:id/photo` | multipart `file` (or `photo`): JPEG/PNG/WebP up to 15 MB, re-encoded here first (metadata stripped, capture time kept) with a 512 px thumbnail. Answers the updated `PsSuggestion` with `photo`. 409 when it already has a photo or was settled, 429 at the daily cap. |
 
 Errors are `{statusCode, error, message}` with a stable `error`: `photoscout_not_configured` (503), `photoscout_not_linked` (409),
-`photoscout_not_found`, `photoscout_forbidden`, `photoscout_rejected` (PhotoScout's 400/409/429), `photoscout_unavailable` (502).
+`photoscout_insufficient_scope` (403, the stored link was granted without the scope this call needs, e.g. `spots:suggest`: link
+PhotoScout again), `photoscout_not_found`, `photoscout_forbidden`, `photoscout_rejected` (PhotoScout's 400/409/429, with its own
+message: validation, already has a photo, daily cap), `photoscout_unavailable` (502).
+
+- **Suggesting spots** needs the `spots:suggest` scope, so `GET /v1/photoscout/status` answers `canSuggest` next to `scope`
+  (`false` on a link made before PhotoScout offered that scope). The app should offer to link PhotoScout again in that case; the
+  routes work immediately after the consent page. Nothing about suggestions is stored here: the two routes are a stateless proxy,
+  and the `PsSuggestion` DTO hides PhotoScout's moderation bookkeeping (`suggestedBy`, `outcome`) behind `status`
+  (`waiting | approved | rejected`).
 
 - **Tokens** are sealed with AES-256-GCM (`PHOTOSCOUT_TOKEN_KEY`, bound to user and field) in `photoscout_links`; the PKCE verifier is sealed
   in `photoscout_oauth_states` (state stored as SHA-256, 10 minute life, single use). The access token is refreshed 30 s before expiry and
@@ -256,5 +267,6 @@ CONVOYAGE_URL=<where the Convoyage web/app link should point>   # optional: "Ope
 PUBLIC_URL=<PhotoScout's own address>                            # must match what members use
 ```
 
-Scopes asked: `events:read events:rsvp spots:read checkins:write`. Then set the three variables above in Convoyage's `.env` and redeploy
-(`scripts/down.ps1`, `scripts/up.ps1`). A member can also end the link from PhotoScout's Settings.
+Scopes asked: `events:read events:rsvp spots:read routes:read checkins:write spots:suggest` (a member linked before `routes:read` or
+`spots:suggest` existed keeps working for the rest; the new scope asks them to link again). Then set the three variables above in
+Convoyage's `.env` and redeploy (`scripts/down.ps1`, `scripts/up.ps1`). A member can also end the link from PhotoScout's Settings.

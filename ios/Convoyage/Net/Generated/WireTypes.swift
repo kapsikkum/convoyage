@@ -1249,6 +1249,8 @@ struct GenPhotoScoutStatus: Codable, Equatable {
     /// The scopes PhotoScout granted.
     var scope: String
     var linkedAt: String?
+    /// True when the stored grant includes `spots:suggest`. False on an older link: the app should offer to link PhotoScout again before suggesting a spot.
+    var canSuggest: Bool
 }
 
 struct GenPhotoScoutAuthorizeUrl: Codable, Equatable {
@@ -1342,6 +1344,25 @@ struct GenPsCheckin: Codable, Equatable {
     var lat: Double?
     var lng: Double?
     var body: String
+}
+
+/// The suggestion's photo. The URL is on PhotoScout's origin and only the member who suggested it can fetch it there; null until a photo is added.
+struct GenPsSuggestionPhoto: Codable, Equatable {
+    var thumbUrl: String
+}
+
+struct GenPsSuggestion: Codable, Equatable {
+    var id: String
+    var name: String
+    var notes: String
+    var lat: Double
+    var lng: Double
+    var tags: [String]
+    /// The suggestion's photo. The URL is on PhotoScout's origin and only the member who suggested it can fetch it there; null until a photo is added.
+    var photo: GenPsSuggestionPhoto?
+    /// `waiting` until a PhotoScout moderator has looked at it; only `approved` suggestions reach the map.
+    var status: String
+    var createdAt: String
 }
 
 struct GenPsRsvp: Codable, Equatable {

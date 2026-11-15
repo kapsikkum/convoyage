@@ -1333,6 +1333,8 @@ data class GenPhotoScoutStatus(
     /** The scopes PhotoScout granted. */
     val scope: String,
     val linkedAt: String? = null,
+    /** True when the stored grant includes `spots:suggest`. False on an older link: the app should offer to link PhotoScout again before suggesting a spot. */
+    val canSuggest: Boolean,
 )
 
 @Serializable
@@ -1436,6 +1438,27 @@ data class GenPsCheckin(
     val lat: Double? = null,
     val lng: Double? = null,
     val body: String,
+)
+
+/** The suggestion's photo. The URL is on PhotoScout's origin and only the member who suggested it can fetch it there; null until a photo is added. */
+@Serializable
+data class GenPsSuggestionPhoto(
+    val thumbUrl: String,
+)
+
+@Serializable
+data class GenPsSuggestion(
+    val id: String,
+    val name: String,
+    val notes: String,
+    val lat: Double,
+    val lng: Double,
+    val tags: List<String>,
+    /** The suggestion's photo. The URL is on PhotoScout's origin and only the member who suggested it can fetch it there; null until a photo is added. */
+    val photo: GenPsSuggestionPhoto? = null,
+    /** `waiting` until a PhotoScout moderator has looked at it; only `approved` suggestions reach the map. */
+    val status: String,
+    val createdAt: String,
 )
 
 @Serializable

@@ -6,7 +6,7 @@ import { loadConfig, parseTokenKey } from '../src/config.js';
 import { thin } from '../src/photoscout/cruiseSource.js';
 import { open, seal } from '../src/photoscout/seal.js';
 import { FakePhotoScout, type FakeUser } from './fakePhotoScout.js';
-import { testServer, type Session, type TestServer } from './apiHelpers.js';
+import { makeJpeg, testServer, type Reply, type Session, type TestServer } from './apiHelpers.js';
 import { connected } from './socketHelpers.js';
 
 const KEY = '11'.repeat(32);
@@ -37,6 +37,18 @@ async function link(s: Session, user: FakeUser, decision: 'allow' | 'deny' = 'al
   return { authorizeUrl: new URL(c.body.authorizeUrl), status: res.status, location: res.headers.get('location')!, back };
 }
 const get = (s: Session, p: string) => t.req('GET', p, { token: s.token });
+const suggest = (s: { token: string }, body: unknown) => t.req('POST', '/v1/photoscout/suggestions', { token: s.token, body });
+
+/** Multipart upload of a suggestion photo, the way an app sends it. */
+async function suggestPhoto(s: { token: string }, id: string, data: Buffer, field = 'file'): Promise<Reply> {
+  const form = new FormData();
+  form.append(field, new Blob([new Uint8Array(data)], { type: 'image/jpeg' }), 'x.jpg');
+  const res = await fetch(`${t.base}/v1/photoscout/suggestions/${id}/photo`, { method: 'POST', headers: { authorization: `Bearer ${s.token}` }, body: form });
+  const text = await res.text();
+  let body: any = text;
+  try { body = text ? JSON.parse(text) : null; } catch { /* not JSON */ }
+  return { status: res.status, body, headers: res.headers };
+}
 
 test('seal: round trip, bound to its place, tamper-evident, key formats', () => {
   const key = Buffer.from(KEY, 'hex');
@@ -75,7 +87,7 @@ test('thin keeps the ends and the limit', () => {
 test('not configured: status says so, everything else is 503 photoscout_not_configured', async () => {
   const s = await off.signup('off');
   const st = await off.req('GET', '/v1/photoscout/status', { token: s.token });
-  assert.deepEqual(st.body, { configured: false, linked: false, username: null, scope: '', linkedAt: null });
+  assert.deepEqual(st.body, { configured: false, linked: false, username: null, scope: '', linkedAt: null, canSuggest: false });
   for (const [m, p] of [['GET', '/v1/photoscout/connect'], ['GET', '/v1/photoscout/events'], ['GET', '/v1/photoscout/spots?bbox=-34,149,-33,150'], ['DELETE', '/v1/photoscout/link']] as const) {
     const r = await off.req(m, p, { token: s.token });
     assert.equal(r.status, 503, p);
@@ -89,12 +101,13 @@ test('unlinked: every proxy is 409 photoscout_not_linked; guests cannot link', a
   for (const [m, p, body] of [
     ['GET', '/v1/photoscout/events'], ['GET', '/v1/photoscout/spots?bbox=-34,149,-33,150'],
     ['POST', `/v1/photoscout/events/${EVENT}/rsvp`, {}], ['POST', '/v1/photoscout/checkins', { spotId: 's1' }],
+    ['POST', '/v1/photoscout/suggestions', { name: 'x', lat: 1, lng: 2 }],
   ] as [string, string, unknown?][]) {
     const r = await t.req(m, p, { token: loner.token, body });
     assert.equal(r.status, 409, p);
     assert.equal(r.body.error, 'photoscout_not_linked');
   }
-  assert.deepEqual((await get(loner, '/v1/photoscout/status')).body, { configured: true, linked: false, username: null, scope: '', linkedAt: null });
+  assert.deepEqual((await get(loner, '/v1/photoscout/status')).body, { configured: true, linked: false, username: null, scope: '', linkedAt: null, canSuggest: false });
   assert.equal((await t.req('GET', '/v1/photoscout/events')).status, 401);
   const guest = await t.req('POST', '/auth/guest', { body: { name: 'Pete' } });
   assert.equal((await t.req('GET', '/v1/photoscout/connect', { token: guest.body.accessToken })).status, 403);
@@ -106,7 +119,7 @@ test('link flow: PKCE S256, scopes, redirect uri, state checks, tokens sealed at
   assert.equal(r.authorizeUrl.origin + r.authorizeUrl.pathname, fake.url + '/oauth/authorize');
   assert.equal(q.get('client_id'), 'convoyage');
   assert.equal(q.get('redirect_uri'), 'https://convoy.test/v1/photoscout/callback');
-  assert.equal(q.get('scope'), 'events:read events:rsvp spots:read routes:read checkins:write');
+  assert.equal(q.get('scope'), 'events:read events:rsvp spots:read routes:read checkins:write spots:suggest');
   assert.equal(q.get('code_challenge_method'), 'S256');
   assert.equal(r.status, 302);
   assert.equal(r.location, 'convoyage://photoscout/linked');
@@ -119,6 +132,7 @@ test('link flow: PKCE S256, scopes, redirect uri, state checks, tokens sealed at
   assert.equal(st.linked, true);
   assert.equal(st.username, 'Organiser');
   assert.match(st.scope, /events:read/);
+  assert.equal(st.canSuggest, true, 'a fresh link carries spots:suggest');
 
   // nothing readable in the database
   const row = await t.database.db.selectFrom('photoscout_links').selectAll().where('user_id', '=', org.id).executeTakeFirstOrThrow();
@@ -287,3 +301,136 @@ test('cruise convoy: opened by the organiser from PhotoScout data, joined by lin
   assert.equal(joined.members.length, 2);
   o.ws.close(); m.ws.close(); n.ws.close();
 });
+
+// ---- suggesting a spot (scope spots:suggest) ----------------------------------------------------------------------
+
+test('suggest a spot: 201 waiting, tags passed through, PhotoScout bookkeeping hidden, and it is not a spot yet', async () => {
+  const before = fake.suggestions.length;
+  const r = await suggest(org, { name: 'Bombo Quarry', notes: 'Blowhole at dawn, park at the gate', lat: -35.3241, lng: 150.8362, tags: ['coast', 'sunrise'] });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const made = fake.created.at(-1)!;
+  assert.deepEqual(fake.suggestions.at(-1), { name: 'Bombo Quarry', notes: 'Blowhole at dawn, park at the gate', lat: -35.3241, lng: 150.8362, tags: ['coast', 'sunrise'] }, 'the body PhotoScout got');
+  assert.equal(fake.suggestions.length, before + 1);
+  const [id, name, notes, tags, photo, status] = [r.body.id, r.body.name, r.body.notes, r.body.tags, r.body.photo, r.body.status] as [string, string, string, string[], unknown, string];
+  assert.equal(id, made.id);
+  assert.deepEqual([name, notes, tags, photo, status], ['Bombo Quarry', 'Blowhole at dawn, park at the gate', ['coast', 'sunrise'], null, 'waiting']);
+  assert.equal(typeof r.body.createdAt, 'string');
+  // The moderator's side of PhotoScout stays there.
+  for (const k of ['suggestedBy', 'outcome', 'resolvedAt', 'spotId']) assert.equal(k in r.body, false, `leaked ${k}`);
+  // A suggestion is not on the map until PhotoScout approves it: the spot list is still only PhotoScout's spots.
+  const listed = (await get(org, '/v1/photoscout/spots?bbox=-36,150,-35,151')).body;
+  assert.equal(listed.some((s: any) => s.name === 'Bombo Quarry'), false);
+
+  // Required fields and limits, checked before anything is proxied.
+  const count = fake.suggestions.length;
+  const bad: unknown[] = [
+    { lat: 1, lng: 2 },                                  // no name
+    { name: '', lat: 1, lng: 2 },
+    { name: 'x'.repeat(121), lat: 1, lng: 2 },
+    { name: 'x', notes: 'n'.repeat(1001), lat: 1, lng: 2 },
+    { name: 'x', lat: 91, lng: 2 },
+    { name: 'x', lat: 1, lng: 181 },
+    { name: 'x', lng: 2 },                               // no lat
+    { name: 'x', lat: 1, lng: 2, tags: Array.from({ length: 9 }, (_, i) => `t${i}`) },
+    { name: 'x', lat: 1, lng: 2, tags: ['fine', 't'.repeat(31)] },
+  ];
+  for (const body of bad) assert.equal((await suggest(org, body)).status, 400, JSON.stringify(body));
+  assert.equal((await t.req('POST', '/v1/photoscout/suggestions', { body: { name: 'x', lat: 1, lng: 2 } })).status, 401);
+  assert.equal(fake.suggestions.length, count, 'no rejected body reached PhotoScout');
+
+  // Optional fields: only a name and a point is enough.
+  const minimal = await suggest(org, { name: 'Just a point', lat: -33.4, lng: 149.5 });
+  assert.deepEqual([minimal.status, minimal.body.tags, minimal.body.notes, minimal.body.status], [201, [], '', 'waiting']);
+});
+
+test('suggest a spot: PhotoScout errors pass through (429 daily cap, 400) and 403 insufficient_scope says relink', async () => {
+  const slow = await suggest(org, { name: 'toslow', lat: -33.4, lng: 149.5 });
+  assert.deepEqual([slow.status, slow.body.error, slow.body.message], [429, 'photoscout_rejected', 'You can suggest 10 spots a day']);
+  const nope = await suggest(org, { name: 'nope', lat: -33.4, lng: 149.5 });
+  assert.deepEqual([nope.status, nope.body.error, nope.body.message], [400, 'photoscout_rejected', 'A name is required']);
+  const scope = await suggest(org, { name: 'scope', lat: -33.4, lng: 149.5 });
+  assert.deepEqual([scope.status, scope.body.error], [403, 'photoscout_insufficient_scope']);
+  assert.match(scope.body.message, /relink your PhotoScout account/i);
+});
+
+test('suggest a spot: a link from before spots:suggest answers 403 relink without a round trip; relinking fixes it', async () => {
+  const old = await t.signup('oldlink');
+  await link(old, { id: 'ps-old', username: 'Old' });
+  assert.equal((await get(old, '/v1/photoscout/status')).body.canSuggest, true);
+  // An older consent: linked, everything else still works, but no spots:suggest.
+  await t.database.db.updateTable('photoscout_links').set({ scope: 'events:read events:rsvp spots:read routes:read checkins:write' }).where('user_id', '=', old.id).execute();
+  const st = (await get(old, '/v1/photoscout/status')).body;
+  assert.deepEqual([st.linked, st.canSuggest], [true, false]);
+  assert.equal((await get(old, '/v1/photoscout/events')).status, 200, 'the rest of the link is fine');
+
+  const before = fake.suggestions.length;
+  const denied = await suggest(old, { name: 'Should not reach PhotoScout', lat: -33.4, lng: 149.5 });
+  assert.deepEqual([denied.status, denied.body.error], [403, 'photoscout_insufficient_scope']);
+  assert.match(denied.body.message, /relink your PhotoScout account/i);
+  assert.equal(fake.suggestions.length, before, 'known from the stored scope, no call made');
+
+  await link(old, { id: 'ps-old', username: 'Old' });
+  assert.equal((await get(old, '/v1/photoscout/status')).body.canSuggest, true);
+  assert.equal((await suggest(old, { name: 'After relinking', lat: -33.4, lng: 149.5 })).status, 201);
+});
+
+test('suggest a spot: guests and unlinked members are refused like the other routes', async () => {
+  const fresh = await t.signup('suggestunlinked');
+  const unlinked = await suggest(fresh, { name: 'x', lat: 1, lng: 2 });
+  assert.deepEqual([unlinked.status, unlinked.body.error], [409, 'photoscout_not_linked']);
+  const guest = await t.req('POST', '/auth/guest', { body: { name: 'Gina' } });
+  const asGuest = await suggest({ token: guest.body.accessToken }, { name: 'x', lat: 1, lng: 2 });
+  assert.equal(asGuest.status, 403);
+  assert.match(asGuest.body.message, /Guests cannot do this/);
+});
+
+test('suggest a photo: a JPEG is re-encoded and forwarded as multipart; the suggestion comes back with a photo', async () => {
+  const made = (await suggest(org, { name: 'Photo spot', lat: -35.3241, lng: 150.8362 })).body;
+  const r = await suggestPhoto(org, made.id, await makeJpeg(80, 60));
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal(r.body.id, made.id);
+  assert.equal(r.body.status, 'waiting');
+  assert.equal(r.body.photo.thumbUrl, `${fake.url}/api/suggestions/${made.id}/thumb.jpg`, 'made absolute on PhotoScout\'s origin');
+  const sent = fake.suggestionPhotos.at(-1)!;
+  assert.equal(sent.id, made.id);
+  assert.match(sent.contentType, /^multipart\/form-data; boundary=/);
+  assert.match(sent.body, /name="photo"/);
+  assert.match(sent.body, /name="thumb"/);
+  assert.match(sent.body, /content-type: image\/jpeg/i, 're-encoded as JPEG, not forwarded raw');
+  assert.match(sent.body, /name="w"[\s\S]*80/);
+  assert.match(sent.body, /name="h"[\s\S]*60/);
+
+  // `photo` is accepted as the field name too (that is what PhotoScout calls it).
+  assert.equal((await suggestPhoto(org, made.id, await makeJpeg(40, 30), 'photo')).status, 201);
+
+  const before = fake.suggestionPhotos.length;
+  assert.equal((await suggestPhoto(org, made.id, Buffer.from('<?php echo 1; ?>'))).status, 415, 'not an image');
+  const heic = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypheic'), Buffer.alloc(64)]);
+  assert.equal((await suggestPhoto(org, made.id, heic)).status, 415, 'HEIC is refused');
+  assert.equal((await suggestPhoto(org, made.id, Buffer.alloc(0))).status, 400, 'empty file');
+  assert.equal((await suggestPhoto(org, made.id, (await makeJpeg()).subarray(0, 120))).status, 400, 'truncated image');
+  assert.equal(fake.suggestionPhotos.length, before, 'nothing bad reached PhotoScout');
+
+  // Field name / content type are checked the way POST /v1/media checks them.
+  assert.equal((await suggestPhoto(org, made.id, await makeJpeg(), 'avatar')).status, 400);
+  assert.equal((await t.req('POST', `/v1/photoscout/suggestions/${made.id}/photo`, { token: org.token, body: {} })).status, 400);
+  assert.equal((await suggestPhoto(org, 'not-valid-id!', await makeJpeg())).status, 400);
+});
+
+test('suggest a photo: settled suggestions, unlinked members and insufficient_scope map to their errors', async () => {
+  const settled = await suggestPhoto(org, 'settled', await makeJpeg());
+  assert.deepEqual([settled.status, settled.body.error, settled.body.message], [409, 'photoscout_rejected', 'This suggestion has already been settled']);
+
+  const fresh = await t.signup('photounlinked');
+  const unlinked = await suggestPhoto(fresh, 'sug-1', await makeJpeg());
+  assert.deepEqual([unlinked.status, unlinked.body.error], [409, 'photoscout_not_linked']);
+
+  fake.suggestPhotoScopeDenied = true;
+  try {
+    const denied = await suggestPhoto(org, 'sug-1', await makeJpeg());
+    assert.deepEqual([denied.status, denied.body.error], [403, 'photoscout_insufficient_scope']);
+    assert.match(denied.body.message, /relink your PhotoScout account/i);
+  } finally { fake.suggestPhotoScopeDenied = false; }
+  assert.equal((await suggestPhoto(org, 'sug-1', await makeJpeg())).status, 201, 'works again');
+});
+

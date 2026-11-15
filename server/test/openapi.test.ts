@@ -12,12 +12,14 @@ test('OpenAPI 3.1 document: paths, schemas, security, and it matches protocol/op
   const doc = JSON.parse(text);
   assert.equal(doc.openapi, '3.1.0');
   for (const path of ['/auth/magic-link', '/auth/magic-link/verify', '/auth/apple', '/auth/google', '/auth/refresh', '/auth/logout',
-    '/v1/me', '/v1/users/{handle}', '/v1/vehicles', '/v1/rides', '/v1/rides/{id}/finish', '/v1/media', '/v1/feed', '/v1/posts', '/v1/hazards', '/v1/hazards/{id}/confirm']) {
+    '/v1/me', '/v1/users/{handle}', '/v1/vehicles', '/v1/rides', '/v1/rides/{id}/finish', '/v1/media', '/v1/feed', '/v1/posts', '/v1/hazards', '/v1/hazards/{id}/confirm',
+    '/v1/photoscout/suggestions', '/v1/photoscout/suggestions/{id}/photo']) {
     assert.ok(doc.paths[path], `missing ${path}`);
   }
-  for (const name of ['Me', 'Profile', 'Vehicle', 'Ride', 'Post', 'Hazard', 'FeedPage', 'Error', 'AuthResult']) assert.ok(doc.components.schemas[name], `missing schema ${name}`);
+  for (const name of ['Me', 'Profile', 'Vehicle', 'Ride', 'Post', 'Hazard', 'FeedPage', 'Error', 'AuthResult', 'PsSuggestion']) assert.ok(doc.components.schemas[name], `missing schema ${name}`);
   assert.deepEqual(doc.paths['/v1/me'].get.security, [{ bearerAuth: [] }]);
   assert.ok(doc.paths['/v1/media'].post.requestBody.content['multipart/form-data']);
+  assert.ok(doc.paths['/v1/photoscout/suggestions/{id}/photo'].post.requestBody.content['multipart/form-data']);
   assert.ok(!JSON.stringify(doc).includes('"$ref":"Error#'), 'no unresolved refs');
   assert.equal(doc.paths['/v1/openapi.json'], undefined);
   // The document itself is valid JSON Schema-ish: every $ref points at something that exists.

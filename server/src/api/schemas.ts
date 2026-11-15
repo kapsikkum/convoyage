@@ -189,6 +189,7 @@ const models: Record<string, object> = {
     configured: { ...bool, description: 'False when this server has no PHOTOSCOUT_URL: every other PhotoScout route answers 503.' },
     linked: bool, username: { ...nString, description: 'The PhotoScout username, when PhotoScout told us at link time.' },
     scope: { ...string, description: 'The scopes PhotoScout granted.' }, linkedAt: nDate,
+    canSuggest: { ...bool, description: 'True when the stored grant includes `spots:suggest`. False on an older link: the app should offer to link PhotoScout again before suggesting a spot.' },
   }),
   PhotoScoutAuthorizeUrl: obj({ authorizeUrl: { ...string, description: 'Open in a browser or custom tab. It ends at convoyage://photoscout/linked (or ?error=...).' } }),
   PsCruise: obj({ routeName: string, meet: obj({ lat: num, lng: num, note: string }), rollOut: string }),
@@ -207,6 +208,12 @@ const models: Record<string, object> = {
     photo: { anyOf: [obj({ id: string, thumbUrl: string, url: string }), { type: 'null' }], description: 'Cover photo. The URLs are served by Convoyage and need the bearer token, like /v1/media.' },
   }),
   PsCheckin: obj({ id: string, createdAt: string, placeName: string, lat: nNum, lng: nNum, body: string }),
+  PsSuggestion: obj({
+    id: string, name: string, notes: string, lat: num, lng: num, tags: arrayOf(string),
+    photo: { anyOf: [obj({ thumbUrl: string }), { type: 'null' }], description: 'The suggestion\'s photo. The URL is on PhotoScout\'s origin and only the member who suggested it can fetch it there; null until a photo is added.' },
+    status: { type: 'string', enum: ['waiting', 'approved', 'rejected'], description: '`waiting` until a PhotoScout moderator has looked at it; only `approved` suggestions reach the map.' },
+    createdAt: string,
+  }),
   PsRsvp: obj({
     eventId: string, source: { type: 'string', enum: ['community', 'scout'] }, going: int, interested: int,
     myRsvp: { anyOf: [{ type: 'string', enum: ['going', 'interested'] }, { type: 'null' }] },

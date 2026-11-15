@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { badRequest, forbidden } from '../../errors.js';
-import { checkinDto, communityEventDto, distanceKm, rsvpDto, scoutEventDto, spotDto, type PsEvent } from '../../photoscout/dto.js';
+import { checkinDto, communityEventDto, distanceKm, rsvpDto, scoutEventDto, spotDto, suggestionDto, type PsEvent } from '../../photoscout/dto.js';
 import { PhotoScoutError, type PhotoScoutService } from '../../photoscout/service.js';
+import { processImage } from '../../media/process.js';
 import { authenticate, type ApiContext } from '../common.js';
 import { limits } from '../limits.js';
 import { arrayOf, bearer, bodyObj, errorResponses, ref } from '../schemas.js';
@@ -53,7 +54,7 @@ export async function photoscoutRoutes(app: FastifyInstance, ctx: ApiContext): P
       response: { 200: ref('PhotoScoutStatus'), ...errors },
     },
   }, async (req) => {
-    if (!ctx.photoscout) return { configured: false, linked: false, username: null, scope: '', linkedAt: null };
+    if (!ctx.photoscout) return { configured: false, linked: false, username: null, scope: '', linkedAt: null, canSuggest: false };
     return { configured: true, ...(await ctx.photoscout.status(req.userId)) };
   });
 
@@ -214,6 +215,51 @@ export async function photoscoutRoutes(app: FastifyInstance, ctx: ApiContext): P
     const payload = b.spotId ? { spotId: b.spotId } : b.eventId ? { eventId: b.eventId } : { lat: b.lat, lng: b.lng, placeName: b.placeName };
     const made = await svc().json(req.userId, '/api/checkins', { method: 'POST', body: { ...payload, ...(b.body ? { body: b.body } : {}) } });
     return reply.code(201).send(checkinDto(made));
+  });
+
+  // ---- suggesting a spot (scope spots:suggest) --------------------------------------------------------------------
+
+  app.post('/v1/photoscout/suggestions', {
+    ...auth, ...lim.write,
+    schema: {
+      security: bearer, tags, summary: 'Suggest a new spot to PhotoScout',
+      description: 'Asks PhotoScout to consider a new spot; it waits for a PhotoScout moderator, so it is not on the map (or in `/v1/photoscout/spots`) until it is approved. The answer is `status: "waiting"`; add a photo with `POST /v1/photoscout/suggestions/{id}/photo`. Needs the `spots:suggest` scope: a link made before PhotoScout offered it answers 403 `photoscout_insufficient_scope` and the member has to link PhotoScout again (see `GET /v1/photoscout/status` `canSuggest`). PhotoScout allows 10 new suggestions a day and 20 waiting (429 `photoscout_rejected` with its message). Guests cannot suggest.',
+      body: bodyObj({
+        name: { type: 'string', minLength: 1, maxLength: 120, description: 'The spot\'s name.' },
+        notes: { type: 'string', maxLength: 1000, description: 'What is there: access, parking, the view.' },
+        lat: { type: 'number', minimum: -90, maximum: 90 },
+        lng: { type: 'number', minimum: -180, maximum: 180 },
+        tags: { type: 'array', maxItems: 8, items: { type: 'string', minLength: 1, maxLength: 30 }, description: 'At most 8 tags of 1 to 30 characters.' },
+      }, ['name', 'lat', 'lng']),
+      response: { 201: ref('PsSuggestion'), ...errors },
+    },
+  }, async (req, reply) => {
+    const b = req.body as { name: string; notes?: string; lat: number; lng: number; tags?: string[] };
+    const made = await svc().suggestSpot(req.userId, {
+      name: b.name, lat: b.lat, lng: b.lng, ...(b.notes !== undefined ? { notes: b.notes } : {}), ...(b.tags !== undefined ? { tags: b.tags } : {}),
+    });
+    return reply.code(201).send(suggestionDto(made, ctx.photoscout?.config.url ?? ''));
+  });
+
+  app.post('/v1/photoscout/suggestions/:id/photo', {
+    ...auth, ...lim.write,
+    schema: {
+      security: bearer, tags, summary: 'Add a photo to a spot I suggested on PhotoScout',
+      description: 'multipart/form-data with the image in a `file` field (or `photo`): JPEG, PNG or WebP up to 15 MB, identified by magic bytes. Like `POST /v1/media`, the image is re-encoded first (upright, longest edge 2560 px, metadata stripped except the capture time) and a 512 px JPEG thumbnail goes with it, so PhotoScout receives a clean JPEG. Answers the updated suggestion, now with `photo`. Only my own suggestion, only while it has no photo and has not been settled (409 `photoscout_rejected`), at most a few a day (429). HEIC is refused: convert to JPEG on the device.',
+      params: bodyObj({ id: { type: 'string', maxLength: 64, description: 'The suggestion id from POST /v1/photoscout/suggestions.' } }),
+      response: { 201: ref('PsSuggestion'), 413: ref('Error'), 415: ref('Error'), ...errors },
+    },
+  }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    if (!PHOTO_ID.test(id)) throw badRequest('Not a suggestion id');
+    if (!req.isMultipart()) throw badRequest('Send multipart/form-data with a "file" field');
+    const part = await req.file();
+    if (!part || (part.fieldname !== 'file' && part.fieldname !== 'photo')) throw badRequest('Send multipart/form-data with a "file" field');
+    const bytes = await part.toBuffer(); // throws 413 past the 15 MB limit
+    if (bytes.length === 0) throw badRequest('Empty file');
+    const img = await processImage(bytes); // 415 for anything that is not JPEG/PNG/WebP (HEIC included)
+    const made = await svc().suggestSpotPhoto(req.userId, id, img);
+    return reply.code(201).send(suggestionDto(made, ctx.photoscout?.config.url ?? ''));
   });
 
   // ---- saved routes (scope routes:read) ---------------------------------------------------------------------------
