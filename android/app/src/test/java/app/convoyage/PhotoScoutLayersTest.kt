@@ -12,21 +12,45 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import mockwebserver3.Dispatcher
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
+import mockwebserver3.RecordedRequest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class PhotoScoutLayersTest {
     private lateinit var server: MockWebServer
 
-    @Before fun setUp() { server = MockWebServer(); server.start() }
+    /**
+     * Answers by path, not by arrival order: the repository fires the spots and events requests at the same time, and
+     * a positional queue would hand each one the other's body. Tests put a body in as they would enqueue it, and
+     * change it when the same path must answer differently a second time.
+     */
+    private lateinit var route: ConcurrentHashMap<String, String>
+
+    private val dispatcher = object : Dispatcher() {
+        override fun dispatch(request: RecordedRequest): MockResponse {
+            val body = route[request.url.encodedPath] ?: return MockResponse.Builder().code(404).build()
+            return MockResponse.Builder().code(200).body(body).build()
+        }
+    }
+
+    @Before
+    fun setUp() {
+        route = ConcurrentHashMap()
+        server = MockWebServer()
+        server.dispatcher = dispatcher
+        server.start()
+    }
+
     @After fun tearDown() { server.close() }
 
     private val spotJson = """{"id":"s1","name":"Mount Panorama lookout","notes":"","lat":-33.44,"lng":149.56,"tags":["sunset"],"facingDeg":null,"fovDeg":null,
@@ -34,8 +58,6 @@ class PhotoScoutLayersTest {
     private val eventJson = """{"id":"0b6f0d6e-1111-4c1b-9e4b-2d5c1a7e9f00","source":"community","title":"Sunday cruise","description":"","startTime":"2026-11-08T21:00:00.000Z",
         "endTime":null,"venue":"Bathurst","address":"","lat":-33.42,"lng":149.58,"imageUrl":"","url":"","going":4,"interested":0,"myRsvp":null,
         "cruise":{"routeName":"Panorama loop","meet":{"lat":-33.41,"lng":149.57,"note":"Servo car park"},"rollOut":"9:30"},"distanceKm":2.1}"""
-
-    private fun ok(body: String) = MockResponse.Builder().code(200).body(body).build()
 
     private fun layers(scope: TestScope, clock: () -> Long) =
         PhotoScoutLayers(scope, ConvoyApi({ server.url("/").toString() }, InMemoryTokenStore(Tokens("tok", "ref"))), now = clock)
@@ -56,16 +78,18 @@ class PhotoScoutLayersTest {
 
         // Not linked yet: nothing is asked for.
         l.onViewport(view, spots = true, events = true)
-        server.enqueue(ok("""{"configured":true,"linked":true,"username":"sam","scope":"read","linkedAt":null}"""))
+        route["/v1/photoscout/status"] = """{"configured":true,"linked":true,"username":"sam","scope":"read","linkedAt":null}"""
         l.refreshStatus()
         waitFor { l.state.value.available }
         assertEquals("/v1/photoscout/status", server.takeRequest(1, TimeUnit.SECONDS)!!.url.encodedPath)
 
-        server.enqueue(ok("[$spotJson]"))
-        server.enqueue(ok("[$eventJson]"))
+        route["/v1/photoscout/spots"] = "[$spotJson]"
+        route["/v1/photoscout/events"] = "[$eventJson]"
         l.onViewport(view, spots = true, events = true)
         waitFor { l.state.value.spots.size == 1 && l.state.value.events.size == 1 }
+        // Both requests are in flight at once, so only the set of paths they hit is fixed.
         val paths = listOf(server.takeRequest(1, TimeUnit.SECONDS)!!, server.takeRequest(1, TimeUnit.SECONDS)!!).associateBy { it.url.encodedPath }
+        assertEquals(setOf("/v1/photoscout/spots", "/v1/photoscout/events"), paths.keys)
         assertTrue(paths["/v1/photoscout/spots"]!!.url.queryParameter("bbox")!!.split(",").size == 4)
         assertTrue(paths["/v1/photoscout/events"]!!.url.queryParameter("radiusKm")!!.toDouble() >= 50.0)
 
@@ -75,7 +99,7 @@ class PhotoScoutLayersTest {
 
         // Five minutes later the same view is stale again (spots only on now).
         now += 6 * 60_000
-        server.enqueue(ok("[]"))
+        route["/v1/photoscout/spots"] = "[]"
         l.onViewport(view, spots = true, events = false)
         waitFor { l.state.value.spots.isEmpty() }
         assertEquals("/v1/photoscout/spots", server.takeRequest(1, TimeUnit.SECONDS)!!.url.encodedPath)
@@ -85,7 +109,7 @@ class PhotoScoutLayersTest {
     fun notLinkedHidesTheLayers() {
         val scope = TestScope(UnconfinedTestDispatcher())
         val l = layers(scope) { 0L }
-        server.enqueue(ok("""{"configured":true,"linked":false,"username":null,"scope":"","linkedAt":null}"""))
+        route["/v1/photoscout/status"] = """{"configured":true,"linked":false,"username":null,"scope":"","linkedAt":null}"""
         l.refreshStatus()
         server.takeRequest(1, TimeUnit.SECONDS)
         Thread.sleep(100)
@@ -96,22 +120,23 @@ class PhotoScoutLayersTest {
     fun rsvpPostsAndUpdatesTheEventInPlace() = runBlocking {
         val scope = TestScope(UnconfinedTestDispatcher())
         val l = layers(scope) { 0L }
-        server.enqueue(ok("""{"configured":true,"linked":true,"username":null,"scope":"","linkedAt":null}"""))
+        route["/v1/photoscout/status"] = """{"configured":true,"linked":true,"username":null,"scope":"","linkedAt":null}"""
         l.refreshStatus(); waitFor { l.state.value.available }
-        server.enqueue(ok("[$eventJson]"))
+        route["/v1/photoscout/events"] = "[$eventJson]"
         l.onViewport(Bbox(-33.45, 149.55, -33.40, 149.60), spots = false, events = true)
         waitFor { l.state.value.events.isNotEmpty() }
-        server.takeRequest(); server.takeRequest()
+        server.takeRequest(1, TimeUnit.SECONDS); server.takeRequest(1, TimeUnit.SECONDS)
 
-        server.enqueue(ok("""{"eventId":"x","source":"community","going":5,"interested":0,"myRsvp":"going"}"""))
+        val rsvpPath = "/v1/photoscout/events/0b6f0d6e-1111-4c1b-9e4b-2d5c1a7e9f00/rsvp"
+        route[rsvpPath] = """{"eventId":"x","source":"community","going":5,"interested":0,"myRsvp":"going"}"""
         assertNull(l.rsvp(l.state.value.events[0], "going"))
         val r = server.takeRequest(1, TimeUnit.SECONDS)!!
-        assertEquals("/v1/photoscout/events/0b6f0d6e-1111-4c1b-9e4b-2d5c1a7e9f00/rsvp", r.url.encodedPath)
+        assertEquals(rsvpPath, r.url.encodedPath)
         assertEquals("""{"status":"going"}""", r.body?.utf8())
         assertEquals(5, l.state.value.events[0].going)
         assertEquals("going", l.state.value.events[0].myRsvp)
 
-        server.enqueue(ok("""{"eventId":"x","source":"community","going":4,"interested":0,"myRsvp":null}"""))
+        route[rsvpPath] = """{"eventId":"x","source":"community","going":4,"interested":0,"myRsvp":null}"""
         l.rsvp(l.state.value.events[0], null)
         assertEquals("""{"going":false}""", server.takeRequest(1, TimeUnit.SECONDS)!!.body?.utf8())
         assertNull(l.state.value.events[0].myRsvp)

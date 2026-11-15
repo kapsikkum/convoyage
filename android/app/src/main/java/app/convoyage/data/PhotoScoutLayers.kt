@@ -5,6 +5,7 @@ import app.convoyage.api.ConvoyApi
 import app.convoyage.api.PsEvent
 import app.convoyage.api.PsRsvpRequest
 import app.convoyage.api.PsSpot
+import app.convoyage.api.PsSuggestionRequest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,6 +22,8 @@ data class LayersState(
     val linked: Boolean = false,
     /** The PhotoScout username, when it told us. */
     val username: String? = null,
+    /** This link's grant includes `spots:suggest`, so the app can report spots. False on an older link. */
+    val canSuggest: Boolean = false,
     /** Linked and configured: layers can load. */
     val available: Boolean = false,
     val spots: List<PsSpot> = emptyList(),
@@ -65,7 +68,7 @@ class PhotoScoutLayers(
             val s = (api.photoscoutStatus() as? ApiResult.Ok)?.value ?: return@launch
             val ok = s.configured && s.linked
             _state.update {
-                if (ok) it.copy(configured = true, linked = true, username = s.username, available = true)
+                if (ok) it.copy(configured = true, linked = true, username = s.username, canSuggest = s.canSuggest, available = true)
                 else LayersState(configured = s.configured)
             }
             // Just linked: force a load for the current view on the next viewport call.
@@ -175,6 +178,51 @@ class PhotoScoutLayers(
             is ApiResult.Err -> r.message
         }
     }
+
+    /**
+     * Sends [name] at [lat],[lng] to PhotoScout for moderation, with [jpeg] as its photo when given.
+     * Null on success; otherwise a line to show. The suggestion is created before the photo is uploaded, so a
+     * photo failure still leaves the spot sent: the message says so and starts with [SPOT_SENT_PHOTO_FAILED].
+     */
+    suspend fun reportSpot(
+        name: String, notes: String, lat: Double, lng: Double, tags: List<String>, jpeg: ByteArray?,
+    ): String? {
+        val created = when (val r = api.suggestSpot(suggestionBody(name, notes, lat, lng, tags))) {
+            is ApiResult.Ok -> r.value
+            is ApiResult.Err -> return spotSuggestionError(r)
+        }
+        if (jpeg == null) return null
+        return when (val r = api.suggestSpotPhoto(created.id, jpeg)) {
+            is ApiResult.Ok -> null
+            is ApiResult.Err -> SPOT_SENT_PHOTO_FAILED + spotSuggestionError(r)
+        }
+    }
+}
+
+/** A photo that failed after the spot itself was sent; the rest of the line says why. */
+internal const val SPOT_SENT_PHOTO_FAILED = "The spot was sent to PhotoScout, but the photo was not: "
+
+/** "a, B,, a " -> ["a", "B"]: trim, drop blanks, dedupe ignoring case, keep at most 8 tags of 1..30 characters. */
+internal fun parseSpotTags(raw: String): List<String> =
+    raw.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        .distinctBy { it.lowercase() }
+        .take(8)
+        .map { it.take(30) }
+
+/** The JSON body for POST /v1/photoscout/suggestions: trimmed, capped at the server's limits, blanks left out. */
+internal fun suggestionBody(name: String, notes: String, lat: Double, lng: Double, tags: List<String>): PsSuggestionRequest =
+    PsSuggestionRequest(
+        name = name.trim().take(120),
+        notes = notes.trim().take(1000).ifBlank { null },
+        lat = lat,
+        lng = lng,
+        tags = tags.map { it.trim().take(30) }.filter { it.isNotEmpty() }.distinctBy { it.lowercase() }.take(8).ifEmpty { null },
+    )
+
+/** A suggestion error as a line for the member: a 403 means this link predates `spots:suggest` and needs relinking. */
+internal fun spotSuggestionError(err: ApiResult.Err): String = when (err.status) {
+    403 -> "This PhotoScout link cannot report spots. Relink PhotoScout, then try again."
+    else -> err.message
 }
 
 /** When [e] starts, in epoch milliseconds; null when the server sent a time we cannot read. */

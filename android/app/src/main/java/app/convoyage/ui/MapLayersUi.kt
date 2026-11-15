@@ -1,8 +1,10 @@
 package app.convoyage.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
@@ -19,6 +21,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.convoyage.api.PsEvent
 import app.convoyage.api.PsSpot
 import app.convoyage.data.Bbox
+import app.convoyage.design.Banner
+import app.convoyage.design.BannerTone
 import app.convoyage.design.Cv
 import app.convoyage.design.CvChipToggle
 import app.convoyage.design.CvIconButton
@@ -95,6 +99,8 @@ fun rememberMapLayers(viewport: Bbox?, onNavigate: (app.convoyage.nav.Place) -> 
     var openEvent by remember { mutableStateOf<PsEvent?>(null) }
     var panel by remember { mutableStateOf(false) }
     var connect by remember { mutableStateOf(false) }
+    var report by remember { mutableStateOf(false) }
+    var reportSent by remember { mutableStateOf<String?>(null) }
     val trafficOn by session.layerTraffic.collectAsStateWithLifecycle()
     val area by container.area.state.collectAsStateWithLifecycle()
     var openItem by remember { mutableStateOf<app.convoyage.api.ConditionItem?>(null) }
@@ -128,10 +134,26 @@ fun rememberMapLayers(viewport: Bbox?, onNavigate: (app.convoyage.nav.Place) -> 
         openPanel = { panel = true },
         sheets = { inset ->
             if (panel) LayersPanel(
-                trafficOn, area, layers.configured, layers.linked, spotsOn, eventsOn, layers.error,
-                onConnect = { panel = false; connect = true }, onDismiss = { panel = false }, bottomInset = inset,
+                trafficOn, area, layers.configured, layers.linked, layers.canSuggest, spotsOn, eventsOn, layers.error,
+                onConnect = { panel = false; connect = true },
+                onReport = { panel = false; report = true },
+                onDismiss = { panel = false }, bottomInset = inset,
             )
             if (connect) ConnectPhotoScoutSheet(onDismiss = { connect = false }, bottomInset = inset)
+            if (report) {
+                ReportSpotSheet(
+                    viewport, onSent = { line -> reportSent = line; report = false }, onDismiss = { report = false }, bottomInset = inset,
+                )
+            }
+            reportSent?.let { line ->
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                    Banner(
+                        BannerTone.Go, line,
+                        Modifier.padding(horizontal = Space.gutter).padding(bottom = inset + Space.s6),
+                        icon = CvIcons.Check, actionLabel = "OK", onAction = { reportSent = null },
+                    )
+                }
+            }
             openItem?.let { i -> ConditionSheet(i, onDismiss = { openItem = null }, bottomInset = inset) }
             openSpot?.let { s -> SpotSheet(s, onNavigate = { p -> openSpot = null; onNavigate(p) }, onDismiss = { openSpot = null }, bottomInset = inset) }
             openEvent?.let { e ->
@@ -148,8 +170,9 @@ fun rememberMapLayers(viewport: Bbox?, onNavigate: (app.convoyage.nav.Place) -> 
 /** The layer switches: police and traffic always, PhotoScout's once linked (or a way to link it). */
 @Composable
 private fun LayersPanel(
-    trafficOn: Boolean, area: app.convoyage.data.AreaState, psConfigured: Boolean, psLinked: Boolean,
-    spotsOn: Boolean, eventsOn: Boolean, error: String?, onConnect: () -> Unit, onDismiss: () -> Unit, bottomInset: Dp,
+    trafficOn: Boolean, area: app.convoyage.data.AreaState, psConfigured: Boolean, psLinked: Boolean, psCanSuggest: Boolean,
+    spotsOn: Boolean, eventsOn: Boolean, error: String?, onConnect: () -> Unit, onReport: () -> Unit,
+    onDismiss: () -> Unit, bottomInset: Dp,
 ) {
     val c = Cv.colors
     val session = LocalContainer.current.session
@@ -161,6 +184,14 @@ private fun LayersPanel(
         if (psLinked) {
             LayerRow("Photo spots", "PhotoScout places to shoot, with their best times. Tap one for its photo and directions.", spotsOn) { session.setLayerSpots(!spotsOn) }
             LayerRow("Events", "Meets and cruises coming up nearby. Tap one to RSVP, drive there or join its convoy.", eventsOn) { session.setLayerEvents(!eventsOn) }
+            // A link made before PhotoScout offered spots:suggest can browse but not report: offer the relink.
+            ActionRow(
+                "Report a spot",
+                if (psCanSuggest) "Send a new spot to PhotoScout. A moderator checks it before it shows on the map."
+                else "Relink PhotoScout to report spots",
+                if (psCanSuggest) "Report" else "Relink",
+                if (psCanSuggest) onReport else onConnect,
+            )
             error?.let { Eyebrow(it.uppercase(), color = c.hazard) }
         } else if (psConfigured) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -214,5 +245,18 @@ private fun LayerRow(title: String, sub: String, on: Boolean, onToggle: () -> Un
             CvText(sub, Cv.type.bodyS, c.inkMuted)
         }
         CvChipToggle(if (on) "On" else "Off", on, onToggle)
+    }
+}
+
+/** A row that opens something rather than toggling a layer. */
+@Composable
+private fun ActionRow(title: String, sub: String, action: String, onAction: () -> Unit) {
+    val c = Cv.colors
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f).padding(end = Space.s3)) {
+            CvText(title, Cv.type.bodyStrong, c.ink)
+            CvText(sub, Cv.type.bodyS, c.inkMuted)
+        }
+        CvChipToggle(action, false, onAction)
     }
 }

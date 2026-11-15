@@ -332,6 +332,21 @@ class ConvoyApi(
             ApiJson.encodeToString(PsRsvpRequest.serializer(), body), PsRsvp.serializer(),
         )
 
+    /** Asks PhotoScout to consider a new spot; it waits for a moderator, so it is not on the map yet. */
+    suspend fun suggestSpot(body: PsSuggestionRequest): ApiResult<PsSuggestion> =
+        send("POST", "v1/photoscout/suggestions", ApiJson.encodeToString(PsSuggestionRequest.serializer(), body), PsSuggestion.serializer())
+
+    /** `POST /v1/photoscout/suggestions/{id}/photo`, multipart field "file". JPEG: PhotoScout refuses HEIC. */
+    suspend fun suggestSpotPhoto(id: String, jpeg: ByteArray): ApiResult<PsSuggestion> {
+        val form = MultipartBody.Builder().setType(MultipartBody.FORM)
+            .addFormDataPart("file", "spot.jpg", jpeg.toRequestBody("image/jpeg".toMediaType()))
+            .build()
+        return send(
+            "POST", "v1/photoscout/suggestions/${java.net.URLEncoder.encode(id, "UTF-8")}/photo",
+            null, PsSuggestion.serializer(), body = form,
+        )
+    }
+
     // ---- push devices ----------------------------------------------------------------------------
 
     /** Registers this device for notifications: a UnifiedPush endpoint and its Web Push keys. Idempotent. */

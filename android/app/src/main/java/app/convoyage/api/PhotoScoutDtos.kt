@@ -4,7 +4,13 @@ import kotlinx.serialization.Serializable
 
 /** GET /v1/photoscout/status. [configured] false: this server has no PhotoScout, every other PhotoScout call answers 503. */
 @Serializable
-data class PhotoScoutStatus(val configured: Boolean = false, val linked: Boolean = false, val username: String? = null)
+data class PhotoScoutStatus(
+    val configured: Boolean = false,
+    val linked: Boolean = false,
+    val username: String? = null,
+    /** True when the stored grant includes `spots:suggest`; false on a link made before PhotoScout offered it (relink). */
+    val canSuggest: Boolean = false,
+)
 
 @Serializable
 data class PhotoScoutAuthorizeUrl(val authorizeUrl: String)
@@ -71,3 +77,16 @@ data class PsRsvpRequest(val status: String? = null, val going: Boolean? = null)
 
 @Serializable
 data class PsRsvp(val myRsvp: String? = null, val going: Int = 0, val interested: Int = 0)
+
+/** POST /v1/photoscout/suggestions. [tags] at most 8 of 1..30 characters; the server rejects longer ones. */
+@Serializable
+data class PsSuggestionRequest(
+    val name: String,
+    val notes: String? = null,
+    val lat: Double,
+    val lng: Double,
+    val tags: List<String>? = null,
+)
+
+/** A spot waiting for a PhotoScout moderator: only `approved` ones reach the map. */
+typealias PsSuggestion = app.convoyage.api.gen.GenPsSuggestion
