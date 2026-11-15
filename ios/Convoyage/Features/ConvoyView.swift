@@ -18,6 +18,8 @@ struct ConvoyView: View {
     @State private var keyboard: CGFloat = 0
     /// The map keeps you in the middle until you move it yourself; Recentre turns it back on.
     @State private var follow: Bool = true
+    /// The bearing the map turns to while moving: heading-up, held through slow patches.
+    @State private var headingUp: HeadingUp = HeadingUp()
     @State private var showLayers: Bool = false
     @State private var layers: MapLayerSelection = MapLayerSelection()
     /// Where the map is looking, for the "nearby" layer hint.
@@ -91,7 +93,7 @@ struct ConvoyView: View {
                               onLongPress: { (c: CLLocationCoordinate2D) in
                                   longPressed(c)
                               },
-                              follow: guiding ? app.nav.followCamera : nil,
+                              follow: followCamera(vm, guiding: guiding),
                               fitToken: fitToken,
                               fitCoordinates: fitCoords,
                               followUser: follow && !guiding,
@@ -160,6 +162,7 @@ struct ConvoyView: View {
             guard let l = l else { return }
             app.speedLimits.onFix(lat: l.coordinate.latitude, lng: l.coordinate.longitude,
                                   headingDeg: l.course >= 0 ? l.course : nil)
+            headingUp.update(speed: max(0, l.speed), heading: l.course >= 0 ? l.course : nil, now: Date())
         }
         .onChange(of: app.layerTraffic) { (_: Bool, on: Bool) in
             if !on { app.area.clear() }
@@ -292,6 +295,14 @@ struct ConvoyView: View {
         let line: [CLLocationCoordinate2D] = app.nav.guiding ? app.nav.routeCoordinates : vm.mapRoute
         guard let t = Rejoin.target(line: line, me: me) else { return nil }
         return (from: me, to: t)
+    }
+
+    /// The camera to look through: the navigation one while guiding, else heading-up once you are moving, so the map
+    /// turns with the road the way it does on Android. nil leaves the plain north-up follow.
+    private func followCamera(_ vm: ConvoyViewModel, guiding: Bool) -> FollowCamera? {
+        if guiding { return app.nav.followCamera }
+        guard follow, let h: Double = headingUp.held, let me = vm.location.latest?.coordinate else { return nil }
+        return FollowCamera(coordinate: me, heading: h, altitude: 2500)
     }
 
     @ViewBuilder

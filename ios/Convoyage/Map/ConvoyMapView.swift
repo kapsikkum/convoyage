@@ -266,10 +266,12 @@ enum NightMap {
 struct FollowCamera: Equatable {
     var coordinate: CLLocationCoordinate2D
     var heading: Double
+    /// How high the camera sits: navigation hugs the road, the idle heading-up follow shows more of it.
+    var altitude: Double = 900
 
     static func == (a: FollowCamera, b: FollowCamera) -> Bool {
         return a.coordinate.latitude == b.coordinate.latitude && a.coordinate.longitude == b.coordinate.longitude
-            && a.heading == b.heading
+            && a.heading == b.heading && a.altitude == b.altitude
     }
 }
 
@@ -379,6 +381,11 @@ struct ConvoyMapView: UIViewRepresentable {
         }
     }
 
+    /// The rejoin pulse holds the coordinator through its display link: stop it when the map goes away.
+    static func dismantleUIView(_ map: MLNMapView, coordinator: Coordinator) {
+        coordinator.stopPulse()
+    }
+
     final class Coordinator: NSObject, MLNMapViewDelegate {
         weak var map: MLNMapView?
         var theme: Theme = Theme.night
@@ -402,6 +409,10 @@ struct ConvoyMapView: UIViewRepresentable {
         private var routeSource: MLNShapeSource?
         private var roadSources: [String: MLNShapeSource] = [:]
         private var rejoinSource: MLNShapeSource?
+        private var rejoinLayer: MLNLineStyleLayer?
+        /// The rejoin line's breath: a display link that tints its opacity while the line is on screen.
+        private var pulse: CADisplayLink?
+        private var pulseStart: CFTimeInterval = 0
         private var roadApplied: [MapRoadSegment] = []
         private var puckSource: MLNShapeSource?
         private var routeCoords: [CLLocationCoordinate2D] = []
@@ -497,6 +508,11 @@ struct ConvoyMapView: UIViewRepresentable {
                 style.addLayer(mood)
             }
 
+            // Under the roads (like Android), over the land and water: the first road line, else just under the mood.
+            let firstRoad: MLNStyleLayer? = original.first(where: { (l: MLNStyleLayer) -> Bool in
+                return l is MLNLineStyleLayer && NightMap.isRoadLine(l.identifier)
+            })
+            addHillshade(style, below: firstRoad ?? mood)
             addRoute(style, below: firstText)
             addRejoin(style, below: firstText)
             addRoadQuality(style, below: firstText)
@@ -550,6 +566,7 @@ struct ConvoyMapView: UIViewRepresentable {
             line.lineCap = NSExpression(forConstantValue: "round")
             line.lineJoin = NSExpression(forConstantValue: "round")
             place(line, in: style, below: below)
+            rejoinLayer = line
         }
 
         /// The route coloured by road surface: one source per grade, over the plain route line and under the labels.
@@ -584,6 +601,30 @@ struct ConvoyMapView: UIViewRepresentable {
             dot.circleStrokeColor = NSExpression(forConstantValue: UIColor(hex: 0x05080d))
             dot.circleStrokeWidth = NSExpression(forConstantValue: 2.5)
             place(dot, in: style, below: below)
+        }
+
+        /// Hills and valleys: shaded relief from public Terrarium elevation tiles (AWS open data, no key), lit from the
+        /// north-west in the HUD's blues. MapLibre iOS has no 3D terrain mesh, so relief is shading only; it shows on
+        /// the flat map and the tilted one alike. It sits under the roads and so under the mood tint, so its light is
+        /// pre-compensated.
+        private func addHillshade(_ style: MLNStyle, below anchor: MLNStyleLayer) {
+            guard style.source(withIdentifier: "terrain-dem") == nil, style.layer(withIdentifier: "terrain-hillshade") == nil else { return }
+            let dem: MLNRasterDEMSource = MLNRasterDEMSource(
+                identifier: "terrain-dem",
+                tileURLTemplates: ["https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"],
+                options: [
+                    .maximumZoomLevel: 15,
+                    .tileSize: 256,
+                    .demEncoding: MLNDEMEncoding.terrarium.rawValue,
+                    .attributionHTMLString: "Elevation: Mapzen Terrain Tiles (AWS Open Data)"
+                ])
+            style.addSource(dem)
+            let hill: MLNHillshadeStyleLayer = MLNHillshadeStyleLayer(identifier: "terrain-hillshade", source: dem)
+            hill.hillshadeShadowColor = NSExpression(forConstantValue: UIColor(hex: 0x000000))
+            hill.hillshadeHighlightColor = NSExpression(forConstantValue: NightMap.preTint(0x5a86ad))
+            hill.hillshadeAccentColor = NSExpression(forConstantValue: NightMap.preTint(0x0d1830))
+            hill.hillshadeExaggeration = NSExpression(forConstantValue: 1.0)
+            style.insertLayer(hill, below: anchor)
         }
 
         // MARK: Route and user position
@@ -624,10 +665,36 @@ struct ConvoyMapView: UIViewRepresentable {
             guard let src = rejoinSource else { return }
             guard let a = rejoinFrom, let b = rejoinTo else {
                 src.shape = nil
+                stopPulse()
                 return
             }
             var pts: [CLLocationCoordinate2D] = [a, b]
             src.shape = MLNPolylineFeature(coordinates: &pts, count: UInt(pts.count))
+            startPulse()
+        }
+
+        /// Breathes the rejoin line's opacity (0.6 … 1.0, about once every 1.4 s) while the line is on screen.
+        private func startPulse() {
+            guard pulse == nil, rejoinLayer != nil else { return }
+            pulseStart = CACurrentMediaTime()
+            let link: CADisplayLink = CADisplayLink(target: self, selector: #selector(pulseTick(_:)))
+            link.add(to: .main, forMode: .common)
+            pulse = link
+        }
+
+        /// Stops the breath and puts the line back to its resting look for the next time it appears.
+        func stopPulse() {
+            guard let link = pulse else { return }
+            link.invalidate()
+            pulse = nil
+            rejoinLayer?.lineOpacity = NSExpression(forConstantValue: 0.9)
+        }
+
+        @objc private func pulseTick(_ link: CADisplayLink) {
+            guard let layer = rejoinLayer else { return }
+            let t: CFTimeInterval = link.timestamp - pulseStart
+            let a: Double = 0.6 + 0.4 * sin(t * 2 * Double.pi / 1.4)
+            layer.lineOpacity = NSExpression(forConstantValue: a)
         }
 
         // MARK: Road quality
@@ -702,7 +769,7 @@ struct ConvoyMapView: UIViewRepresentable {
             following = true
             if let last = followApplied, last == target { return }
             followApplied = target
-            let cam: MLNMapCamera = MLNMapCamera(lookingAtCenter: target.coordinate, altitude: 900, pitch: 60, heading: target.heading)
+            let cam: MLNMapCamera = MLNMapCamera(lookingAtCenter: target.coordinate, altitude: target.altitude, pitch: 60, heading: target.heading)
             // The top padding moves the person down the screen so there is more road to see ahead.
             map.setCamera(cam,
                           withDuration: 1.0,
@@ -746,7 +813,13 @@ struct ConvoyMapView: UIViewRepresentable {
 
         func mapView(_ mapView: MLNMapView, regionWillChangeWith reason: MLNCameraChangeReason, animated: Bool) {
             let gesture: MLNCameraChangeReason = [.gesturePan, .gesturePinch, .gestureRotate, .gestureZoomIn, .gestureZoomOut, .gestureOneFingerZoom, .gestureTilt]
-            if !reason.intersection(gesture).isEmpty { onUserMoved?() }
+            if !reason.intersection(gesture).isEmpty {
+                // A hand on the map releases the follow first, so the answer's applyFollow(nil) leaves the camera where
+                // the person put it instead of snapping it back to north up and flat.
+                following = false
+                followApplied = nil
+                onUserMoved?()
+            }
         }
 
         func mapView(_ mapView: MLNMapView, didSelect annotation: MLNAnnotation) {
@@ -902,6 +975,10 @@ struct ConvoyMapView: UIViewRepresentable {
 
         func mapView(_ mapView: MLNMapView, annotationCanShowCallout annotation: MLNAnnotation) -> Bool {
             return false
+        }
+
+        deinit {
+            pulse?.invalidate()
         }
     }
 }
