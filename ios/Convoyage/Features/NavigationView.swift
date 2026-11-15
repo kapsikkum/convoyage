@@ -206,9 +206,15 @@ struct NavigationScreen: View {
                     Text(p.subtitle).font(CvFont.text(13)).foregroundStyle(theme.inkMuted).lineLimit(2)
                 }
             }
+            HStack(spacing: 8) {
+                ForEach(SavedSlot.allCases, id: \.self) { (slot: SavedSlot) in
+                    slotChip(slot, p, app.places.saved[slot] == p)
+                }
+            }
             HStack(spacing: 10) {
                 CvButton(title: "Cancel", kind: .ghost) { picked = nil }
                 CvButton(title: "Go", icon: "location.north.fill") {
+                    app.places.remember(p)
                     nav.start(to: p)
                     picked = nil
                 }
@@ -216,6 +222,33 @@ struct NavigationScreen: View {
         }
         .padding(16)
         .cvPanel(fill: theme.surface200, edge: theme.signal, cut: Cut.l)
+    }
+
+    /// "Set as Home" until this place is that slot's, then "Home" ticked; tapping again clears it.
+    private func slotChip(_ slot: SavedSlot, _ p: NavPlace, _ on: Bool) -> some View {
+        Button {
+            if on {
+                app.places.clear(slot)
+            } else {
+                app.places.save(slot, p)
+            }
+        } label: {
+            HStack(spacing: 6) {
+                if on {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 11, weight: .bold))
+                }
+                Text(on ? slot.label : "Set as " + slot.label)
+                    .font(CvFont.label(12))
+                    .tracking(1.2)
+            }
+            .foregroundStyle(on ? theme.signalInk : theme.ink)
+            .padding(.horizontal, 14)
+            .frame(minHeight: 36)
+            .cvPanel(fill: on ? theme.signal : theme.glass, edge: on ? theme.signal : theme.lineStrong, cut: Cut.s)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(on ? slot.label + " saved. Tap to clear" : "Set as " + slot.label)
     }
 
     // MARK: Routing

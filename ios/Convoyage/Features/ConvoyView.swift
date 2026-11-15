@@ -82,8 +82,7 @@ struct ConvoyView: View {
         )
         GeometryReader { (geo: GeometryProxy) in
             let m: SheetMetrics = metrics(screenHeight: geo.size.height, inConvoy: inConvoy)
-            let base: CGFloat = inConvoy ? m.height(for: detent) : m.peek
-            let sheetH: CGFloat = inConvoy ? min(max(base - dragY, m.peek), m.full) : m.peek
+            let sheetH: CGFloat = min(max(m.height(for: detent) - dragY, m.peek), m.full)
             let railBottom: CGFloat = min(max(sheetH, m.peek), m.half) + 12 + keyboard
             let railVisible: Bool = sheetH <= m.half + 30
             let hint: (from: CLLocationCoordinate2D, to: CLLocationCoordinate2D)? = rejoinHint(vm)
@@ -183,6 +182,10 @@ struct ConvoyView: View {
         .onChange(of: app.layerTraffic) { (_: Bool, on: Bool) in
             if !on { app.area.clear() }
         }
+        .onChange(of: vm.room?.code) { (_: String?, _: String?) in
+            // Both dock states share one detent: a room appearing or going starts at the peek.
+            detent = .peek
+        }
         .sheet(isPresented: $showCreate) {
             CreateConvoySheet()
                 .presentationDetents([.medium, .large])
@@ -261,6 +264,7 @@ struct ConvoyView: View {
         VStack(spacing: 8) {
             if vm.room == nil && app.nav.phase == .idle {
                 WhereToBar { app.showNav = true }
+                DriveChips()
             }
             if vm.room != nil {
                 if app.nav.guiding {
@@ -410,7 +414,7 @@ struct ConvoyView: View {
             if let room = vm.room {
                 convoySheetContent(vm, room, m, h)
             } else {
-                noConvoyContent(vm, m)
+                noConvoyDock(m, h)
             }
         }
         .frame(maxWidth: .infinity)
@@ -422,36 +426,58 @@ struct ConvoyView: View {
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: detent)
     }
 
-    private func noConvoyContent(_ vm: ConvoyViewModel, _ m: SheetMetrics) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Capsule().fill(theme.lineStrong).frame(width: 40, height: 4)
-                .frame(maxWidth: .infinity)
-            Text("No convoy yet").font(CvFont.display(20))
-            Text("Start one and share the code, or join with a code.")
-                .font(CvFont.text(13))
-                .foregroundStyle(theme.inkMuted)
-            HStack(spacing: 10) {
-                CvButton(title: "Start") { showCreate = true }
-                CvButton(title: "Join", kind: .ghost) { showJoin = true }
-                CvButton(title: "Routes", kind: .ghost) { app.showRoutes = true }
+    /// No convoy: the peek is the start / join prompt; pulled up, the same detents as a convoy sheet.
+    private func noConvoyDock(_ m: SheetMetrics, _ h: CGFloat) -> some View {
+        let showBody: Bool = h > m.peek + 24
+        return VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 10) {
+                Capsule()
+                    .fill(theme.lineStrong)
+                    .frame(width: 40, height: 4)
+                    .frame(maxWidth: .infinity, minHeight: 24)
+                    .contentShape(Rectangle())
+                    .onTapGesture { cycleDetent() }
+                    .accessibilityLabel("Drive sheet handle")
+                    .accessibilityHint("Double tap to change the sheet size")
+                    .accessibilityAddTraits(.isButton)
+                Text("No convoy yet").font(CvFont.display(20))
+                Text("Start one and share the code, or join with a code.")
+                    .font(CvFont.text(13))
+                    .foregroundStyle(theme.inkMuted)
+                HStack(spacing: 10) {
+                    CvButton(title: "Start") { showCreate = true }
+                    CvButton(title: "Join", kind: .ghost) { showJoin = true }
+                    CvButton(title: "Routes", kind: .ghost) { app.showRoutes = true }
+                }
             }
-            OpenCruiseRow()
-            Spacer(minLength: 0)
+            .padding(.horizontal, 16)
+            .gesture(sheetDrag(m))
+
+            if showBody {
+                DriveDockContent()
+                    .padding(.top, 4)
+                    .frame(maxHeight: .infinity, alignment: .top)
+            } else {
+                Spacer(minLength: 0)
+            }
         }
-        .padding(.horizontal, 16)
         .padding(.top, 10)
         .padding(.bottom, m.reserve)
     }
 
-    private func convoySheetContent(_ vm: ConvoyViewModel, _ room: Room, _ m: SheetMetrics, _ h: CGFloat) -> some View {
-        let showBody: Bool = h > m.peek + 24
-        let drag = DragGesture(minimumDistance: 6)
+    private func sheetDrag(_ m: SheetMetrics) -> some Gesture {
+        return DragGesture(minimumDistance: 6)
             .updating($dragY) { (value: DragGesture.Value, state: inout CGFloat, _: inout Transaction) in
                 state = value.translation.height
             }
             .onEnded { (value: DragGesture.Value) in
                 settle(value, m)
             }
+    }
+
+    private func convoySheetContent(_ vm: ConvoyViewModel, _ room: Room, _ m: SheetMetrics, _ h: CGFloat) -> some View {
+        let showBody: Bool = h > m.peek + 24
+        let drag = sheetDrag(m)
         return VStack(spacing: 0) {
             VStack(spacing: 0) {
                 Capsule()

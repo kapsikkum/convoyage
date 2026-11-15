@@ -21,6 +21,10 @@ struct RootView: View {
             get: { app.showRide },
             set: { (newValue: Bool) in app.showRide = newValue }
         )
+        let builderBinding: Binding<Bool> = Binding<Bool>(
+            get: { app.showRouteBuilder },
+            set: { (newValue: Bool) in app.showRouteBuilder = newValue }
+        )
 
         ZStack(alignment: .bottom) {
             theme.void.ignoresSafeArea()
@@ -58,6 +62,9 @@ struct RootView: View {
         .foregroundStyle(theme.ink)
         .fullScreenCover(isPresented: rideBinding) {
             RideView()
+        }
+        .fullScreenCover(isPresented: builderBinding) {
+            RouteBuilderView()
         }
         .sheet(isPresented: routesBinding) {
             RoutesView()

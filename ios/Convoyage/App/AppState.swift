@@ -51,6 +51,8 @@ final class AppState {
     var showNav: Bool = false
     /// Saved routes (full screen).
     var showRoutes: Bool = false
+    /// The route builder (full screen).
+    var showRouteBuilder: Bool = false
     /// The last `/v1/me` we fetched (nil until loaded or after sign-out).
     var me: MeDto?
     /// A deep-link sign-in in progress or failed: shown on Welcome.
@@ -108,6 +110,8 @@ final class AppState {
     let savedRoutes: SavedRoutesStore
     /// PhotoScout spots and events.
     let photoscout: PhotoScoutLayers
+    /// Home and Work places and recent destinations (this device).
+    let places: PlacesStore
 
     @ObservationIgnored private let defaults: UserDefaults = UserDefaults.standard
     /// The APNs token iOS handed us, and the one the server last accepted (so sign-out can forget it).
@@ -143,6 +147,7 @@ final class AppState {
         speedLimits = SpeedLimits(api: client)
         savedRoutes = SavedRoutesStore(api: client)
         photoscout = PhotoScoutLayers(api: client)
+        places = PlacesStore()
         nav = NavigationSession(api: client, location: convoyModel.location, hazards: hazardStore)
         voice = VoiceChannel(api: client)
         recorder = recorderModel
@@ -498,9 +503,17 @@ final class AppState {
 
     // MARK: Convoy navigation
 
+    /// One tap from a Home / Work chip or a recent row: remembers the place and opens navigation.
+    func navigate(to place: NavPlace) {
+        places.remember(place)
+        nav.start(to: place)
+        showNav = true
+    }
+
     /// A search pick from the convoy view. With the convoy heading somewhere it is a stop for me only, then on to the
     /// convoy's goal; leading with nowhere set it becomes everyone's destination; otherwise it is just this phone.
     func pickInConvoy(_ place: NavPlace) {
+        places.remember(place)
         let room: Room? = convoy.room
         let dest: Destination? = room?.destination
         let stops: [[Double]] = room?.route?.stops ?? []
