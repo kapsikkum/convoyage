@@ -29,6 +29,10 @@ struct ConvoyView: View {
     @State private var fitToken: Int = 0
     @State private var openNearbyConvoy: NearbyConvoy?
     @State private var openNearbyDriver: NearbyDriver?
+    /// The code chip in the sheet header shows COPIED for a moment after a tap.
+    @State private var copiedCode: Bool = false
+    @State private var copyTask: Task<Void, Never>?
+    @State private var showInviteQR: Bool = false
 
     private static let headerHeight: CGFloat = 96
     private static let noConvoyHeight: CGFloat = 228
@@ -147,6 +151,12 @@ struct ConvoyView: View {
             LayersSheet(mapCentre: viewport?.center)
                 .presentationDetents([.height(340), .medium])
         }
+        .sheet(isPresented: $showInviteQR) {
+            if let room = app.convoy.room {
+                InviteQRSheet(room: room)
+                    .presentationDetents([.medium, .large])
+            }
+        }
         .mapLayerSheets(layers)
         .sheet(item: $openNearbyConvoy) { (c: NearbyConvoy) in
             NearbyConvoySheet(convoy: c)
@@ -167,9 +177,11 @@ struct ConvoyView: View {
         .onChange(of: app.layerTraffic) { (_: Bool, on: Bool) in
             if !on { app.area.clear() }
         }
-        .onChange(of: vm.room?.code) { (_: String?, _: String?) in
+        .onChange(of: vm.room?.code) { (_: String?, new: String?) in
             // Both dock states share one detent: a room appearing or going starts at the peek.
             detent = .peek
+            // The QR sheet has no room to show once you have left.
+            if new == nil { showInviteQR = false }
         }
         .sheet(isPresented: $showCreate) {
             CreateConvoySheet()
@@ -495,7 +507,7 @@ struct ConvoyView: View {
                     .accessibilityLabel("Convoy sheet handle")
                     .accessibilityHint("Double tap to change the sheet size")
                     .accessibilityAddTraits(.isButton)
-                header(vm, room)
+                header(vm, room, showBody)
             }
             .gesture(drag)
 
@@ -514,19 +526,66 @@ struct ConvoyView: View {
         .padding(.bottom, m.reserve)
     }
 
-    private func header(_ vm: ConvoyViewModel, _ room: Room) -> some View {
-        HStack(alignment: .center, spacing: 10) {
+    private func header(_ vm: ConvoyViewModel, _ room: Room, _ expanded: Bool) -> some View {
+        HStack(alignment: .center, spacing: expanded ? 6 : 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(room.name)
                     .font(CvFont.display(20))
                     .lineLimit(1)
-                Text("CODE \(room.code)  /  \(vm.onlineCount) of \(room.members.count) online")
-                    .font(CvFont.label(11))
-                    .tracking(1.0)
-                    .foregroundStyle(theme.inkMuted)
-                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                HStack(spacing: 8) {
+                    Button {
+                        UIPasteboard.general.string = room.code
+                        markCodeCopied()
+                    } label: {
+                        Text(copiedCode ? "COPIED" : room.code)
+                            .font(CvFont.mono(12, weight: .medium))
+                            .tracking(1.0)
+                            .foregroundStyle(copiedCode ? theme.go : theme.signal)
+                            .lineLimit(1)
+                            .padding(.horizontal, 6)
+                            .frame(minHeight: 24)
+                            .cvPanel(fill: theme.surface200, edge: copiedCode ? theme.go : theme.lineStrong, cut: Cut.s)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Copy invite code \(room.code)")
+                    .layoutPriority(2)
+                    Text("\(vm.onlineCount) of \(room.members.count) online")
+                        .font(CvFont.label(11))
+                        .tracking(1.0)
+                        .foregroundStyle(theme.inkMuted)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                }
             }
-            Spacer(minLength: 4)
+            .layoutPriority(0)
+            Spacer(minLength: 0)
+            if expanded {
+                ShareLink(item: InviteLinks.shareText(room), subject: Text("Join my convoy")) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(theme.ink)
+                        .frame(width: 40, height: 40)
+                        .cvPanel(fill: theme.surface200, edge: theme.lineStrong, cut: Cut.s)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Share the invite")
+                .fixedSize()
+                .layoutPriority(1)
+                Button {
+                    showInviteQR = true
+                } label: {
+                    Image(systemName: "qrcode")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(theme.ink)
+                        .frame(width: 40, height: 40)
+                        .cvPanel(fill: theme.surface200, edge: theme.lineStrong, cut: Cut.s)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Show QR code")
+                .fixedSize()
+                .layoutPriority(1)
+            }
             Button {
                 tab = .chat
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { detent = .half }
@@ -550,11 +609,28 @@ struct ConvoyView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(vm.unreadCount > 0 ? "Convoy chat, \(vm.unreadCount) unread" : "Convoy chat")
+            .fixedSize()
+            .layoutPriority(1)
             ConvoyPTT(size: 56)
+                .layoutPriority(1)
         }
         .padding(.horizontal, 16)
         .frame(height: ConvoyView.headerHeight - 24)
         .contentShape(Rectangle())
+        .onDisappear {
+            copyTask?.cancel()
+            copiedCode = false
+        }
+    }
+
+    /// "COPIED" on the code chip for a moment after a tap.
+    private func markCodeCopied() {
+        copyTask?.cancel()
+        copiedCode = true
+        copyTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            if !Task.isCancelled { copiedCode = false }
+        }
     }
 
     private func tabBar(_ vm: ConvoyViewModel) -> some View {
@@ -585,7 +661,7 @@ struct ConvoyView: View {
     @ViewBuilder
     private func panel(_ vm: ConvoyViewModel) -> some View {
         switch tab {
-        case .roster: RosterPanel()
+        case .roster: RosterPanel(onQr: { showInviteQR = true })
         case .chat: ChatPanel()
         case .share: SharePanel()
         case .route: RoutePanel()
