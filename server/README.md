@@ -107,7 +107,8 @@ deploy/backup.sh                                    # nightly from cron: pg_dump
 | `SMTP_URL`, `MAIL_FROM` | unset, `Convoyage <no-reply@localhost>` | nodemailer URL (`smtps://user:pass@host:465`) for magic-link email. **Required in production** |
 | `S3_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_FORCE_PATH_STYLE`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_PREFIX` | unset | media in S3-compatible storage (S3, R2, MinIO) instead of `MEDIA_DIR` |
 | `ADMIN_TOKEN` | unset | 32+ characters; enables the `/admin/*` moderation routes |
-| `MAGIC_LINK_BASE_URL` | `convoyage://auth/magic` | link base; `token=` is appended (15 minute, single use) |
+| `MAGIC_LINK_BASE_URL` | `convoyage://auth/magic` | link base; `token=` is appended (15 minute, single use). Set it to the public https origin in production so mail clients linkify it |
+| `DEEP_LINK_BASE_URL` | `convoyage://auth/magic` | what the `GET /auth/magic` handoff page bounces the phone to |
 | `APPLE_AUDIENCES`, `GOOGLE_AUDIENCES` | unset | comma-separated accepted `aud` values (bundle id / client ids). Unset = that provider answers 501 |
 | `CONVOYAGE_DEV_AUTH` | `0` | `1`: sockets also accept `?dev_user=alice`. Refuses to start in production |
 | `MEDIA_DIR` | `data/media` | local disk media store |

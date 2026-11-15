@@ -83,6 +83,35 @@ test('without MAIL_DEV the link is not returned', async () => {
   await quiet.close();
 });
 
+test('GET /auth/magic is the browser handoff page: deep link, pasteable token, no consumption', async () => {
+  const page = await t.req('GET', '/auth/magic?token=XYZ');
+  assert.equal(page.status, 200);
+  assert.match(page.headers.get('content-type')!, /^text\/html; charset=utf-8/);
+  assert.ok(page.body.includes('Open Convoyage to finish signing in'));
+  assert.ok(page.body.includes('convoyage://auth/magic?token=XYZ'));
+  assert.ok(page.body.includes('href="convoyage://auth/magic?token=XYZ"'));
+  assert.ok(page.body.includes('<code>XYZ</code>'));
+  // A value that would break out of an attribute or the script comes back escaped.
+  const nasty = await t.req('GET', '/auth/magic?token=' + encodeURIComponent('a"b<c>&d'));
+  assert.equal(nasty.status, 200);
+  assert.ok(!nasty.body.includes('a"b<c>'), 'no raw token in the page');
+  assert.ok(nasty.body.includes('a%22b%3Cc%3E%26d'), 'the href and script carry the encoded token');
+
+  // Still 200 without a token, and no redirect target: nothing to hand off.
+  const bare = await t.req('GET', '/auth/magic');
+  assert.equal(bare.status, 200);
+  assert.match(bare.headers.get('content-type')!, /^text\/html/);
+  assert.ok(bare.body.includes('missing its token'));
+  assert.ok(!bare.body.includes('location.replace'));
+  assert.ok(!bare.body.includes('convoyage://'));
+
+  // Opening the page does not spend the link: only POST /auth/magic-link/verify does.
+  const token = await linkToken('handoff@example.com');
+  assert.equal((await t.req('GET', `/auth/magic?token=${token}`)).status, 200);
+  assert.equal((await t.req('GET', `/auth/magic?token=${token}`)).status, 200);
+  assert.equal((await t.req('POST', '/auth/magic-link/verify', { body: { token } })).status, 200);
+});
+
 test('the access token is rejected when missing, malformed, forged or expired', async () => {
   assert.equal((await t.req('GET', '/v1/me')).status, 401);
   assert.equal((await t.req('GET', '/v1/me', { token: 'nonsense' })).status, 401);

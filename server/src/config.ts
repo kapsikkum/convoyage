@@ -25,7 +25,10 @@ export interface Config {
   refreshTtlDays: number;
   magicLinkTtlS: number;
   mailDev: boolean;
+  /** What the magic-link email points at; `token=` is appended. */
   magicLinkBaseUrl: string;
+  /** What the browser handoff page bounces the phone to. */
+  deepLinkBaseUrl: string;
   /** Bearer token for the operator's /admin moderation routes (32+ characters). Null = no admin routes. */
   adminToken: string | null;
   /** SMTP delivery for magic links. Null = no mail is sent (MAIL_DEV only). */
@@ -131,6 +134,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     magicLinkTtlS: int(env.MAGIC_LINK_TTL_SECONDS, 15 * 60),
     mailDev,
     magicLinkBaseUrl: env.MAGIC_LINK_BASE_URL || 'convoyage://auth/magic',
+    deepLinkBaseUrl: env.DEEP_LINK_BASE_URL || 'convoyage://auth/magic',
     smtp,
     adminToken,
     devAuth,

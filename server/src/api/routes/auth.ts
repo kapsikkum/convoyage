@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import type { Kysely } from 'kysely';
 import type { DB } from '../../db/index.js';
 import { badRequest, forbidden, HttpError, unauthorized } from '../../errors.js';
+import { escapeHtml, withToken } from '../../mail.js';
 import { randomToken, sha256hex } from '../../security.js';
 import type { ApiContext } from '../common.js';
 import { limits } from '../limits.js';
@@ -10,6 +11,29 @@ import type { IdTokenVerifier } from '../providers.js';
 import { bodyObj, errorResponses, ref } from '../schemas.js';
 
 const MAX_LINKS_PER_EMAIL_PER_HOUR = 5;
+
+const PAGE_CSS = 'body{font-family:system-ui,sans-serif;line-height:1.6;margin:3rem auto;max-width:32rem;padding:0 1rem}h1{font-size:1.25rem}code{background:#f2f2f2;border-radius:.2rem;padding:.2rem .4rem;word-break:break-all}';
+
+/**
+ * The browser page an emailed https link lands on: it bounces the phone to the app scheme and, when the phone will not
+ * follow it, shows the token to paste into Convoyage's sign-in field. Self-contained, and it neither logs, stores nor
+ * consumes the token (only POST /auth/magic-link/verify does).
+ */
+function handoffPage(base: string, token: string | null): string {
+  const head = '<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Convoyage sign-in</title>'
+    + `<style>${PAGE_CSS}</style>`;
+  if (!token) {
+    return `<!doctype html><html><head>${head}</head><body><h1>This sign-in link is missing its token</h1>`
+      + '<p>It may have expired, or your mail app cut the link short. Request a new link in Convoyage and open it on the phone you are signing in on.</p></body></html>';
+  }
+  const deep = withToken(base, token);
+  return `<!doctype html><html><head>${head}<meta http-equiv="refresh" content="0;url=${escapeHtml(deep)}">`
+    + `<script>location.replace(${JSON.stringify(deep).replace(/</g, '\\u003c')})</script></head><body>`
+    + '<h1>Open Convoyage to finish signing in</h1>'
+    + `<p><a href="${escapeHtml(deep)}">Open Convoyage</a></p>`
+    + "<p>If the app does not open, copy this code into Convoyage's sign-in field:</p>"
+    + `<p><code>${escapeHtml(token)}</code></p></body></html>`;
+}
 
 interface Resolved { userId: string; created: boolean }
 
@@ -65,11 +89,18 @@ export async function authRoutes(app: FastifyInstance, ctx: ApiContext): Promise
     await ctx.db.insertInto('magic_link_tokens').values({
       email, token_hash: sha256hex(token), expires_at: new Date(Date.now() + ctx.config.magicLinkTtlS * 1000),
     }).execute();
-    const base = ctx.config.magicLinkBaseUrl;
-    const link = `${base}${base.includes('?') ? '&' : '?'}token=${token}`;
+    const link = withToken(ctx.config.magicLinkBaseUrl, token);
     if (ctx.config.mailDev) req.log.info({ email, link }, 'magic link (MAIL_DEV)');
     try { await ctx.mailer.sendMagicLink(email, link); } catch (err) { req.log.error({ err }, 'sending magic link failed'); }
     return reply.code(202).send(ctx.config.mailDev ? { ok: true, devLink: link } : { ok: true });
+  });
+
+  // The page the emailed https link lands on. A browser handoff, not app-facing JSON: hidden from the API document.
+  app.get('/auth/magic', { schema: { hide: true } }, async (req, reply) => {
+    const raw = (req.query as { token?: unknown }).token;
+    const token = typeof raw === 'string' && raw.trim() ? raw.trim() : null;
+    reply.type('text/html; charset=utf-8');
+    return handoffPage(ctx.config.deepLinkBaseUrl, token);
   });
 
   app.post('/auth/magic-link/verify', {

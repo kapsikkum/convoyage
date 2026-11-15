@@ -59,7 +59,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       db: database.db,
       config,
       tokens,
-      mailer: deps.mailer ?? (deps.config.smtp ? smtpMailer(deps.config.smtp) : noopMailer),
+      mailer: deps.mailer ?? (deps.config.smtp ? smtpMailer({ ...deps.config.smtp, deepLinkBaseUrl: config.deepLinkBaseUrl }) : noopMailer),
       providers: deps.providers ?? providersFromConfig(config),
       media: deps.media ?? (config.s3 ? new S3MediaStore(config.s3) : new LocalDiskMediaStore(config.mediaDir)),
       notifier,
