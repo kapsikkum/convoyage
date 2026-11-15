@@ -17,6 +17,7 @@ struct PhotoScoutAuthorizeDto: Decodable {
 struct PsGoodTimes: Decodable, Equatable {
     var phases: [String]?
     var months: [Int]?
+    var conditions: [String]?
 }
 
 struct PsPhoto: Decodable, Equatable {

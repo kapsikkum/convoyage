@@ -19,9 +19,12 @@ struct ConvoyView: View {
     /// The map keeps you in the middle until you move it yourself; Recentre turns it back on.
     @State private var follow: Bool = true
     @State private var showLayers: Bool = false
-    @State private var openItem: ConditionItemDto?
-    @State private var openSpot: PsSpot?
-    @State private var openEvent: PsEvent?
+    @State private var layers: MapLayerSelection = MapLayerSelection()
+    /// Where the map is looking, for the "nearby" layer hint.
+    @State private var viewport: GeoBox?
+    /// The points the hint asked to frame, and the bump that makes the map fit them.
+    @State private var fitCoords: [CLLocationCoordinate2D] = []
+    @State private var fitToken: Int = 0
     @State private var openNearbyConvoy: NearbyConvoy?
     @State private var openNearbyDriver: NearbyDriver?
 
@@ -35,21 +38,6 @@ struct ConvoyView: View {
                           kind: h.isPolice ? .police : .hazard,
                           coordinate: CLLocationCoordinate2D(latitude: h.lat, longitude: h.lng))
         }
-    }
-
-    /// Police, cameras and traffic around the map (TfNSW, Waze), when that layer is on.
-    private var areaPins: [MapPin] {
-        guard app.layerTraffic else { return [] }
-        return app.area.items.map { (i: ConditionItemDto) -> MapPin in return i.pin }
-    }
-
-    /// PhotoScout spots and events, when linked and switched on.
-    private var photoscoutPins: [MapPin] {
-        let ps: PhotoScoutLayers = app.photoscout
-        guard ps.available else { return [] }
-        let spots: [MapPin] = app.layerSpots ? ps.spots.map { (s: PsSpot) -> MapPin in return s.pin } : []
-        let events: [MapPin] = app.layerEvents ? ps.events.compactMap { (e: PsEvent) -> MapPin? in return e.pin } : []
-        return spots + events
     }
 
     /// Open Cruise: drivers and open convoys nearby, while not in a convoy.
@@ -89,12 +77,13 @@ struct ConvoyView: View {
             let guiding: Bool = vm.room != nil && app.nav.guiding
 
             ZStack(alignment: .bottom) {
-                ConvoyMapView(pins: photoscoutPins + areaPins + hazardPins + cruisePins + vm.mapPins, is3D: is3D, recenterToken: recenter, theme: theme,
+                ConvoyMapView(pins: MapLayerPins.pins(app) + hazardPins + cruisePins + vm.mapPins, is3D: is3D, recenterToken: recenter, theme: theme,
                               userCoordinate: vm.location.latest?.coordinate,
                               route: guiding ? app.nav.remainingCoordinates : vm.mapRoute,
                               rejoinFrom: hint?.from,
                               rejoinTo: hint?.to,
                               onViewport: { (box: GeoBox) in
+                                  viewport = box
                                   Task { await app.hazards.refresh(box: box) }
                                   app.area.onViewport(box, on: app.layerTraffic)
                                   app.photoscout.onViewport(box, spots: app.layerSpots, events: app.layerEvents)
@@ -103,6 +92,8 @@ struct ConvoyView: View {
                                   longPressed(c)
                               },
                               follow: guiding ? app.nav.followCamera : nil,
+                              fitToken: fitToken,
+                              fitCoordinates: fitCoords,
                               followUser: follow && !guiding,
                               onUserMoved: { follow = false },
                               onPinTap: { (id: String) in pinTapped(id) })
@@ -123,6 +114,8 @@ struct ConvoyView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                     .opacity(railVisible ? 1 : 0)
                     .allowsHitTesting(railVisible)
+
+                layerHint(railVisible, railBottom)
 
                 sheet(vm, m, sheetH)
                     .padding(.bottom, keyboard)
@@ -152,18 +145,7 @@ struct ConvoyView: View {
             LayersSheet()
                 .presentationDetents([.height(260)])
         }
-        .sheet(item: $openItem) { (i: ConditionItemDto) in
-            ConditionSheet(item: i)
-                .presentationDetents([.height(220)])
-        }
-        .sheet(item: $openSpot) { (s: PsSpot) in
-            SpotSheet(spot: s)
-                .presentationDetents([.medium, .large])
-        }
-        .sheet(item: $openEvent) { (e: PsEvent) in
-            EventSheet(event: e)
-                .presentationDetents([.medium, .large])
-        }
+        .mapLayerSheets(layers)
         .sheet(item: $openNearbyConvoy) { (c: NearbyConvoy) in
             NearbyConvoySheet(convoy: c)
                 .presentationDetents([.height(230)])
@@ -216,22 +198,35 @@ struct ConvoyView: View {
     // MARK: Map interaction
 
     private func pinTapped(_ id: String) {
-        if id.hasPrefix("area-") {
-            let key: String = String(id.dropFirst(5))
-            openItem = app.area.items.first { (i: ConditionItemDto) -> Bool in return i.id == key }
-        } else if id.hasPrefix("spot-") {
-            let key: String = String(id.dropFirst(5))
-            openSpot = app.photoscout.spots.first { (s: PsSpot) -> Bool in return s.id == key }
-        } else if id.hasPrefix("cruise-c-") {
+        if layers.handlePinTap(id, app: app) { return }
+        if id.hasPrefix("cruise-c-") {
             let key: String = String(id.dropFirst(9))
             openNearbyConvoy = app.convoy.nearbyConvoys.first { (c: NearbyConvoy) -> Bool in return c.code == key }
         } else if id.hasPrefix("cruise-d-") {
             let key: String = String(id.dropFirst(9))
             openNearbyDriver = app.convoy.nearbyDrivers.first { (d: NearbyDriver) -> Bool in return d.id == key }
-        } else if id.hasPrefix("event-") {
-            let key: String = String(id.dropFirst(6))
-            openEvent = app.photoscout.events.first { (e: PsEvent) -> Bool in return e.id == key }
         }
+    }
+
+    /// "N spots nearby": frames them when tapped, and stops the map following you so they stay in view.
+    private func layerHint(_ visible: Bool, _ bottom: CGFloat) -> some View {
+        LayerHint(viewport: viewport) { (points: [CLLocationCoordinate2D]) in
+            follow = false
+            fitCoords = ConvoyView.withMe(points, app.convoy.location.latest?.coordinate)
+            fitToken += 1
+        }
+        .padding(.horizontal, 48)
+        // Above the speed readout, which owns the bottom-left corner of the same band.
+        .padding(.bottom, bottom + 68)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .opacity(visible ? 1 : 0)
+        .allowsHitTesting(visible)
+    }
+
+    /// What to frame: the pins the hint found, plus where we are, so even one pin is two points to fit.
+    private static func withMe(_ points: [CLLocationCoordinate2D], _ me: CLLocationCoordinate2D?) -> [CLLocationCoordinate2D] {
+        guard let me = me else { return points }
+        return points + [me]
     }
 
     /// Speed, and the road's limit beside it, once you are moving.
@@ -378,7 +373,7 @@ struct ConvoyView: View {
                 follow = true
                 recenter += 1
             }
-            iconButton("square.3.layers.3d", tint: app.layerTraffic ? theme.signal : theme.ink, label: "Map layers") { showLayers = true }
+            iconButton("square.3.layers.3d", tint: layersAnyOn(app) ? theme.signal : theme.ink, label: "Map layers") { showLayers = true }
             iconButton("exclamationmark.triangle", tint: theme.hazard, label: "Report a hazard") { showReport = true }
             iconButton(rec.isActive ? "gauge.with.dots.needle.67percent" : "record.circle",
                        tint: rec.isActive ? theme.pulse : theme.signal,

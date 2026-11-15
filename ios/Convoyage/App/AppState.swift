@@ -510,6 +510,13 @@ final class AppState {
         showNav = true
     }
 
+    /// A PhotoScout spot or event: start guidance, and open the navigation screen unless a convoy is up (there it
+    /// shows inline in the convoy view, which the sheet would otherwise cover).
+    func goToLayerPlace(_ place: NavPlace) {
+        nav.start(to: place)
+        if convoy.room == nil { showNav = true }
+    }
+
     /// A search pick from the convoy view. With the convoy heading somewhere it is a stop for me only, then on to the
     /// convoy's goal; leading with nowhere set it becomes everyone's destination; otherwise it is just this phone.
     func pickInConvoy(_ place: NavPlace) {

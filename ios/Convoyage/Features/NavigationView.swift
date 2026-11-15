@@ -14,6 +14,12 @@ struct NavigationScreen: View {
     @State private var showInvite: Bool = false
     @State private var fitToken: Int = 0
     @State private var recenter: Int = 0
+    @State private var showLayers: Bool = false
+    @State private var layers: MapLayerSelection = MapLayerSelection()
+    /// Where the map is looking, for the "nearby" layer hint.
+    @State private var viewport: GeoBox?
+    /// The layer pins the hint asked to frame; empty fits the route instead.
+    @State private var hintFit: [CLLocationCoordinate2D] = []
 
     private var hazardPins: [MapPin] {
         return app.hazards.active.map { (h: HazardDto) -> MapPin in
@@ -37,21 +43,27 @@ struct NavigationScreen: View {
         let nav: NavigationSession = app.nav
         let vm: ConvoyViewModel = app.convoy
         ZStack(alignment: .top) {
-            ConvoyMapView(pins: vm.mapPins + hazardPins + destinationPins,
+            ConvoyMapView(pins: MapLayerPins.pins(app) + vm.mapPins + hazardPins + destinationPins,
                           is3D: nav.phase == .navigating,
                           recenterToken: recenter,
                           theme: theme,
                           userCoordinate: vm.location.latest?.coordinate,
                           route: nav.routeCoordinates,
                           onViewport: { (box: GeoBox) in
+                              viewport = box
                               Task { await app.hazards.refresh(box: box) }
+                              app.area.onViewport(box, on: app.layerTraffic)
+                              app.photoscout.onViewport(box, spots: app.layerSpots, events: app.layerEvents)
                           },
                           onLongPress: { (c: CLLocationCoordinate2D) in
                               longPressed(c)
                           },
                           follow: nav.followCamera,
                           fitToken: fitToken,
-                          fitCoordinates: nav.routeCoordinates)
+                          fitCoordinates: fitCoordinates(nav),
+                          onPinTap: { (id: String) in
+                              _ = layers.handlePinTap(id, app: app)
+                          })
                 .ignoresSafeArea()
 
             switch nav.phase {
@@ -75,6 +87,11 @@ struct NavigationScreen: View {
             InviteSheet()
                 .presentationDetents([.large])
         }
+        .sheet(isPresented: $showLayers) {
+            LayersSheet()
+                .presentationDetents([.height(260)])
+        }
+        .mapLayerSheets(layers)
         .onAppear {
             UIApplication.shared.isIdleTimerDisabled = true
             nav.search.bias(to: vm.location.latest?.coordinate)
@@ -83,6 +100,7 @@ struct NavigationScreen: View {
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
         }
+        .task { await app.photoscout.refreshStatus() }
         .task {
             // Keep the hazard pins fresh while the map is up.
             while !Task.isCancelled {
@@ -302,22 +320,52 @@ struct NavigationScreen: View {
                 railButton(nav.muted ? "speaker.slash.fill" : "speaker.wave.2.fill",
                            tint: nav.muted ? theme.inkMuted : theme.ink,
                            label: nav.muted ? "Unmute voice" : "Mute voice") { nav.setMuted(!nav.muted) }
+                railButton("square.3.layers.3d", tint: layersAnyOn(app) ? theme.signal : theme.ink,
+                           label: "Map layers") { showLayers = true }
                 railButton("exclamationmark.triangle", tint: theme.hazard, label: "Report a hazard") { showReport = true }
                 railButton(nav.overview ? "location.north.fill" : "map.fill",
                            tint: theme.signal,
                            label: nav.overview ? "Follow my position" : "Show the whole route") {
                     nav.overview.toggle()
-                    if nav.overview { fitToken += 1 }
+                    if nav.overview {
+                        // A fresh overview frames the route, not whatever the layer hint last framed.
+                        hintFit = []
+                        fitToken += 1
+                    }
                 }
             }
             .padding(.trailing, 12)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
 
-            VStack {
+            VStack(spacing: 8) {
                 Spacer(minLength: 0)
+                layerHint(nav)
                 etaSheet(nav, vm)
             }
         }
+    }
+
+    /// "N spots nearby": frames them when tapped, and shows the whole of what it found.
+    private func layerHint(_ nav: NavigationSession) -> some View {
+        LayerHint(viewport: viewport) { (points: [CLLocationCoordinate2D]) in
+            hintFit = NavigationScreen.withMe(points, app.convoy.location.latest?.coordinate)
+            nav.overview = true
+            fitToken += 1
+        }
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    /// What the map should frame: the layer hint's points when it was tapped, else the whole route.
+    private func fitCoordinates(_ nav: NavigationSession) -> [CLLocationCoordinate2D] {
+        return hintFit.isEmpty ? nav.routeCoordinates : hintFit
+    }
+
+    /// The hint's pins, plus where we are, so even one pin is two points to fit.
+    private static func withMe(_ points: [CLLocationCoordinate2D],
+                               _ me: CLLocationCoordinate2D?) -> [CLLocationCoordinate2D] {
+        guard let me = me else { return points }
+        return points + [me]
     }
 
     private func roundTo10(_ m: Double) -> Double {

@@ -115,13 +115,22 @@ struct SpotSheet: View {
                     Text("GOOD " + g).font(CvFont.label(12)).tracking(1.0).foregroundStyle(theme.signal)
                 }
                 if let tags = spot.tags, !tags.isEmpty {
-                    Text(tags.prefix(8).joined(separator: " · ")).font(CvFont.text(13)).foregroundStyle(theme.inkMuted)
+                    TagFlow(spacing: 8) {
+                        ForEach(tags.prefix(8), id: \.self) { (t: String) in
+                            Text(t)
+                                .font(CvFont.label(11))
+                                .tracking(1.0)
+                                .foregroundStyle(theme.inkMuted)
+                                .padding(.horizontal, 10)
+                                .frame(minHeight: 28)
+                                .cvPanel(fill: theme.glass, edge: theme.lineStrong, cut: Cut.s)
+                        }
+                    }
                 }
                 CvButton(title: "Navigate here", icon: "location.fill") {
-                    app.nav.start(to: NavPlace(coordinate: CLLocationCoordinate2D(latitude: spot.lat, longitude: spot.lng),
-                                               title: spot.name, subtitle: "PhotoScout spot"))
+                    app.goToLayerPlace(NavPlace(coordinate: CLLocationCoordinate2D(latitude: spot.lat, longitude: spot.lng),
+                                                title: spot.name, subtitle: "PhotoScout spot"))
                     dismiss()
-                    app.showNav = true
                 }
             }
             .padding(20)
@@ -144,11 +153,77 @@ struct SpotSheet: View {
             if ms.count > 2 && ms.count == ms[ms.count - 1] - ms[0] + 1 {
                 mo = months[ms[0] - 1] + "-" + months[ms[ms.count - 1] - 1]
             } else {
-                mo = ms.map { (m: Int) -> String in return months[m - 1] }.joined(separator: ", ")
+                mo = ms.map { (m: Int) -> String in return months[m - 1] }.joined(separator: " ")
             }
         }
-        let parts: [String] = [ph.uppercased(), mo].filter { (s: String) -> Bool in return !s.isEmpty }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+        let co: String = (g.conditions ?? []).joined(separator: ", ")
+        let parts: [String] = [ph, mo, co].filter { (s: String) -> Bool in return !s.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ").uppercased()
+    }
+}
+
+/// Chips laid out left to right, wrapping onto new lines (Android's FlowRow).
+private struct TagFlow: Layout {
+    var spacing: CGFloat = 8
+
+    /// The chips' sizes, the rows of indices they wrap into, and the total height at `width`.
+    private func arrange(_ subviews: Subviews, width: CGFloat) -> (rows: [[Int]], sizes: [CGSize], height: CGFloat) {
+        var rows: [[Int]] = []
+        var row: [Int] = []
+        var sizes: [CGSize] = []
+        var x: CGFloat = 0
+        var lineHeight: CGFloat = 0
+        var height: CGFloat = 0
+        for (i, sub) in subviews.enumerated() {
+            let size: CGSize = sub.sizeThatFits(.unspecified)
+            sizes.append(size)
+            if !row.isEmpty && x + spacing + size.width > width {
+                rows.append(row)
+                row = []
+                height += lineHeight + spacing
+                x = 0
+                lineHeight = 0
+            }
+            x += (row.isEmpty ? 0 : spacing) + size.width
+            lineHeight = max(lineHeight, size.height)
+            row.append(i)
+        }
+        if !row.isEmpty {
+            rows.append(row)
+            height += lineHeight
+        }
+        return (rows, sizes, height)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth: CGFloat = proposal.width ?? .infinity
+        let laid: (rows: [[Int]], sizes: [CGSize], height: CGFloat) = arrange(subviews, width: maxWidth)
+        var widest: CGFloat = 0
+        for row in laid.rows {
+            var w: CGFloat = 0
+            for (j, i) in row.enumerated() {
+                w += (j == 0 ? 0 : spacing) + laid.sizes[i].width
+            }
+            widest = max(widest, w)
+        }
+        return CGSize(width: widest, height: laid.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let laid: (rows: [[Int]], sizes: [CGSize], height: CGFloat) = arrange(subviews, width: bounds.width)
+        var y: CGFloat = bounds.minY
+        for row in laid.rows {
+            var x: CGFloat = bounds.minX
+            var lineHeight: CGFloat = 0
+            for (j, i) in row.enumerated() {
+                let size: CGSize = laid.sizes[i]
+                if j > 0 { x += spacing }
+                subviews[i].place(at: CGPoint(x: x, y: y), anchor: .topLeading, proposal: ProposedViewSize(size))
+                x += size.width
+                lineHeight = max(lineHeight, size.height)
+            }
+            y += lineHeight + spacing
+        }
     }
 }
 
@@ -168,20 +243,26 @@ struct EventSheet: View {
             VStack(alignment: .leading, spacing: 12) {
                 SectionLabel(text: (e.cruise != nil ? "Cruise" : "Event") + " · " + EventSheet.when(e.startTime))
                 Text(e.title).font(CvFont.display(22)).lineLimit(3)
-                let place: String = [e.venue ?? "", e.address ?? ""].filter { (s: String) -> Bool in return !s.isEmpty }.joined(separator: ", ")
-                if !place.isEmpty { Text(place).font(CvFont.text(14)).foregroundStyle(theme.inkMuted) }
+                let secondary: String = EventSheet.secondary(e)
+                if !secondary.isEmpty { SectionLabel(text: secondary) }
+                if let cr = e.cruise {
+                    let lines: [String] = EventSheet.cruiseLines(cr)
+                    if !lines.isEmpty {
+                        Text(lines.joined(separator: "\n")).font(CvFont.text(15)).foregroundStyle(theme.ink)
+                    }
+                }
                 if let d = e.description, !d.isEmpty {
                     Text(d).font(CvFont.text(15)).foregroundStyle(theme.inkMuted).lineLimit(5)
                 }
                 Text(counts(e)).font(CvFont.label(12)).tracking(1.0).foregroundStyle(theme.signal)
                 HStack(spacing: 10) {
-                    if e.myRsvp == nil {
-                        CvButton(title: "Going") { rsvp(e, "going") }.disabled(busy)
-                        if !e.isCommunity {
-                            CvButton(title: "Interested", kind: .ghost) { rsvp(e, "interested") }.disabled(busy)
-                        }
-                    } else {
-                        CvButton(title: e.myRsvp == "going" ? "You're going · Undo" : "Interested · Undo", kind: .ghost) { rsvp(e, nil) }.disabled(busy)
+                    CvButton(title: "Going", kind: e.myRsvp == "going" ? .primary : .ghost) {
+                        rsvp(e, e.myRsvp == "going" ? nil : "going")
+                    }.disabled(busy)
+                    if !e.isCommunity {
+                        CvButton(title: "Interested", kind: e.myRsvp == "interested" ? .primary : .ghost) {
+                            rsvp(e, e.myRsvp == "interested" ? nil : "interested")
+                        }.disabled(busy)
                     }
                 }
                 if let c = e.cruise {
@@ -207,6 +288,28 @@ struct EventSheet: View {
         .background(theme.surface100.ignoresSafeArea())
     }
 
+    /// "VENUE · 12 KM AWAY", each part only when known (the start time is already in the label above the title).
+    private static func secondary(_ e: PsEvent) -> String {
+        let km: String = e.distanceKm.map { (d: Double) -> String in return String(format: "%.0f KM AWAY", d) } ?? ""
+        let parts: [String] = [nonBlank(e.venue) ?? "", km].filter { (s: String) -> Bool in return !s.isEmpty }
+        return parts.joined(separator: " · ")
+    }
+
+    /// A cruise's route, meet note and roll-out, one per line, each only when it has it.
+    private static func cruiseLines(_ c: PsCruise) -> [String] {
+        let parts: [String?] = [
+            nonBlank(c.routeName).map { (s: String) -> String in return "Route: " + s },
+            nonBlank(c.meet.note).map { (s: String) -> String in return "Meet: " + s },
+            nonBlank(c.rollOut).map { (s: String) -> String in return "Rolling out " + s }
+        ]
+        return parts.compactMap { (s: String?) -> String? in return s }
+    }
+
+    private static func nonBlank(_ s: String?) -> String? {
+        guard let t = s?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty else { return nil }
+        return t
+    }
+
     private func counts(_ e: PsEvent) -> String {
         var parts: [String] = ["\(e.going ?? 0) GOING"]
         if !e.isCommunity { parts.append("\(e.interested ?? 0) INTERESTED") }
@@ -223,9 +326,8 @@ struct EventSheet: View {
     }
 
     private func go(_ c: CLLocationCoordinate2D, _ title: String, _ subtitle: String) {
-        app.nav.start(to: NavPlace(coordinate: c, title: title, subtitle: subtitle))
+        app.goToLayerPlace(NavPlace(coordinate: c, title: title, subtitle: subtitle))
         dismiss()
-        app.showNav = true
     }
 
     /// "SUN 8 NOV · 9:00 AM".
