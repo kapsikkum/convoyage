@@ -620,8 +620,10 @@ struct ConvoyMapView: UIViewRepresentable {
                 ])
             style.addSource(dem)
             let hill: MLNHillshadeStyleLayer = MLNHillshadeStyleLayer(identifier: "terrain-hillshade", source: dem)
-            hill.hillshadeShadowColor = NSExpression(forConstantValue: UIColor(hex: 0x000000))
-            hill.hillshadeHighlightColor = NSExpression(forConstantValue: NightMap.preTint(0x5a86ad))
+            let shadows: [UIColor] = [UIColor(hex: 0x000000)]
+            let highlights: [UIColor] = [NightMap.preTint(0x5a86ad)]
+            hill.hillshadeShadowColor = NSExpression(forConstantValue: shadows)
+            hill.hillshadeHighlightColor = NSExpression(forConstantValue: highlights)
             hill.hillshadeAccentColor = NSExpression(forConstantValue: NightMap.preTint(0x0d1830))
             hill.hillshadeExaggeration = NSExpression(forConstantValue: 1.0)
             style.insertLayer(hill, below: anchor)
