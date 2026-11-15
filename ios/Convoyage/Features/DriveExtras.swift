@@ -68,6 +68,8 @@ struct SpeedLimitSign: View {
 
 /// The map's layer switches.
 struct LayersSheet: View {
+    /// Where the map is looking, for "Map centre" in Report a spot.
+    var mapCentre: CLLocationCoordinate2D? = nil
     @Environment(AppState.self) private var app
     @Environment(\.theme) private var theme
 
@@ -86,7 +88,7 @@ struct LayersSheet: View {
                     .tracking(1.0)
                     .foregroundStyle(theme.inkMuted)
             }
-            PhotoScoutLayerRows()
+            PhotoScoutLayerRows(mapCentre: mapCentre)
             Spacer(minLength: 0)
         }
         .padding(20)

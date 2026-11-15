@@ -88,8 +88,8 @@ struct NavigationScreen: View {
                 .presentationDetents([.large])
         }
         .sheet(isPresented: $showLayers) {
-            LayersSheet()
-                .presentationDetents([.height(260)])
+            LayersSheet(mapCentre: viewport?.center)
+                .presentationDetents([.height(340), .medium])
         }
         .mapLayerSheets(layers)
         .onAppear {
@@ -131,6 +131,9 @@ struct NavigationScreen: View {
             }
         )
         return VStack(spacing: 10) {
+            if let h = app.convoyHint {
+                Banner(title: h, kind: .info, icon: "flag.fill", actionTitle: "OK", action: { app.convoyHint = nil })
+            }
             HStack(spacing: 10) {
                 CvField(placeholder: "Where to?", text: queryBinding, autocap: .words)
                 closeButton()
@@ -286,6 +289,9 @@ struct NavigationScreen: View {
     private func drivingLayer(_ nav: NavigationSession, _ vm: ConvoyViewModel) -> some View {
         ZStack {
             VStack(spacing: 8) {
+                if let h = app.convoyHint {
+                    Banner(title: h, kind: .info, icon: "flag.fill", actionTitle: "OK", action: { app.convoyHint = nil })
+                }
                 ManeuverCard(nav: nav)
                 if let h = nav.hazardAhead {
                     let dto: HazardDto = h.hazard

@@ -144,8 +144,8 @@ struct ConvoyView: View {
             ReportView()
         }
         .sheet(isPresented: $showLayers) {
-            LayersSheet()
-                .presentationDetents([.height(260)])
+            LayersSheet(mapCentre: viewport?.center)
+                .presentationDetents([.height(340), .medium])
         }
         .mapLayerSheets(layers)
         .sheet(item: $openNearbyConvoy) { (c: NearbyConvoy) in

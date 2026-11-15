@@ -1,4 +1,5 @@
 import Foundation
+import CoreLocation
 import Observation
 
 // MARK: DTOs (GET /v1/photoscout/...)
@@ -8,6 +9,23 @@ struct PhotoScoutStatusDto: Decodable {
     var configured: Bool
     var linked: Bool
     var username: String?
+    /// False on a link made before PhotoScout offered `spots:suggest`: it has to be linked again before a suggestion.
+    var canSuggest: Bool
+
+    private enum Keys: String, CodingKey {
+        case configured
+        case linked
+        case username
+        case canSuggest
+    }
+
+    init(from decoder: Decoder) throws {
+        let c: KeyedDecodingContainer<Keys> = try decoder.container(keyedBy: Keys.self)
+        configured = (try? c.decodeIfPresent(Bool.self, forKey: .configured)) ?? false
+        linked = (try? c.decodeIfPresent(Bool.self, forKey: .linked)) ?? false
+        username = try? c.decodeIfPresent(String.self, forKey: .username)
+        canSuggest = (try? c.decodeIfPresent(Bool.self, forKey: .canSuggest)) ?? false
+    }
 }
 
 struct PhotoScoutAuthorizeDto: Decodable {
@@ -37,6 +55,42 @@ struct PsSpot: Decodable, Identifiable, Equatable {
     var goodTimes: PsGoodTimes?
     var photoCount: Int?
     var photo: PsPhoto?
+}
+
+/// The suggestion's photo: a URL on PhotoScout's origin, null until a photo is added.
+struct PsSuggestionPhoto: Decodable, Equatable {
+    var thumbUrl: String
+}
+
+/// A spot I suggested to PhotoScout (`POST /v1/photoscout/suggestions`); it waits for a moderator before it is on the map.
+struct PsSuggestion: Decodable, Identifiable, Equatable {
+    var id: String
+    var name: String
+    var notes: String?
+    var lat: Double
+    var lng: Double
+    var tags: [String]?
+    var photo: PsSuggestionPhoto?
+    var status: String?
+    var createdAt: String?
+
+    /// Tags typed as "a, B,, a ": trimmed, unique ignoring case (the first spelling wins), at most 8, each 1...30
+    /// characters (longer ones are cut to 30).
+    static func parseTags(_ raw: String) -> [String] {
+        var out: [String] = []
+        var seen: Set<String> = []
+        for piece in raw.split(separator: ",") {
+            var tag: String = piece.trimmingCharacters(in: .whitespacesAndNewlines)
+            if tag.isEmpty { continue }
+            if tag.count > 30 { tag = String(tag.prefix(30)) }
+            let key: String = tag.lowercased()
+            if seen.contains(key) { continue }
+            seen.insert(key)
+            out.append(tag)
+            if out.count >= 8 { break }
+        }
+        return out
+    }
 }
 
 struct PsMeet: Decodable, Equatable {
@@ -95,6 +149,8 @@ final class PhotoScoutLayers {
     var configured: Bool = false
     var linked: Bool = false
     var username: String?
+    /// The link includes `spots:suggest`: an older link has to be made again before it can report a spot.
+    var canSuggest: Bool = false
     var spots: [PsSpot] = []
     var events: [PsEvent] = []
     var error: String?
@@ -121,6 +177,7 @@ final class PhotoScoutLayers {
         configured = s.configured
         linked = s.configured && s.linked
         username = linked ? s.username : nil
+        canSuggest = linked && s.canSuggest
         if linked {
             spotsAt = .distantPast
             eventsAt = .distantPast
@@ -138,6 +195,7 @@ final class PhotoScoutLayers {
         configured = false
         linked = false
         username = nil
+        canSuggest = false
         spots = []
         events = []
         error = nil
@@ -253,9 +311,41 @@ final class PhotoScoutLayers {
             return f.message
         }
     }
+
+    /// Sends a new spot to PhotoScout. Nil on success, else a line to show. The photo goes up after the spot, so a
+    /// failed photo only costs the photo; a 403 means the link is older than `spots:suggest`.
+    func reportSpot(name: String, notes: String?, coordinate: CLLocationCoordinate2D, tags: [String], jpeg: Data?) async -> String? {
+        let r: ApiResult<PsSuggestion> = await api.photoscoutSuggest(name: name, notes: notes,
+                                                                     lat: coordinate.latitude, lng: coordinate.longitude,
+                                                                     tags: tags)
+        let created: PsSuggestion
+        switch r {
+        case .ok(let s):
+            created = s
+        case .failure(let f):
+            if f.status == 403 {
+                // The link predates `spots:suggest` (ApiFailure carries no machine code, and only a linked account gets here).
+                canSuggest = false
+                return "Relink PhotoScout to report spots."
+            }
+            return f.message
+        }
+        guard let data = jpeg else { return nil }
+        switch await api.photoscoutSuggestPhoto(id: created.id, jpeg: data) {
+        case .ok:
+            return nil
+        case .failure:
+            return "The spot was sent, but the photo was not."
+        }
+    }
 }
 
 extension GeoBox {
+    /// The middle of the box, for "the spot is at the map centre".
+    var center: CLLocationCoordinate2D {
+        return CLLocationCoordinate2D(latitude: (south + north) / 2, longitude: (west + east) / 2)
+    }
+
     func halfDiagonalKm() -> Double {
         return GeoMath.distanceM(south, west, north, east) / 2000
     }

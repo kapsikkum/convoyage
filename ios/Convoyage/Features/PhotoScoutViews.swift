@@ -1,4 +1,6 @@
 import SwiftUI
+import PhotosUI
+import UIKit
 import CoreLocation
 
 /// Opens PhotoScout's consent page in the browser; it comes back to `convoyage://photoscout/linked`.
@@ -32,28 +34,56 @@ struct PhotoScoutConnectButton: View {
 
 /// The PhotoScout rows of the layers sheet: the two switches once linked, else what they are and how to link.
 struct PhotoScoutLayerRows: View {
+    /// Where the map is looking, for "Map centre" in Report a spot.
+    var mapCentre: CLLocationCoordinate2D? = nil
     @Environment(AppState.self) private var app
     @Environment(\.theme) private var theme
+    @State private var showReport: Bool = false
 
     var body: some View {
         let ps: PhotoScoutLayers = app.photoscout
-        if ps.linked {
-            LayerSwitchRow(title: "Photo spots",
-                           sub: "PhotoScout places to shoot, with their best times. Tap one for its photo and directions.",
-                           on: app.layerSpots) { app.layerSpots.toggle() }
-            LayerSwitchRow(title: "Events",
-                           sub: "Meets and cruises coming up nearby. Tap one to RSVP, drive there or join its convoy.",
-                           on: app.layerEvents) { app.layerEvents.toggle() }
-            if let e = ps.error {
-                Text(e.uppercased()).font(CvFont.label(11)).foregroundStyle(theme.hazard)
+        Group {
+            if ps.linked {
+                LayerSwitchRow(title: "Photo spots",
+                               sub: "PhotoScout places to shoot, with their best times. Tap one for its photo and directions.",
+                               on: app.layerSpots) { app.layerSpots.toggle() }
+                LayerSwitchRow(title: "Events",
+                               sub: "Meets and cruises coming up nearby. Tap one to RSVP, drive there or join its convoy.",
+                               on: app.layerEvents) { app.layerEvents.toggle() }
+                reportRow(ps)
+                if let e = ps.error {
+                    Text(e.uppercased()).font(CvFont.label(11)).foregroundStyle(theme.hazard)
+                }
+            } else if ps.configured {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Photo spots and events").font(CvFont.text(16, weight: .bold))
+                    Text("From PhotoScout: link your account to show its photo spots (with the best times to shoot them) and upcoming events, and to join cruise convoys from them.")
+                        .font(CvFont.text(13))
+                        .foregroundStyle(theme.inkMuted)
+                    PhotoScoutConnectButton()
+                }
             }
-        } else if ps.configured {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Photo spots and events").font(CvFont.text(16, weight: .bold))
-                Text("From PhotoScout: link your account to show its photo spots (with the best times to shoot them) and upcoming events, and to join cruise convoys from them.")
-                    .font(CvFont.text(13))
-                    .foregroundStyle(theme.inkMuted)
-                PhotoScoutConnectButton()
+        }
+        .sheet(isPresented: $showReport) {
+            ReportSpotSheet(mapCentre: mapCentre)
+                .presentationDetents([.large])
+        }
+    }
+
+    /// "Report a spot", or a relink prompt when the PhotoScout link predates the `spots:suggest` scope.
+    @ViewBuilder
+    private func reportRow(_ ps: PhotoScoutLayers) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Report a spot").font(CvFont.text(16, weight: .bold))
+            Text(ps.canSuggest
+                 ? "Send a new spot to PhotoScout. A moderator checks it before it shows on the map."
+                 : "Relink PhotoScout to report spots")
+                .font(CvFont.text(13))
+                .foregroundStyle(theme.inkMuted)
+            if ps.canSuggest {
+                CvButton(title: "Report a spot", kind: .ghost) { showReport = true }
+            } else {
+                PhotoScoutConnectButton(title: "Relink PhotoScout")
             }
         }
     }
@@ -336,6 +366,167 @@ struct EventSheet: View {
         let f: DateFormatter = DateFormatter()
         f.dateFormat = "EEE d MMM · h:mm a"
         return f.string(from: d).uppercased()
+    }
+}
+
+/// Report a new spot to PhotoScout: where, its name, notes, tags and an optional photo. It waits for a PhotoScout
+/// moderator, so it is not on the map (or in the spots layer) yet; the success line goes up as a hint on the map.
+struct ReportSpotSheet: View {
+    /// Where the map is looking, for "Map centre"; nil until the map has settled once.
+    var mapCentre: CLLocationCoordinate2D? = nil
+    @Environment(AppState.self) private var app
+    @Environment(\.theme) private var theme
+    @Environment(\.dismiss) private var dismiss
+    @State private var place: SpotPlace = .here
+    @State private var name: String = ""
+    @State private var notes: String = ""
+    @State private var tagText: String = ""
+    @State private var pick: PhotosPickerItem?
+    @State private var jpeg: Data?
+    @State private var sending: Bool = false
+    @State private var errorText: String?
+
+    static let sentLine: String = "Sent to PhotoScout. It shows on the map once a moderator approves it."
+
+    /// Where the suggested spot is: at the phone, or under the middle of the map.
+    private enum SpotPlace: String, CaseIterable, Hashable {
+        case here
+        case centre
+
+        var title: String {
+            switch self {
+            case .here: return "Where I am"
+            case .centre: return "Map centre"
+            }
+        }
+    }
+
+    var body: some View {
+        let placeBinding: Binding<SpotPlace> = Binding<SpotPlace>(
+            get: { return place },
+            set: { (p: SpotPlace) in place = p }
+        )
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                SectionLabel(text: "PhotoScout")
+                Text("Report a spot").font(CvFont.display(26))
+                Segmented(items: SpotPlace.allCases, title: { (p: SpotPlace) -> String in return p.title }, selection: placeBinding)
+                CvField(placeholder: "Name", text: $name, autocap: .words)
+                notesField
+                CvField(placeholder: "Tags (comma separated)", text: $tagText)
+                photoSection
+                if let e = errorText {
+                    Text(e).font(CvFont.text(13)).foregroundStyle(theme.hazard)
+                }
+                CvButton(title: sending ? "Sending..." : "Report spot") { send() }
+                    .opacity(sending ? 0.5 : 1)
+                    .disabled(sending)
+                CvButton(title: "Cancel", kind: .ghost) { dismiss() }
+                    .disabled(sending)
+            }
+            .padding(20)
+        }
+        .background(theme.surface100.ignoresSafeArea())
+        .foregroundStyle(theme.ink)
+        .interactiveDismissDisabled(sending)
+        .onChange(of: pick) { (_: PhotosPickerItem?, newValue: PhotosPickerItem?) in
+            guard let p = newValue else { return }
+            Task { await loadPhoto(p) }
+        }
+    }
+
+    /// A multi-line notes box (the server takes 1000 characters, so it is cut there).
+    private var notesField: some View {
+        ZStack(alignment: .topLeading) {
+            TextEditor(text: $notes)
+                .font(CvFont.text(16))
+                .scrollContentBackground(.hidden)
+                .padding(8)
+                .frame(minHeight: 96)
+                .onChange(of: notes) { (_: String, newValue: String) in
+                    if newValue.count > 1000 { notes = String(newValue.prefix(1000)) }
+                }
+            if notes.isEmpty {
+                Text("Notes")
+                    .font(CvFont.text(16))
+                    .foregroundStyle(theme.inkMuted)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 16)
+                    .allowsHitTesting(false)
+            }
+        }
+        .cvPanel(fill: theme.surface200, edge: theme.lineStrong, cut: Cut.m)
+    }
+
+    private var photoSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            PhotosPicker(selection: $pick, matching: .images) {
+                HStack(spacing: 8) {
+                    Image(systemName: "photo.on.rectangle")
+                    Text(jpeg == nil ? "Add a photo" : "Change the photo").tracking(1.2)
+                }
+                .font(CvFont.text(14, weight: .bold))
+                .foregroundStyle(theme.ink)
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .cvPanel(fill: Color.clear, edge: theme.lineStrong, cut: Cut.m)
+            }
+            if jpeg != nil {
+                Button {
+                    pick = nil
+                    jpeg = nil
+                } label: {
+                    Text("REMOVE PHOTO")
+                        .font(CvFont.label(11))
+                        .tracking(1.0)
+                        .foregroundStyle(theme.inkMuted)
+                        .frame(minHeight: 36)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func loadPhoto(_ item: PhotosPickerItem) async {
+        guard let data = try? await item.loadTransferable(type: Data.self), let img = UIImage(data: data) else {
+            errorText = "That photo could not be read."
+            return
+        }
+        jpeg = ImagePrep.jpeg(img, maxEdge: 2560)
+        errorText = jpeg == nil ? "Could not prepare the photo." : nil
+    }
+
+    private func send() {
+        var trimmed: String = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            errorText = "Give the spot a name."
+            return
+        }
+        if trimmed.count > 120 { trimmed = String(trimmed.prefix(120)) }
+        let coordinate: CLLocationCoordinate2D?
+        switch place {
+        case .here: coordinate = app.convoy.location.latest?.coordinate
+        case .centre: coordinate = mapCentre
+        }
+        guard let c = coordinate else {
+            errorText = place == .here ? "Waiting for a location fix. Check that location is on, then try again."
+                                       : "The map has not settled yet. Move it a little and try again."
+            return
+        }
+        let body: String = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tags: [String] = PsSuggestion.parseTags(tagText)
+        sending = true
+        errorText = nil
+        Task {
+            let err: String? = await app.photoscout.reportSpot(name: trimmed, notes: body.isEmpty ? nil : body,
+                                                               coordinate: c, tags: tags, jpeg: jpeg)
+            sending = false
+            if let e = err {
+                errorText = e
+            } else {
+                app.convoyHint = ReportSpotSheet.sentLine
+                dismiss()
+            }
+        }
     }
 }
 

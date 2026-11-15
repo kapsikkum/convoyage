@@ -387,6 +387,27 @@ final class ApiClient: @unchecked Sendable {
         return await send("POST", "/v1/photoscout/events/\(id)/rsvp", json: body, as: PsRsvpDto.self)
     }
 
+    /// `POST /v1/photoscout/suggestions`: a spot for a PhotoScout moderator to look at. Needs the `spots:suggest` scope.
+    func photoscoutSuggest(name: String, notes: String?, lat: Double, lng: Double, tags: [String]) async -> ApiResult<PsSuggestion> {
+        var body: [String: Any] = ["name": name, "lat": lat, "lng": lng]
+        if let n = notes, !n.isEmpty { body["notes"] = n }
+        if !tags.isEmpty { body["tags"] = tags }
+        return await send("POST", "/v1/photoscout/suggestions", json: body, as: PsSuggestion.self)
+    }
+
+    /// `POST /v1/photoscout/suggestions/:id/photo`, multipart field "file". JPEG only (the server refuses HEIC).
+    func photoscoutSuggestPhoto(id: String, jpeg: Data) async -> ApiResult<PsSuggestion> {
+        let c: String = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+        let boundary: String = "convoyage-" + UUID().uuidString
+        var body: Data = Data()
+        body.append(Data("--\(boundary)\r\n".utf8))
+        body.append(Data("Content-Disposition: form-data; name=\"file\"; filename=\"photo.jpg\"\r\n".utf8))
+        body.append(Data("Content-Type: image/jpeg\r\n\r\n".utf8))
+        body.append(jpeg)
+        body.append(Data("\r\n--\(boundary)--\r\n".utf8))
+        return await sendData("POST", "/v1/photoscout/suggestions/\(c)/photo", body: body, contentType: "multipart/form-data; boundary=\(boundary)", as: PsSuggestion.self)
+    }
+
     // MARK: Conditions around the map
 
     /// `GET /v1/conditions/area`: police, cameras, hazards and traffic in a box (up to 0.3 degrees a side).
