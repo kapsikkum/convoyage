@@ -258,6 +258,28 @@ for p in body.data.polygons:
     nm = names[p.material_index].split('.')[0]
     p.material_index = MAT_INDEX.get(nm, MAT_INDEX['dark'])
 
+# ---- holes: boxes cut out of the body (an open cockpit, a bed, a vent) ----
+# {d: [d0, d1] back from the nose, y: [y0, y1] across, z: [z0, z1] up, mat: wall material}
+for h in spec.get('holes', []):
+    d0, d1 = h['d']
+    y0, y1 = h['y']
+    z0, z1 = h['z']
+    bpy.ops.mesh.primitive_cube_add(size=1, location=(X((d0 + d1) / 2), (y0 + y1) / 2, (z0 + z1) / 2))
+    cut = bpy.context.active_object
+    cut.scale = (abs(d1 - d0), abs(y1 - y0), abs(z1 - z0))
+    bpy.ops.object.transform_apply(scale=True, location=False, rotation=False)
+    cut.data.materials.append(MATS[h.get('mat', 'trim')])
+    mod = body.modifiers.new('hole', 'BOOLEAN')
+    mod.operation = 'DIFFERENCE'; mod.object = cut; mod.solver = 'EXACT'
+    mod.material_mode = 'TRANSFER'
+    bpy.context.view_layer.objects.active = body
+    bpy.ops.object.modifier_apply(modifier=mod.name)
+    bpy.data.objects.remove(cut)
+names = [m.name for m in body.data.materials]
+for p in body.data.polygons:
+    nm = names[p.material_index].split('.')[0]
+    p.material_index = MAT_INDEX.get(nm, MAT_INDEX['dark'])
+
 
 
 # ---- recesses: outlines seen from the front or rear, punched into the body ----
