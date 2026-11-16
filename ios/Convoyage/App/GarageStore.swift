@@ -148,7 +148,9 @@ struct VehicleDraft {
         } else if !creating {
             b["year"] = NSNull()
         }
-        var build: [String: Any] = ["paint": paint, "finish": finish, "wheel": wheel, "rideHeightMm": rideHeightMm]
+        var build: [String: Any] = ["paint": paint, "finish": finish, "wheel": wheel]
+        // Ride height is suspension on four wheels; a bike leaves it unset (Android omits the null the same way).
+        if Ps1Kind.of(kind) != .motorcycle { build["rideHeightMm"] = rideHeightMm }
         build["body"] = chosenBody.rawValue
         // A matched model is pinned by id; a hand-picked body says so; nil lets the server match the text.
         if let m = chosenModel {

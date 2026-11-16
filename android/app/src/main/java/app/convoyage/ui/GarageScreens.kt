@@ -197,7 +197,7 @@ fun GarageDetailScreen(vehicleId: String, onBack: () -> Unit, onEdit: (String) -
                 if (entry != null) BuildLine("Model", listOf(entry.model, entry.gen).filter { it.isNotBlank() }.joinToString(" "))
                 BuildLine("Body", spec.body.label)
                 BuildLine("Wheels", VehicleOptions.wheelLabel(v.build.wheel))
-                BuildLine("Ride height", v.build.rideHeightMm?.let { (if (it > 0) "+" else "") + "$it mm" } ?: "Stock")
+                if (spec.kind != Ps1Kind.Motorcycle) BuildLine("Ride height", v.build.rideHeightMm?.let { (if (it > 0) "+" else "") + "$it mm" } ?: "Stock")
                 BuildLine("Decals", BuildText.textOf(v.build).ifBlank { "None" })
             }
         }
@@ -359,14 +359,17 @@ private fun VehicleForm(existing: Vehicle?, onDone: () -> Unit) {
         if (VehicleOptions.WHEELS.none { it.first == wheel }) CvChipToggle(wheel, true, {})
     }
 
-    Eyebrow("RIDE HEIGHT")
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        CvIconButton(CvIcons.Minus, "Lower 10 millimetres", { height = (height - 10).coerceAtLeast(-200) }, fill = c.surface200)
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            CvText((if (height > 0) "+" else "") + "$height mm", Cv.type.telemetryL, c.ink)
-            Eyebrow(if (height == 0) "STOCK" else if (height < 0) "LOWERED" else "RAISED")
+    // Ride height is suspension on four wheels; a bike has none to set.
+    if (kindNow != Ps1Kind.Motorcycle) {
+        Eyebrow("RIDE HEIGHT")
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            CvIconButton(CvIcons.Minus, "Lower 10 millimetres", { height = (height - 10).coerceAtLeast(-200) }, fill = c.surface200)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                CvText((if (height > 0) "+" else "") + "$height mm", Cv.type.telemetryL, c.ink)
+                Eyebrow(if (height == 0) "STOCK" else if (height < 0) "LOWERED" else "RAISED")
+            }
+            CvIconButton(CvIcons.Plus, "Raise 10 millimetres", { height = (height + 10).coerceAtMost(200) }, fill = c.surface200)
         }
-        CvIconButton(CvIcons.Plus, "Raise 10 millimetres", { height = (height + 10).coerceAtMost(200) }, fill = c.surface200)
     }
 
     CvTextField(decals, { decals = it.take(400) }, "Decals (free text, separate with commas)", placeholder = "Racing stripes, #7 door", singleLine = false, maxLines = 3)
@@ -379,7 +382,7 @@ private fun VehicleForm(existing: Vehicle?, onDone: () -> Unit) {
             saving = true
             error = null
             val build = Build(
-                paint = paint, finish = finish, wheel = wheel, rideHeightMm = height, decals = BuildText.decalsOf(decals), body = bodyNow.wire,
+                paint = paint, finish = finish, wheel = wheel, rideHeightMm = height.takeIf { kindNow != Ps1Kind.Motorcycle }, decals = BuildText.decalsOf(decals), body = bodyNow.wire,
                 shape = chosen?.id ?: GENERIC_SHAPE.takeIf { shape == GENERIC_SHAPE },
             )
             val yearInt = year.toIntOrNull()?.takeIf { it in 1885..2028 }

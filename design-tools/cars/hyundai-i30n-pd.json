@@ -5,7 +5,7 @@
   "name": "Hyundai i30 N (PD, 2018-)",
   "mm": [4335, 1795, 1447, 2650],
   "tyre": 0.647,
-  "tyreW": 0.235,"crown": 3.0,
+  "tyreW": 0.235,
   "front": [
     {"type": "poly", "pts": [[-0.42, 0.625], [0.42, 0.625], [0.47, 0.5], [0.38, 0.33], [-0.38, 0.33], [-0.47, 0.5]], "mat": "black", "mirror": false, "offset": 0.012},
     {"type": "rect", "box": [-0.035, 0.6, 0.035, 0.622], "mat": "chrome", "mirror": false, "offset": 0.02},

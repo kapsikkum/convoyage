@@ -198,10 +198,12 @@ enum Ps1Catalog {
         c("honda-civic-fe", "Honda", "Civic", "FE hatch", 2022...Ps1Catalog.now, .liftback, mm(4560, 1802, 1415, 2735), "235/40R18", ["civic"], .generic),
 
         // ---- Motorcycles: body only ----
+        bike("yamaha-mt-07", "Yamaha", "MT-07", .naked, "mt 07", "mt07", "fz 07", "fz07"),
         bike("yamaha-mt", "Yamaha", "MT", .naked, "mt 07", "mt07", "mt 09", "mt09", "mt 10", "mt 03", "xsr"),
         bike("yamaha-r", "Yamaha", "YZF-R", .sportBike, "r1", "r6", "r7", "r3", "yzf r1", "yzf r6", "yzf r7"),
         bike("yamaha-tenere", "Yamaha", "Tenere 700", .adventure, "tenere", "tenere 700", "t7"),
         bike("yamaha-wr", "Yamaha", "WR / YZ", .dirt, "wr250r", "wr450f", "yz250f", "yz450f", "wr", "yz"),
+        bike("kawasaki-zx-6r-636", "Kawasaki", "Ninja ZX-6R 636", .sportBike, "zx 6r", "zx6r", "636", "ninja 636", "ninja zx 6r"),
         bike("kawasaki-ninja", "Kawasaki", "Ninja", .sportBike, "ninja", "zx 6r", "zx6r", "zx 10r", "zx10r", "ninja 400", "ninja 650", "h2"),
         bike("kawasaki-z", "Kawasaki", "Z", .naked, "z900", "z650", "z400", "z h2", "z900rs"),
         bike("kawasaki-versys", "Kawasaki", "Versys", .adventure, "versys", "klr", "klr650"),

@@ -356,12 +356,15 @@ struct VehicleFormView: View {
                 group("Finish") { ChoiceGrid(items: GarageCatalog.finishes, selection: $draft.finish) }
                 group("Wheels") { ChoiceGrid(items: GarageCatalog.wheels, selection: $draft.wheel) }
 
-                group("Ride height") {
-                    HStack {
-                        Readout(caption: "Offset from stock", value: "\(draft.rideHeightMm)", unit: "mm", size: 24)
-                        Spacer()
-                        Stepper("Ride height", value: $draft.rideHeightMm, in: -200...200, step: 5)
-                            .labelsHidden()
+                // Ride height is suspension on four wheels; a bike has none to set.
+                if kindNow != .motorcycle {
+                    group("Ride height") {
+                        HStack {
+                            Readout(caption: "Offset from stock", value: "\(draft.rideHeightMm)", unit: "mm", size: 24)
+                            Spacer()
+                            Stepper("Ride height", value: $draft.rideHeightMm, in: -200...200, step: 5)
+                                .labelsHidden()
+                        }
                     }
                 }
 

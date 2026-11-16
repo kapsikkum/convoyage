@@ -100,6 +100,9 @@ BELT, _ = curve(P['belt'])
 COWL, ROOFF, ROOFR, GEND = M.get('c', 0), M.get('f', 0), M.get('r', 0), M.get('b', 0)
 END = TOP[-1][0]
 TUMBLE = P.get('tumble', 0.78)
+# Optional "dome": how far (m) the bonnet / deck centre stands above its wing-top edge, along the length. With it the
+# wings end in a crisp shoulder and the panel between them is a convex dome; without it the older "crown" section.
+DOME = curve(P['dome'])[0] if 'dome' in P else None
 WINDOWS = [tuple(map(float, w.split('-'))) for w in P.get('win', '').split()]
 CABIN = ROOFR > ROOFF
 
@@ -154,7 +157,8 @@ def ring(d):
     top, bot, w = at(TOP, d), at(BOT, d), at(PLAN, d)
     zn = zone(d)
     cabin = zn != 0
-    belt = min(at(BELT, d), top - 0.01) if cabin else top - 0.07
+    dome = at(DOME, d) if DOME and not cabin else None
+    belt = min(at(BELT, d), top - 0.01) if cabin else (top - dome if dome is not None else top - 0.07)
     shoulder = min(belt - 0.08, bot + (belt - bot) * 0.72)
     mid = bot + (shoulder - bot) * 0.45
     pts = [
@@ -164,6 +168,8 @@ def ring(d):
     if cabin:
         tw = w * TUMBLE
         pts += [(tw, max(top - 0.075, belt + 0.004)), (tw * 0.9, max(top - 0.025, belt + 0.008)), (tw * 0.55, max(top - 0.004, belt + 0.01))]
+    elif dome is not None:
+        pts += [(w * 0.8, top - dome * 0.62), (w * 0.55, top - dome * 0.3), (w * 0.27, top - dome * 0.08)]
     else:
         # Bonnet / deck crown: a real panel domes away from its edges, and the flatter the panel the more it needs.
         cr = spec.get('crown', 1.0)
@@ -194,6 +200,9 @@ def band_material(k, n, d0, d1):
     dm = (d0 + d1) / 2
     zn = zone(dm)
     window = zn != 0 and any(a <= dm <= b for a, b in WINDOWS)
+    # Optional "roof": a material for everything above the belt behind the windscreen header (a soft top).
+    if spec.get('roof') and zn in (2, 3) and (k in (6, 7, 8) or (k == 5 and not window)):
+        return spec['roof']
     if k == 5:  # belt to glass top
         return 'glass' if window else 'paint'
     if k == 6:

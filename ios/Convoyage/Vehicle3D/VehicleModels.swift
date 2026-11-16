@@ -27,12 +27,29 @@ enum Ps1Models {
     static let fog: Surf = Surf.srgb(0xFFD27A, flag: 2)
     static let rotor: Surf = Surf.srgb(0x5A5F66)
     static let red: Surf = Surf.srgb(0xB0141E)
+    /// The fixed livery colour of a Blender bike's `accent` parts (Kawasaki lime green).
+    static let accent: Surf = Surf.srgb(0x6CBF2E, flag: 1)
 
     // MARK: Framing
 
     static func frame(_ spec: VehicleBuild?) -> Ps1Frame {
         if let sh = spec?.shape { return frame(sh) }
+        if let s = spec, let cm = bikeModel(s) { return bikeFrame(cm) }
         return bikeFrame(spec?.body ?? .sedan)
+    }
+
+    /// The Blender model of a catalogue motorcycle, when one shipped (cars/<id>.glb).
+    private static func bikeModel(_ spec: VehicleBuild) -> Ps1CarModel? {
+        guard spec.kind == .motorcycle, let id = spec.modelId else { return nil }
+        return Ps1CarModels.of(id)
+    }
+
+    /// A Blender bike is framed like a car: rear wheel centre at y = 0, ground half a tyre below.
+    private static func bikeFrame(_ cm: Ps1CarModel) -> Ps1Frame {
+        let hgt: Float = cm.height
+        let fit: Float = hypotf(cm.len / 2, hgt / 2) * K * 1.02
+        return Ps1Frame(fitRadius: fit, groundY: -cm.tyre / 2 * K, groundRadius: fit * 1.3,
+                        lookY: (hgt * 0.42 - cm.tyre / 2) * K)
     }
 
     static func frame(_ body: Ps1Body) -> Ps1Frame {
@@ -81,10 +98,14 @@ enum Ps1Models {
 
         let paint: Surf = Surf.srgb(spec.paint, tex: 1, flag: 1)
         let rim: Surf = Surf.srgb(spec.wheel.rgb, tex: 2)
-        let dy: Float = Float(spec.rideHeightMm) * mm
+        // Ride height means nothing on a bike: old data must not lift the body off its wheels.
+        let dy: Float = spec.kind == .motorcycle ? 0 : Float(spec.rideHeightMm) * mm
         let sh: Ps1Shape? = spec.shape
         let modelled: Ps1CarModel? = spec.modelId.flatMap { (id: String) -> Ps1CarModel? in return Ps1CarModels.of(id) }
-        if let s = sh {
+        let bikeCm: Ps1CarModel? = bikeModel(spec)
+        if let cm = bikeCm {
+            modelledBike(mb, cm, Surf.srgb(spec.paint, flag: 1), rim)
+        } else if let s = sh {
             if let cm = modelled {
                 // Modelled bodies are smooth clear-coated paint, no texture.
                 modelledCar(mb, cm, Surf.srgb(spec.paint, flag: 1), rim, dy)
@@ -96,7 +117,9 @@ enum Ps1Models {
         }
 
         // The shadow blob under the vehicle, a hair above the ground.
-        if let s = sh {
+        if let cm = bikeCm {
+            Ps1Geo.disc(mb, y: f.groundY + 0.012, rx: cm.len / 2 * K * 1.02, rz: 0.33 * K, segments: 10, shadow)
+        } else if let s = sh {
             Ps1Geo.disc(mb, y: f.groundY + 0.012, rx: s.len / 2 * K * 1.02, rz: s.wid / 2 * K * 1.12, segments: 10, shadow)
         } else {
             Ps1Geo.disc(mb, y: f.groundY + 0.012, rx: 2.5, rz: 0.75, segments: 10, shadow)
@@ -149,6 +172,45 @@ enum Ps1Models {
                 // Brake disc and caliper behind the spokes.
                 Ps1Geo.wheel(mb, ax, 0, side * (ht - ww * 0.3), radius: r * 0.62, width: 0.05, rotor, rotor, segments: 12)
                 Ps1Geo.box(mb, ax - r * 0.42, r * 0.2, side * (ht - ww * 0.22), r * 0.22, r * 0.42, 0.06, tail)
+            }
+        }
+    }
+
+    /// A motorcycle modelled in Blender (design-tools/bikes/build_bike.py). Its wheels are part of the model and its
+    /// ground is y = 0, so it only drops by half the rear tyre to sit on `bikeFrame`'s ground; no wheels are added.
+    private static func modelledBike(_ mb: MeshBuilder, _ cm: Ps1CarModel, _ paint: Surf, _ rim: Surf) {
+        let h0: Float = cm.tyre / 2
+        for part in cm.parts {
+            let s: Surf
+            switch part.material {
+            case "glass": s = glass
+            case "dark": s = arch
+            case "black": s = dark
+            case "trim": s = trim
+            case "chrome": s = chrome
+            case "head": s = head
+            case "tail": s = tail
+            case "fog": s = fog
+            case "plate": s = plate
+            case "red": s = red
+            case "accent": s = accent
+            case "rim": s = rim
+            default: s = paint
+            }
+            let pos: [Float] = part.positions
+            let nrm: [Float] = part.normals
+            var ids: [Int] = []
+            ids.reserveCapacity(pos.count / 3)
+            for i in 0..<(pos.count / 3) {
+                let p: V3 = V3(pos[i * 3] * K, (pos[i * 3 + 1] - h0) * K, pos[i * 3 + 2] * K)
+                let n: V3 = i * 3 + 2 < nrm.count ? V3(nrm[i * 3], nrm[i * 3 + 1], nrm[i * 3 + 2]) : V3(0, 1, 0)
+                ids.append(mb.vertex(p, n, V2(p.x / 7 + 0.5, p.y / 2), s))
+            }
+            let ix: [Int] = part.indices
+            var t: Int = 0
+            while t + 2 < ix.count {
+                mb.tri(ids[ix[t]], ids[ix[t + 1]], ids[ix[t + 2]])
+                t += 3
             }
         }
     }

@@ -54,7 +54,10 @@ object Ps1Models {
     private val ROTOR = Surf.srgb(0x5A5F66)
     private val RED = Surf.srgb(0xB0141E)
 
-    fun frame(spec: Ps1Spec): Ps1Frame = spec.shape?.let { frame(it) } ?: bikeFrame(spec.body)
+    /** The fixed livery colour of a Blender bike's `accent` parts (Kawasaki lime green). */
+    private val ACCENT = Surf.srgb(0x6CBF2E, flag = 1)
+
+    fun frame(spec: Ps1Spec): Ps1Frame = spec.shape?.let { frame(it) } ?: bikeModel(spec)?.let { bikeFrame(it) } ?: bikeFrame(spec.body)
 
     fun frame(body: Ps1Body): Ps1Frame = Ps1Shapes.generic(body)?.let { frame(it) } ?: bikeFrame(body)
 
@@ -67,6 +70,24 @@ object Ps1Models {
         val r = bikeSpec(body).wheelR
         val big = body == Ps1Body.Cruiser || body == Ps1Body.Tourer
         return Ps1Frame(fitRadius = if (big) 2.9f else 2.7f, groundY = -r, groundRadius = 3.6f, lookY = 0.45f)
+    }
+
+    /** The Blender model of a catalogue motorcycle, when one shipped (cars/<id>.glb). */
+    private fun bikeModel(spec: Ps1Spec): Ps1CarModel? =
+        if (spec.kind == Ps1Kind.Motorcycle) spec.bikeModel?.let { Ps1CarModels.of(it) } else null
+
+    /** A Blender bike is framed like a car: rear wheel centre at y = 0, ground half a tyre below. */
+    private fun bikeFrame(cm: Ps1CarModel): Ps1Frame {
+        val hgt = bikeHeight(cm)
+        val fit = hypot(cm.len / 2f, hgt / 2f) * K * 1.02f
+        return Ps1Frame(fitRadius = fit, groundY = -cm.tyre / 2f * K, groundRadius = fit * 1.3f, lookY = (hgt * 0.42f - cm.tyre / 2f) * K)
+    }
+
+    /** Top of a Blender model in metres, from its vertices. */
+    private fun bikeHeight(cm: Ps1CarModel): Float {
+        var top = 0f
+        for (p in cm.parts) for (i in 1 until p.positions.size step 3) top = maxOf(top, p.positions[i])
+        return maxOf(top, 1.2f)
     }
 
     /** Wheels and size of a motorcycle: where the axles are, how big the wheels. */
@@ -89,10 +110,13 @@ object Ps1Models {
 
         val paint = Surf.srgb(spec.paint, Ps1Textures.BODY, 1)
         val rim = Surf.srgb(spec.wheel.rgb, Ps1Textures.RIM)
-        val dy = spec.rideHeightMm * MM
+        // Ride height means nothing on a bike: old data must not lift the body off its wheels.
+        val dy = if (spec.kind == Ps1Kind.Motorcycle) 0f else spec.rideHeightMm * MM
         val sh = spec.shape
         val modelled = spec.model?.let { Ps1CarModels.of(it.id) }
+        val bikeCm = bikeModel(spec)
         when {
+            bikeCm != null -> modelledBike(mb, bikeCm, Surf.srgb(spec.paint, 0, 1), rim)
             sh == null -> bike(mb, spec.body, bikeSpec(spec.body), paint, rim, dy)
             // Modelled bodies are smooth clear-coated paint, no texture.
             modelled != null -> modelledCar(mb, modelled, Surf.srgb(spec.paint, 0, 1), rim, dy)
@@ -100,9 +124,31 @@ object Ps1Models {
         }
 
         // The shadow blob under the vehicle, a hair above the ground.
-        if (sh == null) Ps1Geo.disc(mb, f.groundY + 0.012f, 2.5f, 0.75f, 10, SHADOW)
+        if (bikeCm != null) Ps1Geo.disc(mb, f.groundY + 0.012f, bikeCm.len / 2f * K * 1.02f, 0.33f * K, 10, SHADOW)
+        else if (sh == null) Ps1Geo.disc(mb, f.groundY + 0.012f, 2.5f, 0.75f, 10, SHADOW)
         else Ps1Geo.disc(mb, f.groundY + 0.012f, sh.len / 2f * K * 1.02f, sh.wid / 2f * K * 1.12f, 10, SHADOW)
         return mb.build(groundIndices)
+    }
+
+    /**
+     * A motorcycle modelled in Blender (design-tools/bikes/build_bike.py). Its wheels are part of the model and its
+     * ground is y = 0, so it only drops by half the rear tyre to sit on [bikeFrame]'s ground; no wheels are added.
+     */
+    private fun modelledBike(mb: MeshBuilder, cm: Ps1CarModel, paint: Surf, rim: Surf) {
+        val h0 = cm.tyre / 2f
+        for (part in cm.parts) {
+            val s = when (part.material) {
+                "paint" -> paint; "glass" -> GLASS; "dark" -> ARCH; "black" -> DARK; "trim" -> TRIM; "chrome" -> CHROME
+                "head" -> HEAD; "tail" -> TAIL; "fog" -> FOG; "plate" -> PLATE; "red" -> RED; "accent" -> ACCENT; "rim" -> rim; else -> paint
+            }
+            val pos = part.positions; val nrm = part.normals
+            val ids = IntArray(pos.size / 3) { i ->
+                val x = pos[i * 3] * K; val y = (pos[i * 3 + 1] - h0) * K; val z = pos[i * 3 + 2] * K
+                mb.vertex(x, y, z, nrm[i * 3], nrm[i * 3 + 1], nrm[i * 3 + 2], x / 7f + 0.5f, y / 2f, s)
+            }
+            val ix = part.indices
+            for (t in 0 until ix.size / 3) mb.tri(ids[ix[t * 3]], ids[ix[t * 3 + 1]], ids[ix[t * 3 + 2]])
+        }
     }
 
     // ---- four wheels ------------------------------------------------------------------------------------------

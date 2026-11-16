@@ -100,6 +100,8 @@ data class Ps1Spec(
     val body: Ps1Body = Ps1Body.defaultFor(kind),
     /** A catalogue model's shape (always of [body]); null = the body's generic shape. */
     val model: Ps1Shape? = null,
+    /** A catalogue motorcycle's id (motorcycles have no shape; its Blender model draws it when one shipped). */
+    val bikeModel: String? = null,
 ) {
     /** The shape the renderer builds: the model's, else the body's typical one. Null for motorcycles. */
     val shape: Ps1Shape? get() = model ?: Ps1Shapes.generic(body)
@@ -109,7 +111,7 @@ data class Ps1Spec(
      * out-of-range values are normalised away) and any visible change gives another. [variant] separates thumbnail sizes.
      */
     fun key(variant: String = ""): String {
-        val canonical = "v$RENDERER_VERSION|${kind.wire}|${body.wire}|${model?.id ?: "-"}|%06x|${finish.wire}|${wheel.id}|$rideHeightMm|$variant".format(paint and 0xFFFFFF)
+        val canonical = "v$RENDERER_VERSION|${kind.wire}|${body.wire}|${model?.id ?: bikeModel ?: "-"}|%06x|${finish.wire}|${wheel.id}|$rideHeightMm|$variant".format(paint and 0xFFFFFF)
         val digest = MessageDigest.getInstance("SHA-256").digest(canonical.toByteArray())
         return digest.take(10).joinToString("") { "%02x".format(it) }
     }
@@ -118,7 +120,7 @@ data class Ps1Spec(
         const val DEFAULT_PAINT = 0xB8BCC2
 
         /** Bump to throw every cached thumbnail away when the models or shaders change. */
-        const val RENDERER_VERSION = 5
+        const val RENDERER_VERSION = 6
 
         /** `#RRGGBB` (any case) or null/garbage, which gives the default paint. */
         fun parseHex(hex: String?): Int {
@@ -135,6 +137,7 @@ data class Ps1Spec(
             kind = k,
             body = entry?.body ?: Ps1Body.of(body, k),
             model = entry?.shape,
+            bikeModel = entry?.takeIf { it.shape == null }?.id,
             paint = parseHex(paint),
             finish = Ps1Finish.of(finish),
             wheel = Ps1Wheels.of(wheel),

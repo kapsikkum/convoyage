@@ -187,10 +187,12 @@ object Ps1Catalog {
         c("honda-civic-fe", "Honda", "Civic", "FE hatch", 2022..NOW, Liftback, mm(4560, 1802, 1415, 2735), "235/40R18", listOf("civic"), Generic),
 
         // ---- Motorcycles: body only ----
+        bike("yamaha-mt-07", "Yamaha", "MT-07", Naked, "mt 07", "mt07", "fz 07", "fz07"),
         bike("yamaha-mt", "Yamaha", "MT", Naked, "mt 07", "mt07", "mt 09", "mt09", "mt 10", "mt 03", "xsr"),
         bike("yamaha-r", "Yamaha", "YZF-R", SportBike, "r1", "r6", "r7", "r3", "yzf r1", "yzf r6", "yzf r7"),
         bike("yamaha-tenere", "Yamaha", "Tenere 700", Adventure, "tenere", "tenere 700", "t7"),
         bike("yamaha-wr", "Yamaha", "WR / YZ", Dirt, "wr250r", "wr450f", "yz250f", "yz450f", "wr", "yz"),
+        bike("kawasaki-zx-6r-636", "Kawasaki", "Ninja ZX-6R 636", SportBike, "zx 6r", "zx6r", "636", "ninja 636", "ninja zx 6r"),
         bike("kawasaki-ninja", "Kawasaki", "Ninja", SportBike, "ninja", "zx 6r", "zx6r", "zx 10r", "zx10r", "ninja 400", "ninja 650", "h2"),
         bike("kawasaki-z", "Kawasaki", "Z", Naked, "z900", "z650", "z400", "z h2", "z900rs"),
         bike("kawasaki-versys", "Kawasaki", "Versys", Adventure, "versys", "klr", "klr650"),
