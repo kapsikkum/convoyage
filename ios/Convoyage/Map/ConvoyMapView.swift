@@ -6,6 +6,8 @@ import MapLibre
 struct MapPin: Identifiable, Equatable {
     enum Kind {
         case lead
+        /// Where you are, drawn as your own vehicle the way Android draws its "me" pin.
+        case me
         case member
         case stopped
         case sos
@@ -373,7 +375,7 @@ struct ConvoyMapView: UIViewRepresentable {
             c.is3D = is3D
             c.applyBuildings()
             if flatChanged { c.restyleAll() }
-            c.applyPitch()
+            c.applyPitch(!is3D)
         }
         if c.lastRecenter != recenterToken {
             c.lastRecenter = recenterToken
@@ -415,6 +417,8 @@ struct ConvoyMapView: UIViewRepresentable {
         private var pulseStart: CFTimeInterval = 0
         private var roadApplied: [MapRoadSegment] = []
         private var puckSource: MLNShapeSource?
+        private var puckLayers: [MLNStyleLayer] = []
+        private var hillLayer: MLNHillshadeStyleLayer?
         private var routeCoords: [CLLocationCoordinate2D] = []
         private var routeApplied: [CLLocationCoordinate2D] = []
         /// The rejoin line the map was last drawn for.
@@ -587,7 +591,8 @@ struct ConvoyMapView: UIViewRepresentable {
         }
 
         /// My position as circle layers inserted below the first text layer, so place labels sit on top of it.
-        private func addPuck(_ style: MLNStyle, below: MLNStyleLayer?) {            let src: MLNShapeSource = MLNShapeSource(identifier: "puck", shape: nil, options: nil)
+        private func addPuck(_ style: MLNStyle, below: MLNStyleLayer?) {
+            let src: MLNShapeSource = MLNShapeSource(identifier: "puck", shape: nil, options: nil)
             style.addSource(src)
             puckSource = src
             let halo: MLNCircleStyleLayer = MLNCircleStyleLayer(identifier: "puck-halo", source: src)
@@ -601,6 +606,12 @@ struct ConvoyMapView: UIViewRepresentable {
             dot.circleStrokeColor = NSExpression(forConstantValue: UIColor(hex: 0x05080d))
             dot.circleStrokeWidth = NSExpression(forConstantValue: 2.5)
             place(dot, in: style, below: below)
+            puckLayers = [halo, dot]
+        }
+
+        /// The dot is the fallback: once your own vehicle is drawn as a car (the "me" pin), it would sit under it.
+        private func setPuckVisible(_ visible: Bool) {
+            for layer in puckLayers { layer.isVisible = visible }
         }
 
         /// Hills and valleys: shaded relief from public Terrarium elevation tiles (AWS open data, no key), lit from the
@@ -626,6 +637,8 @@ struct ConvoyMapView: UIViewRepresentable {
             hill.hillshadeHighlightColor = NSExpression(forConstantValue: highlights)
             hill.hillshadeAccentColor = NSExpression(forConstantValue: NightMap.preTint(0x0d1830))
             hill.hillshadeExaggeration = NSExpression(forConstantValue: 1.0)
+            hill.isVisible = !is3D
+            hillLayer = hill
             style.insertLayer(hill, below: anchor)
         }
 
@@ -866,10 +879,23 @@ struct ConvoyMapView: UIViewRepresentable {
             map.setCamera(cam, animated: true)
         }
 
+        /// Shading in 2D, the tilted map in 3D: a hillshade under a pitched camera reads as a smear, and Android hides it there.
+        func applyPitch(_ flat: Bool) {
+            guard let map = map else { return }
+            hillLayer?.isVisible = flat
+            if following { return }
+            let cam: MLNMapCamera = map.camera
+            cam.pitch = flat ? 0 : 60
+            map.setCamera(cam, animated: true)
+        }
+
         // MARK: Pins
 
         func syncPins(_ pins: [MapPin]) {
             guard let map = map else { return }
+            // Your own car replaces the dot; without a car the dot stays.
+            let selfCar: Bool = pins.contains { (p: MapPin) -> Bool in return p.kind == .me && p.vehicle != nil }
+            setPuckVisible(!selfCar)
             let ids: Set<String> = Set(pins.map { $0.id })
             for (id, ann) in annotations where !ids.contains(id) {
                 map.removeAnnotation(ann)
@@ -910,6 +936,7 @@ struct ConvoyMapView: UIViewRepresentable {
             var text: Color = theme.ink
             switch ann.kind {
             case .lead: edge = theme.lead
+            case .me: edge = theme.go
             case .member: edge = theme.go
             case .stopped: edge = theme.pulse
             case .sos:
@@ -946,8 +973,9 @@ struct ConvoyMapView: UIViewRepresentable {
                        text: UIColor(text))
             view.setVehicle(ann.symbol == nil ? ann.vehicle : nil)
             // Car markers: a plan view on a flat map, a camera-angle frame on a tilted one.
-            let carKind: Bool = ann.kind == .lead || ann.kind == .member || ann.kind == .stopped || ann.kind == .sos
-            let useCar: Bool = carKind && ann.symbol == nil && !following && ann.vehicle != nil
+            let carKind: Bool = ann.kind == .lead || ann.kind == .me || ann.kind == .member || ann.kind == .stopped || ann.kind == .sos
+            // Your own car is drawn even while the camera follows you; other cars go round then so they stay readable.
+            let useCar: Bool = carKind && ann.symbol == nil && ann.vehicle != nil && (!following || ann.kind == .me)
             let tilt: Float = Float(map?.camera.pitch ?? 0)
             let bearing: Double = map?.camera.heading ?? 0
             view.setCar(useCar ? ann.vehicle : nil, heading: ann.heading, edge: UIColor(edge), initials: ann.initials,

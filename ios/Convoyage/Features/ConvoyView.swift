@@ -16,6 +16,8 @@ struct ConvoyView: View {
     @State private var tab: SheetTab = .roster
     @State private var pendingDest: PendingDestination?
     @State private var keyboard: CGFloat = 0
+    /// The convoy search field is open: the keyboard is up and the map furniture steps out of the way.
+    @State private var searchActive: Bool = false
     /// The map keeps you in the middle until you move it yourself; Recentre turns it back on.
     @State private var follow: Bool = true
     /// The bearing the map turns to while moving: heading-up, held through slow patches.
@@ -44,6 +46,14 @@ struct ConvoyView: View {
                           kind: h.isPolice ? .police : .hazard,
                           coordinate: CLLocationCoordinate2D(latitude: h.lat, longitude: h.lng))
         }
+    }
+
+    /// Where I am, as my own vehicle (Android's "me" pin). Empty when there is no car on file, which leaves the dot.
+    private var selfPin: [MapPin] {
+        let vm: ConvoyViewModel = app.convoy
+        guard let fix = vm.location.latest, let vehicle = app.myVehicleBuild else { return [] }
+        let heading: Double? = fix.course >= 0 ? fix.course : nil
+        return [MapPin(id: "me", initials: "", kind: .me, coordinate: fix.coordinate, vehicle: vehicle, heading: heading)]
     }
 
     /// Open Cruise: drivers and open convoys nearby, while not in a convoy.
@@ -77,13 +87,14 @@ struct ConvoyView: View {
         GeometryReader { (geo: GeometryProxy) in
             let m: SheetMetrics = metrics(screenHeight: geo.size.height, inConvoy: inConvoy)
             let sheetH: CGFloat = min(max(m.height(for: detent) - dragY, m.peek), m.full)
-            let railBottom: CGFloat = min(max(sheetH, m.peek), m.half) + 12 + keyboard
-            let railVisible: Bool = sheetH <= m.half + 30
+            let railBottom: CGFloat = min(max(sheetH, m.peek), m.half) + 12
+            // Settled, not live: a drag through a threshold must not toggle furniture under the finger.
+            let railVisible: Bool = detent == .peek && !searchActive
             let hint: (from: CLLocationCoordinate2D, to: CLLocationCoordinate2D)? = rejoinHint(vm)
             let guiding: Bool = vm.room != nil && app.nav.guiding
 
             ZStack(alignment: .bottom) {
-                ConvoyMapView(pins: MapLayerPins.pins(app) + hazardPins + cruisePins + vm.mapPins, is3D: is3D, recenterToken: recenter, theme: theme,
+                ConvoyMapView(pins: MapLayerPins.pins(app) + hazardPins + cruisePins + selfPin + vm.mapPins, is3D: is3D, recenterToken: recenter, theme: theme,
                               userCoordinate: vm.location.latest?.coordinate,
                               route: guiding ? app.nav.remainingCoordinates : vm.mapRoute,
                               rejoinFrom: hint?.from,
@@ -111,7 +122,7 @@ struct ConvoyView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                     .opacity(railVisible ? 1 : 0)
 
-                topOverlay(vm, rec)
+                topOverlay(vm, rec, searchActive)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
                 rail(vm, rec)
@@ -124,7 +135,9 @@ struct ConvoyView: View {
                 layerHint(railVisible, railBottom)
 
                 sheet(vm, m, sheetH)
-                    .padding(.bottom, keyboard)
+                    .padding(.bottom, searchActive ? 0 : keyboard)
+                    .opacity(searchActive ? 0 : 1)
+                    .allowsHitTesting(!searchActive)
             }
             .frame(width: geo.size.width, height: geo.size.height)
         }
@@ -270,26 +283,34 @@ struct ConvoyView: View {
 
     // MARK: Top overlay
 
-    private func topOverlay(_ vm: ConvoyViewModel, _ rec: RideRecorder) -> some View {
+    private func topOverlay(_ vm: ConvoyViewModel, _ rec: RideRecorder, _ typing: Bool) -> some View {
         VStack(spacing: 8) {
             if vm.room == nil && app.nav.phase == .idle {
                 WhereToBar { app.showNav = true }
                 DriveChips()
             }
             if vm.room != nil {
-                if app.nav.guiding {
+                if app.nav.guiding && !typing {
                     ManeuverCard(nav: app.nav)
                     DetourBanner(nav: app.nav)
                 }
-                ConvoySearch(label: searchLabel(vm))
-            }
-            bannerView(vm)
-            HStack(spacing: 8) {
-                toggleChip("3D", on: is3D) { is3D.toggle() }
-                if rec.isActive {
-                    recordingChip(rec)
+                ConvoySearch(label: searchLabel(vm)) { (open: Bool) in
+                    searchActive = open
+                    if open {
+                        // The sheet would sit between the field and the results, and over the keyboard.
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) { detent = .peek }
+                    }
                 }
-                Spacer()
+            }
+            if !typing {
+                bannerView(vm)
+                HStack(spacing: 8) {
+                    toggleChip("3D", on: is3D) { is3D.toggle() }
+                    if rec.isActive {
+                        recordingChip(rec)
+                    }
+                    Spacer()
+                }
             }
         }
         .padding(.horizontal, 12)
@@ -446,7 +467,8 @@ struct ConvoyView: View {
 
     /// No convoy: the peek is the start / join prompt; pulled up, the same detents as a convoy sheet.
     private func noConvoyDock(_ m: SheetMetrics, _ h: CGFloat) -> some View {
-        let showBody: Bool = h > m.peek + 24
+        // Settled detent, not the live height: content that appears mid-drag changes the sheet's own layout.
+        let showBody: Bool = detent != .peek
         return VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 10) {
                 Capsule()
@@ -494,7 +516,9 @@ struct ConvoyView: View {
     }
 
     private func convoySheetContent(_ vm: ConvoyViewModel, _ room: Room, _ m: SheetMetrics, _ h: CGFloat) -> some View {
-        let showBody: Bool = h > m.peek + 24
+        // Settled detent, not the live height: content (and the header's Share/QR buttons) that appears mid-drag
+        // re-lays-out the sheet under the finger, which is what made the drawer jump.
+        let showBody: Bool = detent != .peek
         let drag = sheetDrag(m)
         return VStack(spacing: 0) {
             VStack(spacing: 0) {
@@ -661,7 +685,7 @@ struct ConvoyView: View {
     @ViewBuilder
     private func panel(_ vm: ConvoyViewModel) -> some View {
         switch tab {
-        case .roster: RosterPanel(onQr: { showInviteQR = true })
+        case .roster: RosterPanel()
         case .chat: ChatPanel()
         case .share: SharePanel()
         case .route: RoutePanel()

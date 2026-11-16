@@ -113,6 +113,8 @@ struct DetourBanner: View {
 /// convoy's destination (or the stop to head for next); closing it clears the query.
 struct ConvoySearch: View {
     let label: String
+    /// True while the field is open (keyboard up): the convoy screen clears its map furniture then.
+    var onEditing: (Bool) -> Void = { (_: Bool) in }
     @Environment(AppState.self) private var app
     @Environment(\.theme) private var theme
     @State private var open: Bool = false
@@ -128,6 +130,12 @@ struct ConvoySearch: View {
         }
         .onAppear {
             app.nav.search.bias(to: app.convoy.location.latest?.coordinate)
+        }
+        .onChange(of: open) { (_: Bool, now: Bool) in
+            onEditing(now)
+        }
+        .onDisappear {
+            onEditing(false)
         }
     }
 

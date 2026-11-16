@@ -50,6 +50,8 @@ struct RootView: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.bottom, 8)
+                // Typing lifts the content, not the bar: it would otherwise sit on top of the keyboard.
+                .ignoresSafeArea(.keyboard, edges: .bottom)
             } else {
                 WelcomeView()
             }

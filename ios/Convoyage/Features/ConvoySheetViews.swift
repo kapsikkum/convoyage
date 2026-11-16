@@ -234,8 +234,6 @@ struct RosterPanel: View {
     @Environment(AppState.self) private var app
     @Environment(\.theme) private var theme
     @State private var removeTarget: Member?
-    /// Asks the convoy screen for the QR sheet; the roster only draws the invite row.
-    var onQr: () -> Void = {}
 
     var body: some View {
         let vm: ConvoyViewModel = app.convoy
@@ -248,7 +246,7 @@ struct RosterPanel: View {
         ScrollView {
             VStack(spacing: 8) {
                 if let room = vm.room {
-                    InviteRow(room: room, onQr: onQr)
+                    InviteRow(room: room)
                 }
                 ForEach(vm.members) { (m: Member) in
                     memberRow(vm, m)

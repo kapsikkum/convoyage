@@ -30,6 +30,14 @@ struct NavigationScreen: View {
         }
     }
 
+    /// Where I am, as my own vehicle (Android's "me" pin). Empty when there is no car on file, which leaves the dot.
+    private var selfPin: [MapPin] {
+        let vm: ConvoyViewModel = app.convoy
+        guard let fix = vm.location.latest, let vehicle = app.myVehicleBuild else { return [] }
+        let heading: Double? = fix.course >= 0 ? fix.course : nil
+        return [MapPin(id: "me", initials: "", kind: .me, coordinate: fix.coordinate, vehicle: vehicle, heading: heading)]
+    }
+
     /// The place being looked at (search result or long press) or the active destination, as a flag on the map.
     private var destinationPins: [MapPin] {
         let nav: NavigationSession = app.nav
@@ -43,7 +51,7 @@ struct NavigationScreen: View {
         let nav: NavigationSession = app.nav
         let vm: ConvoyViewModel = app.convoy
         ZStack(alignment: .top) {
-            ConvoyMapView(pins: MapLayerPins.pins(app) + vm.mapPins + hazardPins + destinationPins,
+            ConvoyMapView(pins: MapLayerPins.pins(app) + selfPin + vm.mapPins + hazardPins + destinationPins,
                           is3D: nav.phase == .navigating,
                           recenterToken: recenter,
                           theme: theme,

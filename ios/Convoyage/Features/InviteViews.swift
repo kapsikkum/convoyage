@@ -97,74 +97,14 @@ struct LiveLinkSection: View {
 
 // MARK: - Roster invite block
 
-/// Share, copy and QR for the room you are in, at the top of the roster so everyone can invite, not just the leader.
+/// The live link, at the top of the roster. The code, the share sheet and the QR are already in the header and the
+/// Share tab, so they are not repeated here.
 struct InviteRow: View {
     let room: Room
-    /// The roster cannot show the QR sheet itself, so it asks the convoy screen to.
-    var onQr: () -> Void = {}
-
-    @Environment(\.theme) private var theme
-    @State private var copied: Bool = false
-    @State private var copyTask: Task<Void, Never>?
 
     var body: some View {
-        let message: String = InviteLinks.shareText(room)
-        VStack(spacing: 8) {
-            HStack(spacing: 8) {
-                ShareLink(item: message, subject: Text("Join my convoy")) {
-                    chip("Share", icon: "square.and.arrow.up", tint: theme.ink)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Share the invite")
-                Button {
-                    UIPasteboard.general.string = message
-                    markCopied()
-                } label: {
-                    chip(copied ? "Copied" : "Copy",
-                         icon: copied ? "checkmark" : "doc.on.doc",
-                         tint: copied ? theme.go : theme.ink)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Copy the invite")
-                Button(action: onQr) {
-                    chip("QR", icon: "qrcode", tint: theme.ink)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Show QR code")
-            }
-            LiveLinkSection(room: room, showsHeading: false)
-        }
-        .padding(.bottom, 4)
-        .onDisappear {
-            copyTask?.cancel()
-            copied = false
-        }
-    }
-
-    private func chip(_ title: String, icon: String?, tint: Color) -> some View {
-        HStack(spacing: 6) {
-            if let icon = icon {
-                Image(systemName: icon)
-                    .font(.system(size: 12, weight: .semibold))
-            }
-            Text(title.uppercased())
-                .font(CvFont.label(11))
-                .tracking(1.0)
-                .lineLimit(1)
-        }
-        .foregroundStyle(tint)
-        .frame(maxWidth: .infinity, minHeight: 40)
-        .cvPanel(fill: theme.surface200, edge: theme.lineStrong, cut: Cut.s)
-    }
-
-    /// "COPIED" for a moment, then the button goes back to Copy.
-    private func markCopied() {
-        copyTask?.cancel()
-        copied = true
-        copyTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
-            if !Task.isCancelled { copied = false }
-        }
+        LiveLinkSection(room: room, showsHeading: false)
+            .padding(.bottom, 4)
     }
 }
 
