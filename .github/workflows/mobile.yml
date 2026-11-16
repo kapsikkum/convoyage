@@ -184,6 +184,11 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Full history and tags so scripts/changelog.mjs can diff against the previous release.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
@@ -195,6 +200,9 @@ jobs:
           find release-artifacts -type f \( -name 'Convoyage-release.apk' -o -name 'Convoyage-unsigned.ipa' \) -exec cp {} release-files/ \;
           ls -la release-files
 
+      - name: Generate release notes
+        run: node scripts/changelog.mjs > release-notes.md
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2.2.2
         with:
@@ -202,7 +210,7 @@ jobs:
           name: Convoyage ${{ github.ref_name }}
           files: release-files/*
           fail_on_unmatched_files: true
-          generate_release_notes: true
+          body_path: release-notes.md
           prerelease: ${{ contains(github.ref_name, '-') }}
           make_latest: ${{ !contains(github.ref_name, '-') }}
 
@@ -213,12 +221,19 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          git init -q . && git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
+          # The workspace is a real checkout now, so repoint its origin at a token URL rather than
+          # adding a second one (git remote add would fail on the existing origin).
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" 2>/dev/null || \
+            git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
           git fetch -q --depth 1 origin "refs/tags/${{ github.ref_name }}"
           git tag -f beta FETCH_HEAD && git push -f -q origin refs/tags/beta
+          {
+            echo "Rolling beta build: always the newest pre-release. Currently ${{ github.ref_name }}."
+            echo
+            echo "[Release notes](https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }})"
+          } > beta-notes.md
           gh release view beta -R "${{ github.repository }}" >/dev/null 2>&1 || \
             gh release create beta -R "${{ github.repository }}" --prerelease --title "Convoyage beta (rolling)" \
-              --notes "Rolling beta build: always the newest pre-release. Currently ${{ github.ref_name }}."
-          gh release edit beta -R "${{ github.repository }}" --prerelease \
-            --notes "Rolling beta build: always the newest pre-release. Currently ${{ github.ref_name }}."
+              --notes-file beta-notes.md
+          gh release edit beta -R "${{ github.repository }}" --prerelease --notes-file beta-notes.md
           gh release upload beta release-files/* -R "${{ github.repository }}" --clobber
