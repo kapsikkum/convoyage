@@ -2,9 +2,9 @@
 
 A live convoy app for cars and motorcycles: an Android app, an iOS app, and a self-hostable server.
 
-> **Beta.** Convoyage is in active development. iOS is sideloaded with SideStore or AltStore (the IPA is unsigned),
-> Android ships without Google services, and physical-device testing is ongoing. Expect rough edges and breaking
-> changes between releases.
+> **0.2.0 baseline.** Convoyage is in active development. iOS is sideloaded with SideStore or AltStore (the IPA is
+> unsigned), Android ships without Google services, and physical-device testing continues. Expect rough edges and
+> breaking changes between releases.
 
 ## Features
 
@@ -117,7 +117,7 @@ See <https://github.com/kapsikkum/convoyage/releases>.
 
 ## Status and limitations
 
-- **Beta.** APIs and wire formats may change; the protocol schemas are versioned so breaking changes create a new
+- **0.2.0 baseline.** APIs and wire formats may change; the protocol schemas are versioned so breaking changes create a new
   version rather than editing the current one.
 - **Android 9+** (`minSdk 28`), **iOS 17+** (deployment target `17.0`).
 - **No Google Play Services and no Firebase.** Android push uses UnifiedPush distributors.
@@ -129,5 +129,6 @@ See <https://github.com/kapsikkum/convoyage/releases>.
 
 ## License
 
-Proprietary. There is no `LICENSE` file in this repository; nothing here grants a right to redistribute or reuse
-the code.
+Convoyage is licensed under the **GNU Affero General Public License v3.0 only** (`AGPL-3.0-only`). See
+[`LICENSE`](LICENSE). The AGPL's network clause applies: if you run a modified version as a network service, you must
+offer users the corresponding source.
