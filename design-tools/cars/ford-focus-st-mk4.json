@@ -5,7 +5,7 @@
   "name": "Ford Focus ST Mk4 (2020-24)",
   "mm": [4388, 1825, 1453, 2700],
   "tyre": 0.647,
-  "tyreW": 0.235,
+  "tyreW": 0.235,"crown": 3.0,
   "front": [
     {"type": "line", "pts": [[-0.45, 0.205], [0.45, 0.205]], "w": 0.02, "mat": "black", "mirror": false, "offset": 0.016},
     {"type": "poly", "pts": [[0.62, 0.32], [0.78, 0.33], [0.8, 0.42], [0.66, 0.43]], "mat": "trim", "offset": 0.016}

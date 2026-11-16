@@ -118,7 +118,7 @@ data class Ps1Spec(
         const val DEFAULT_PAINT = 0xB8BCC2
 
         /** Bump to throw every cached thumbnail away when the models or shaders change. */
-        const val RENDERER_VERSION = 4
+        const val RENDERER_VERSION = 5
 
         /** `#RRGGBB` (any case) or null/garbage, which gives the default paint. */
         fun parseHex(hex: String?): Int {

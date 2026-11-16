@@ -5,7 +5,7 @@
   "name": "Hyundai i30 Sedan N (CN7, 2022-)",
   "mm": [4715, 1825, 1405, 2720],
   "tyre": 0.654,
-  "tyreW": 0.245,
+  "tyreW": 0.245,"crown": 3.0,
   "front": [
     {"type": "line", "pts": [[-0.7, 0.215], [0.7, 0.215]], "w": 0.022, "mat": "red", "mirror": false, "offset": 0.02},
     {"type": "poly", "pts": [[0.68, 0.28], [0.86, 0.3], [0.86, 0.48], [0.72, 0.47]], "mat": "black", "offset": 0.014}

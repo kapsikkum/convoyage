@@ -165,7 +165,9 @@ def ring(d):
         tw = w * TUMBLE
         pts += [(tw, max(top - 0.075, belt + 0.004)), (tw * 0.9, max(top - 0.025, belt + 0.008)), (tw * 0.55, max(top - 0.004, belt + 0.01))]
     else:
-        pts += [(w * 0.86, top - 0.03), (w * 0.62, top - 0.01), (w * 0.3, top - 0.002)]
+        # Bonnet / deck crown: a real panel domes away from its edges, and the flatter the panel the more it needs.
+        cr = spec.get('crown', 1.0)
+        pts += [(w * 0.86, top - 0.03 * cr), (w * 0.62, top - 0.01 * cr), (w * 0.3, top - 0.002 * cr)]
     pts += [(0.0, top)]
     return pts
 

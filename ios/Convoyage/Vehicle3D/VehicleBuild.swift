@@ -67,7 +67,7 @@ enum Ps1Wheels {
 struct VehicleBuild: Hashable {
     static let defaultPaint: UInt32 = 0xB8BCC2
     /// Bump to throw every cached thumbnail away when the models or the shader change.
-    static let rendererVersion: Int = 4
+    static let rendererVersion: Int = 5
     /// Written to `build.shape` when a body was picked by hand: no catalogue model.
     static let genericShape: String = "generic"
 
