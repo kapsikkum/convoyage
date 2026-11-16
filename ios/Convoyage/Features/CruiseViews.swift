@@ -28,13 +28,14 @@ struct OpenCruiseRow: View {
     }
 
     private func summary(_ vm: ConvoyViewModel) -> String {
-        if !vm.wantOpenCruise { return "See drivers and open convoys nearby" }
+        let words: RideWords = app.rideWords
+        if !vm.wantOpenCruise { return "See " + words.people + " and open convoys nearby" }
         if !vm.openCruise { return "Connecting..." }
         let d: Int = vm.nearbyDrivers.count
         let c: Int = vm.nearbyConvoys.count
         if d == 0 && c == 0 { return "Nobody else cruising within 5 km yet" }
         var parts: [String] = []
-        if d > 0 { parts.append("\(d) driver" + (d == 1 ? "" : "s")) }
+        if d > 0 { parts.append("\(d) " + words.person + (d == 1 ? "" : "s")) }
         if c > 0 { parts.append("\(c) convoy" + (c == 1 ? "" : "s")) }
         return parts.joined(separator: " and ") + " within 5 km, on the map"
     }

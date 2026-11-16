@@ -91,6 +91,7 @@ struct DriveDockContent: View {
     var body: some View {
         let vm: ConvoyViewModel = app.convoy
         let rec: RideRecorder = app.recorder
+        let words: RideWords = app.rideWords
         let recents: [NavPlace] = app.places.recent
         ScrollView {
             VStack(alignment: .leading, spacing: 8) {
@@ -104,15 +105,15 @@ struct DriveDockContent: View {
                 }
 
                 if vm.wantOpenCruise && !vm.nearbyDrivers.isEmpty {
-                    SectionLabel(text: "Drivers cruising nearby").padding(.top, 4)
+                    SectionLabel(text: words.People + " cruising nearby").padding(.top, 4)
                     ForEach(vm.nearbyDrivers) { (d: NearbyDriver) in
                         driverRow(d, vm)
                     }
                 }
 
-                SectionLabel(text: "Drive").padding(.top, 4)
+                SectionLabel(text: words.Noun).padding(.top, 4)
                 HStack(spacing: 10) {
-                    CvButton(title: rec.isActive ? "Recording" : "Track drive",
+                    CvButton(title: rec.isActive ? "Recording" : words.track,
                              icon: "record.circle",
                              kind: rec.isActive ? CvButtonKind.alert : CvButtonKind.ghost) {
                         record(rec)
@@ -130,7 +131,7 @@ struct DriveDockContent: View {
                 }
                 rowButton(icon: "point.topleft.down.curvedto.point.bottomright.up",
                           title: "Saved routes",
-                          subtitle: "Drive one solo or as a convoy",
+                          subtitle: words.Verb + " one solo or as a convoy",
                           tint: theme.signal) {
                     app.showRoutes = true
                 }
@@ -154,7 +155,7 @@ struct DriveDockContent: View {
         if rec.isActive {
             app.showRide = true
         } else {
-            app.recorder.start(vehicleId: app.garage.primary?.id, convoyCode: nil)
+            app.recorder.start(vehicleId: app.garage.primary?.id, convoyCode: nil, words: app.rideWords)
         }
     }
 

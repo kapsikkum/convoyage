@@ -450,6 +450,12 @@ final class AppState {
         return rideMode == "ride" ? "motorcycle" : "car"
     }
 
+    /// The vehicle in use: the garage's primary kind wins, else the saved drive / ride choice.
+    var rideWords: RideWords {
+        let kind: String? = garage.primary?.kind ?? me?.primaryVehicle?.kind
+        return RideWords(primaryKind: kind, rideMode: rideMode)
+    }
+
     /// PATCH /v1/me with the chosen name (and handle). Returns an error message, or nil.
     func completeOnboarding(name: String, handle: String, mode: String) async -> String? {
         let clean: String = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -498,7 +504,7 @@ final class AppState {
         guard entered, autoRecordConvoy, !recorder.isActive, let convoyCode = code else { return }
         let status: CLAuthorizationStatus = convoy.location.authorization
         guard status == .authorizedWhenInUse || status == .authorizedAlways else { return }
-        recorder.start(vehicleId: garage.primary?.id, convoyCode: convoyCode)
+        recorder.start(vehicleId: garage.primary?.id, convoyCode: convoyCode, words: rideWords)
     }
 
     // MARK: Convoy navigation

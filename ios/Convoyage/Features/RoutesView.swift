@@ -165,7 +165,7 @@ struct RouteDetailSheet: View {
                     }
                 }
                 if let e = error { Text(e).font(CvFont.text(13)).foregroundStyle(theme.pulse) }
-                CvButton(title: inConvoy ? "Share with the convoy" : "Drive as a convoy", icon: "person.3.fill") {
+                CvButton(title: inConvoy ? "Share with the convoy" : app.rideWords.Verb + " as a convoy", icon: "person.3.fill") {
                     error = app.convoy.driveSavedRoute(route)
                     if error == nil {
                         app.tab = .convoy

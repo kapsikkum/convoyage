@@ -392,7 +392,7 @@ struct ConvoyView: View {
             .cvPanel(fill: theme.glass, edge: rec.phase == .recording ? theme.pulse : theme.hazard, cut: Cut.s)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Open ride mode")
+        .accessibilityLabel("Open " + app.rideWords.noun + " mode")
     }
 
     private func toggleChip(_ title: String, on: Bool, action: @escaping () -> Void) -> some View {
@@ -421,11 +421,11 @@ struct ConvoyView: View {
             iconButton("exclamationmark.triangle", tint: theme.hazard, label: "Report a hazard") { showReport = true }
             iconButton(rec.isActive ? "gauge.with.dots.needle.67percent" : "record.circle",
                        tint: rec.isActive ? theme.pulse : theme.signal,
-                       label: rec.isActive ? "Open ride mode" : "Start recording a ride") {
+                       label: rec.isActive ? "Open " + app.rideWords.noun + " mode" : "Start recording a " + app.rideWords.noun) {
                 if rec.isActive {
                     app.showRide = true
                 } else {
-                    rec.start(vehicleId: app.garage.primary?.id, convoyCode: vm.room?.code)
+                    rec.start(vehicleId: app.garage.primary?.id, convoyCode: vm.room?.code, words: app.rideWords)
                 }
             }
             iconButton("camera.fill", tint: theme.signal, label: "Take a photo") { app.photos.begin() }
@@ -477,7 +477,7 @@ struct ConvoyView: View {
                     .frame(maxWidth: .infinity, minHeight: 24)
                     .contentShape(Rectangle())
                     .onTapGesture { cycleDetent() }
-                    .accessibilityLabel("Drive sheet handle")
+                    .accessibilityLabel(app.rideWords.Noun + " sheet handle")
                     .accessibilityHint("Double tap to change the sheet size")
                     .accessibilityAddTraits(.isButton)
                 Text("No convoy yet").font(CvFont.display(20))

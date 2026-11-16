@@ -136,10 +136,10 @@ final class RideRecorder {
 
     // MARK: Controls
 
-    func start(vehicleId: String?, convoyCode: String?) {
+    func start(vehicleId: String?, convoyCode: String?, words: RideWords) {
         guard phase == .idle else { return }
         let now: Date = Date()
-        draft = RideDraft(rideId: nil, startedAt: now, endedAt: nil, title: RideRecorder.defaultTitle(now), visibility: "followers",
+        draft = RideDraft(rideId: nil, startedAt: now, endedAt: nil, title: RideRecorder.defaultTitle(now, words: words), visibility: "followers",
                           vehicleId: vehicleId, convoyCode: convoyCode, phase: .recording, points: [], distanceM: 0, movingS: 0,
                           activeS: 0, maxSpeedMps: 0, elevationGainM: 0, refAlt: nil, photos: [])
         phase = .recording
@@ -430,7 +430,7 @@ final class RideRecorder {
     private func upload() async {
         guard let d = draft, let endedAt = d.endedAt else { return }
         guard let rideId = await ensureServerRide() else {
-            fail("Cannot reach the server. The ride is saved on this phone; try again when you are online.")
+            fail("Cannot reach the server. It is saved on this phone; try again when you are online.")
             return
         }
         // Photos first, so a failure there does not leave a finished ride with photos missing.
@@ -463,9 +463,9 @@ final class RideRecorder {
             if f.status == 409 {
                 succeed() // already finished by an earlier attempt whose answer we never saw
             } else if f.isUnauthorized {
-                fail("Sign in again to upload this ride. It is saved on this phone.")
+                fail("Sign in again to upload it. It is saved on this phone.")
             } else if f.isNetwork {
-                fail("Cannot reach the server. The ride is saved on this phone; try again when you are online.")
+                fail("Cannot reach the server. It is saved on this phone; try again when you are online.")
             } else {
                 fail(f.message)
             }
@@ -534,15 +534,15 @@ final class RideRecorder {
         segmentStart = nil
         syncStats()
         if d.phase == .finishing {
-            recap = makeRecap(upload: .failed("This ride was not uploaded yet."))
+            recap = makeRecap(upload: .failed("This one was not uploaded yet."))
         }
     }
 
-    static func defaultTitle(_ date: Date) -> String {
+    static func defaultTitle(_ date: Date, words: RideWords) -> String {
         let hour: Int = Calendar.current.component(.hour, from: date)
-        if hour < 5 { return "Night ride" }
-        if hour < 12 { return "Morning ride" }
-        if hour < 18 { return "Afternoon ride" }
-        return "Evening ride"
+        if hour < 5 { return "Night " + words.noun }
+        if hour < 12 { return "Morning " + words.noun }
+        if hour < 18 { return "Afternoon " + words.noun }
+        return "Evening " + words.noun
     }
 }

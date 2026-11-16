@@ -257,7 +257,7 @@ struct RosterPanel: View {
                              kind: vm.iAmStopping ? .primary : .alert) {
                         vm.setStopping(!vm.iAmStopping)
                     }
-                    CvButton(title: "Ride mode", icon: "gauge.with.dots.needle.67percent", kind: .ghost) {
+                    CvButton(title: app.rideWords.Noun + " mode", icon: "gauge.with.dots.needle.67percent", kind: .ghost) {
                         app.showRide = true
                     }
                 }
@@ -630,7 +630,7 @@ struct RoutePanel: View {
                     .foregroundStyle(theme.inkMuted)
                 CvButton(title: "Roll out", icon: "flag.checkered") { vm.rollOut() }
             }
-            CvButton(title: "Drive a saved route", icon: "point.topleft.down.curvedto.point.bottomright.up", kind: .ghost) {
+            CvButton(title: app.rideWords.Verb + " a saved route", icon: "point.topleft.down.curvedto.point.bottomright.up", kind: .ghost) {
                 app.showRoutes = true
             }
             VStack(alignment: .leading, spacing: 8) {
@@ -659,7 +659,7 @@ struct RoutePanel: View {
             Toggle(isOn: Binding<Bool>(get: { return room.open }, set: { (v: Bool) in vm.setConvoyOpen(v) })) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Open convoy").font(CvFont.text(14, weight: .bold))
-                    Text("Open Cruise drivers within 5 km can see it and join without the code.")
+                    Text("Open Cruise " + app.rideWords.people + " within 5 km can see it and join without the code.")
                         .font(CvFont.text(12))
                         .foregroundStyle(theme.inkMuted)
                 }

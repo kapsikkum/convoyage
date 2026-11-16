@@ -91,6 +91,7 @@ struct RecapView: View {
 
     var body: some View {
         let rec: RideRecorder = app.recorder
+        let words: RideWords = app.rideWords
         let visBinding: Binding<String> = Binding<String>(
             get: { return visibility },
             set: { (v: String) in
@@ -102,7 +103,7 @@ struct RecapView: View {
             if let recap = rec.recap {
                 content(recap, rec, visBinding)
             } else {
-                Text("No ride to show.")
+                Text("No " + words.noun + " to show.")
                     .font(CvFont.text(15))
                     .foregroundStyle(theme.inkMuted)
                     .padding(24)
@@ -117,8 +118,8 @@ struct RecapView: View {
                 visibility = r.visibility
             }
         }
-        .confirmationDialog("Discard this ride?", isPresented: $confirmDiscard, titleVisibility: .visible) {
-            Button("Discard ride", role: .destructive) {
+        .confirmationDialog("Discard this " + words.noun + "?", isPresented: $confirmDiscard, titleVisibility: .visible) {
+            Button("Discard " + words.noun, role: .destructive) {
                 rec.discard()
                 dismiss()
             }
@@ -129,10 +130,11 @@ struct RecapView: View {
     @ViewBuilder
     private func content(_ recap: RideRecap, _ rec: RideRecorder, _ visBinding: Binding<String>) -> some View {
         let isDone: Bool = (recap.upload == .done)
+        let words: RideWords = app.rideWords
         VStack(alignment: .leading, spacing: 18) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    SectionLabel(text: "Ride recap")
+                    SectionLabel(text: words.recap)
                     Text(recap.startedAt.formatted(date: .abbreviated, time: .shortened))
                         .font(CvFont.text(13))
                         .foregroundStyle(theme.inkMuted)
@@ -140,7 +142,7 @@ struct RecapView: View {
                 Spacer()
             }
 
-            CvField(placeholder: "Name this ride", text: $title, autocap: .sentences)
+            CvField(placeholder: "Name this " + words.noun, text: $title, autocap: .sentences)
                 .onChange(of: title) { (_: String, newValue: String) in
                     rec.setTitle(newValue)
                 }
@@ -173,7 +175,7 @@ struct RecapView: View {
             if isDone {
                 VStack(alignment: .leading, spacing: 10) {
                     SectionLabel(text: "Share")
-                    CvField(placeholder: "Say something about the ride (optional)", text: $caption, autocap: .sentences)
+                    CvField(placeholder: "Say something about the " + words.noun + " (optional)", text: $caption, autocap: .sentences)
                     Segmented(items: ["followers", "public"], title: { (v: String) -> String in
                         return v == "public" ? "Public" : "Followers"
                     }, selection: visBinding)
@@ -196,7 +198,7 @@ struct RecapView: View {
                 finish(recap, rec, isDone)
             }
             if case .failed = recap.upload {
-                CvButton(title: "Discard ride", kind: .ghost) { confirmDiscard = true }
+                CvButton(title: "Discard " + words.noun, kind: .ghost) { confirmDiscard = true }
             }
         }
         .padding(20)
@@ -218,14 +220,15 @@ struct RecapView: View {
 
     @ViewBuilder
     private func uploadBanner(_ recap: RideRecap, _ rec: RideRecorder) -> some View {
+        let words: RideWords = app.rideWords
         switch recap.upload {
         case .uploading:
-            Banner(title: "Uploading your ride...", kind: .info, icon: "arrow.up.circle")
+            Banner(title: "Uploading your " + words.noun + "...", kind: .info, icon: "arrow.up.circle")
         case .failed(let message):
-            Banner(title: "Ride not uploaded", subtitle: message, kind: .hazard, icon: "exclamationmark.triangle",
+            Banner(title: words.Noun + " not uploaded", subtitle: message, kind: .hazard, icon: "exclamationmark.triangle",
                    actionTitle: "Retry", action: { rec.retryUpload() })
         case .done:
-            Banner(title: "Ride saved", kind: .go, icon: "checkmark.circle")
+            Banner(title: words.Noun + " saved", kind: .go, icon: "checkmark.circle")
         }
     }
 

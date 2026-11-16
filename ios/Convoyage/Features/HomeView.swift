@@ -19,6 +19,7 @@ struct HomeView: View {
 
     var body: some View {
         let vm: ConvoyViewModel = app.convoy
+        let words: RideWords = app.rideWords
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 HStack {
@@ -46,7 +47,7 @@ struct HomeView: View {
                     eventsSection()
                 }
 
-                CvButton(title: app.recorder.isActive ? "Open ride mode" : "Record a ride", icon: "record.circle", kind: .ghost) {
+                CvButton(title: app.recorder.isActive ? "Open " + words.noun + " mode" : words.record, icon: "record.circle", kind: .ghost) {
                     app.showRide = true
                 }
 

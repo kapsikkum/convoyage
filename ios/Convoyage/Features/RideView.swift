@@ -10,6 +10,7 @@ struct RideView: View {
     var body: some View {
         let vm: ConvoyViewModel = app.convoy
         let rec: RideRecorder = app.recorder
+        let words: RideWords = app.rideWords
         let speed: Int = Formatters.kmh(vm.location.latest?.speed)
         let leaderDist: String? = vm.leaderMember.flatMap { (m: Member) -> String? in
             if m.id == vm.myId { return nil }
@@ -34,7 +35,7 @@ struct RideView: View {
                         .cvPanel(fill: theme.surface200, edge: theme.lineStrong, cut: Cut.s)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Exit ride mode")
+                .accessibilityLabel("Exit " + words.noun + " mode")
 
                 HStack(spacing: 10) {
                     if rec.phase == .recording {
@@ -71,7 +72,9 @@ struct RideView: View {
                     }
                 }
                 Spacer()
-                Readout(caption: "Lean", value: leanText, unit: "deg", size: 28, alignment: .trailing)
+                if words.showsLean {
+                    Readout(caption: "Lean", value: leanText, unit: "deg", size: 28, alignment: .trailing)
+                }
             }
             .padding(.top, 4)
 
@@ -79,7 +82,7 @@ struct RideView: View {
 
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
                 RideTile(caption: "To leader", value: leaderDist ?? "--", tone: .signal, valueColor: nil, compact: true, action: {})
-                RideTile(caption: "Furthest rider", value: lastRider ?? "--", valueColor: theme.pulse, compact: true, action: {})
+                RideTile(caption: "Furthest " + words.person, value: lastRider ?? "--", valueColor: theme.pulse, compact: true, action: {})
                 RideTile(caption: "Report", icon: "exclamationmark.triangle", tone: .hazard, compact: true, action: { showReport = true })
                 RideTile(caption: vm.iAmStopping ? "Moving again" : "I'm stopping", icon: vm.iAmStopping ? "play.fill" : "stop.fill",
                          tone: .alert, compact: true, action: { vm.setStopping(!vm.iAmStopping) })
@@ -169,6 +172,7 @@ struct RideView: View {
     /// Ride settings: automatic recording when a convoy starts or is joined, the opt-in crash detection, and a
     /// DEBUG item that starts the countdown.
     private var rideMenu: some View {
+        let words: RideWords = app.rideWords
         let autoBinding: Binding<Bool> = Binding<Bool>(
             get: { return app.autoRecordConvoy },
             set: { (v: Bool) in
@@ -183,7 +187,7 @@ struct RideView: View {
             }
         )
         return Menu {
-            Toggle("Record convoy rides automatically", isOn: autoBinding)
+            Toggle("Record convoy " + words.noun + "s automatically", isOn: autoBinding)
             Toggle("Crash detection", isOn: crashBinding)
             #if DEBUG
             Button("Test crash alert") { app.crash.debugTrigger() }
@@ -195,7 +199,7 @@ struct RideView: View {
                 .frame(width: 48, height: 48)
                 .cvPanel(fill: theme.surface200, edge: theme.lineStrong, cut: Cut.s)
         }
-        .accessibilityLabel("Ride settings")
+        .accessibilityLabel(words.Noun + " settings")
     }
 
     @ViewBuilder
@@ -216,8 +220,8 @@ struct RideView: View {
     private func recorderBlock(_ rec: RideRecorder) -> some View {
         switch rec.phase {
         case .idle:
-            CvButton(title: "Start ride", icon: "record.circle") {
-                rec.start(vehicleId: app.garage.primary?.id, convoyCode: app.convoy.room?.code)
+            CvButton(title: "Start " + app.rideWords.noun, icon: "record.circle") {
+                rec.start(vehicleId: app.garage.primary?.id, convoyCode: app.convoy.room?.code, words: app.rideWords)
             }
         case .recording, .paused:
             VStack(spacing: 10) {
@@ -248,7 +252,7 @@ struct RideView: View {
             .cvPanel(fill: theme.surface200, edge: rec.phase == .recording ? theme.pulse : theme.lineStrong, cut: Cut.m)
         case .finishing:
             if !rec.showRecap {
-                Banner(title: "Ride not uploaded", subtitle: "Saved on this phone", kind: .hazard, icon: "exclamationmark.triangle",
+                Banner(title: app.rideWords.Noun + " not uploaded", subtitle: "Saved on this phone", kind: .hazard, icon: "exclamationmark.triangle",
                        actionTitle: "Open", action: { rec.reopenRecap() })
             }
         }

@@ -64,7 +64,7 @@ final class PhotoCapture {
 
     var hasLocation: Bool { return capturedCoordinate != nil }
 
-    func submit() async {
+    func submit(words: RideWords) async {
         guard let img = image, !busy else { return }
         guard let data = ImagePrep.jpeg(img) else {
             message = "Could not prepare the photo."
@@ -85,7 +85,7 @@ final class PhotoCapture {
             }
             if recorder.isActive {
                 await recorder.addPhoto(mediaId: media.id, lat: lat, lng: lng, takenAt: capturedAt)
-                message = "Photo added to your ride."
+                message = "Photo added to your " + words.noun + "."
                 image = nil
             } else {
                 var body: [String: Any] = ["kind": "photo", "mediaIds": [media.id], "visibility": postVisibility]

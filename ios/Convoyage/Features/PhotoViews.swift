@@ -50,6 +50,7 @@ struct PhotoConfirmView: View {
 
     var body: some View {
         let photos: PhotoCapture = app.photos
+        let words: RideWords = app.rideWords
         let includeBinding: Binding<Bool> = Binding<Bool>(
             get: { return photos.includeLocation },
             set: { (v: Bool) in photos.includeLocation = v }
@@ -80,9 +81,10 @@ struct PhotoConfirmView: View {
                 .disabled(!photos.hasLocation)
 
                 if photos.hasRide {
-                    Banner(title: "Added to your current ride", kind: .info, icon: "figure.outdoor.cycle")
+                    Banner(title: "Added to your current " + words.noun, kind: .info,
+                           icon: words.bike ? "figure.outdoor.cycle" : "car.fill")
                 } else {
-                    Banner(title: "No ride is recording", subtitle: "This photo will be posted to your feed.", kind: .info, icon: "photo")
+                    Banner(title: "No " + words.noun + " is recording", subtitle: "This photo will be posted to your feed.", kind: .info, icon: "photo")
                     Segmented(items: ["followers", "public"], title: { (v: String) -> String in
                         return v == "public" ? "Public" : "Followers"
                     }, selection: visBinding)
@@ -90,8 +92,8 @@ struct PhotoConfirmView: View {
                 if let m = photos.message {
                     Banner(title: m, kind: .hazard, icon: "exclamationmark.triangle")
                 }
-                CvButton(title: photos.busy ? "Uploading..." : (photos.hasRide ? "Attach to ride" : "Post to feed")) {
-                    Task { await photos.submit() }
+                CvButton(title: photos.busy ? "Uploading..." : (photos.hasRide ? "Attach to " + words.noun : "Post to feed")) {
+                    Task { await photos.submit(words: words) }
                 }
                 .opacity(photos.busy ? 0.5 : 1)
                 .disabled(photos.busy)

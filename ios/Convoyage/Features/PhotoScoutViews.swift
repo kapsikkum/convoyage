@@ -48,7 +48,7 @@ struct PhotoScoutLayerRows: View {
                                sub: "PhotoScout places to shoot, with their best times. Tap one for its photo and directions.",
                                on: app.layerSpots) { app.layerSpots.toggle() }
                 LayerSwitchRow(title: "Events",
-                               sub: "Meets and cruises coming up nearby. Tap one to RSVP, drive there or join its convoy.",
+                               sub: "Meets and cruises coming up nearby. Tap one to RSVP, " + app.rideWords.verb + " there or join its convoy.",
                                on: app.layerEvents) { app.layerEvents.toggle() }
                 reportRow(ps)
                 if let e = ps.error {

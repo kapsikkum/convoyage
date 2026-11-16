@@ -117,7 +117,7 @@ struct FeedView: View {
     private func emptyText(_ scope: FeedScope) -> String {
         switch scope {
         case .everyone: return "Nothing here yet. Be the first to post."
-        case .following: return "Follow some drivers and their rides and builds show up here."
+        case .following: return "Follow some people and their posts show up here."
         case .nearby: return "No posts within 100 km of you yet."
         }
     }
@@ -156,7 +156,7 @@ struct PostCard: View {
 
     private var kindLabel: String {
         switch post.kind {
-        case "ride": return "RIDE"
+        case "ride": return app.rideWords.NOUN
         case "build": return "BUILD"
         case "photo": return "PHOTO"
         default: return "POST"

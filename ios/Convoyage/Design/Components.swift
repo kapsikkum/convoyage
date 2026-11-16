@@ -529,11 +529,11 @@ enum AppTab: String, CaseIterable, Hashable {
     case garage
     case profile
 
-    var title: String {
+    func title(_ words: RideWords) -> String {
         switch self {
         case .home: return "Home"
         case .feed: return "Feed"
-        case .convoy: return "Drive"
+        case .convoy: return words.tab
         case .garage: return "Garage"
         case .profile: return "Profile"
         }
@@ -548,20 +548,27 @@ enum AppTab: String, CaseIterable, Hashable {
         case .profile: return "person.crop.circle"
         }
     }
+
+    func symbol(for words: RideWords) -> String {
+        if self == .convoy && words.bike { return "figure.outdoor.cycle" }
+        return self.symbol
+    }
 }
 
 struct TabBar: View {
     @Binding var selection: AppTab
+    @Environment(AppState.self) private var app
     @Environment(\.theme) private var theme
 
     var body: some View {
+        let words: RideWords = app.rideWords
         HStack(spacing: 0) {
             ForEach(AppTab.allCases, id: \.self) { (tab: AppTab) in
                 Button {
                     selection = tab
                 } label: {
                     if tab == .convoy {
-                        Image(systemName: tab.symbol)
+                        Image(systemName: tab.symbol(for: words))
                             .font(.system(size: 20, weight: .semibold))
                             .foregroundStyle(theme.signalInk)
                             .frame(width: 52, height: 44)
@@ -571,7 +578,7 @@ struct TabBar: View {
                         VStack(spacing: 3) {
                             Image(systemName: tab.symbol)
                                 .font(.system(size: 18, weight: .medium))
-                            Text(tab.title.uppercased())
+                            Text(tab.title(words).uppercased())
                                 .font(CvFont.label(9))
                                 .tracking(1.0)
                         }
@@ -580,7 +587,7 @@ struct TabBar: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(tab.title)
+                .accessibilityLabel(tab.title(words))
             }
         }
         .padding(.horizontal, 6)
