@@ -61,9 +61,9 @@ class RidePhotoCapture internal constructor(
     var includeLocation: Boolean by locationState
     var message: String? by messageState
 
-    fun shoot(recording: Boolean) {
+    fun shoot(recording: Boolean, words: RideWords) {
         if (!recording) {
-            message = "Start recording to attach photos to your ride."
+            message = "Start recording to attach photos to your ${words.noun}."
             return
         }
         message = null
@@ -117,12 +117,13 @@ fun PhotoConfirmSheet(capture: RidePhotoCapture, modifier: Modifier = Modifier) 
     val container = LocalContainer.current
     val scope = rememberCoroutineScope()
     val c = Cv.colors
+    val words = rideWords()
     var busy by remember { mutableStateOf(false) }
 
     Box(modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)).clickableNoRipple {}) {
         CvSheet(Modifier.align(Alignment.BottomCenter)) {
             Column(Modifier.fillMaxWidth().padding(bottom = Space.s4), verticalArrangement = Arrangement.spacedBy(Space.s3)) {
-                Eyebrow("PHOTO · ADD TO THIS RIDE", color = c.signal)
+                Eyebrow("PHOTO · ADD TO THIS ${words.NOUN}", color = c.signal)
                 CvImage(
                     ImageSource.Local(File(path)), Modifier.fillMaxWidth().height(200.dp).clip(CutMShape), maxEdgePx = 900,
                 )
@@ -141,7 +142,7 @@ fun PhotoConfirmSheet(capture: RidePhotoCapture, modifier: Modifier = Modifier) 
                         "Discard", { File(path).delete(); capture.pending = null }, Modifier.weight(1f), CvButtonKind.Ghost, enabled = !busy,
                     )
                     CvButton(
-                        if (busy) "Adding..." else "Add to ride",
+                        if (busy) "Adding..." else "Add to ${words.noun}",
                         {
                             busy = true
                             scope.launch {

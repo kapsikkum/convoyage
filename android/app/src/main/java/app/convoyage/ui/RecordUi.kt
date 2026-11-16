@@ -75,6 +75,7 @@ fun RecordSheet(onDismiss: () -> Unit, modifier: Modifier = Modifier, bottomInse
     val auto by container.session.autoRecordConvoy.collectAsStateWithLifecycle()
     val permission = rememberLocationPermission()
     val c = Cv.colors
+    val words = rideWords()
 
     val owned = garage.owned
     var vehicleId by remember(owned.size) { mutableStateOf(garage.primary?.id) }
@@ -93,14 +94,14 @@ fun RecordSheet(onDismiss: () -> Unit, modifier: Modifier = Modifier, bottomInse
                         openRecap()
                     })
                     rec.stage == RideStage.Stopped -> {
-                        Eyebrow("RIDE WAITING TO UPLOAD", color = c.hazard)
-                        CvText("Your last ride is not on the server yet.", Cv.type.body, c.inkMuted)
+                        Eyebrow("${words.NOUN} WAITING TO UPLOAD", color = c.hazard)
+                        CvText("Your last ${words.noun} is not on the server yet.", Cv.type.body, c.inkMuted)
                         CvButton("Open recap", { onDismiss(); openRecap() }, Modifier.fillMaxWidth())
                     }
                     else -> {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Column {
-                                CvText("Record a ride", Cv.type.title, c.ink)
+                                CvText(words.record, Cv.type.title, c.ink)
                                 Eyebrow("GPS TRACE · KEEP THE APP OPEN")
                             }
                             CvIcon(CvIcons.Rec, c.pulse, size = 28.dp)
@@ -145,9 +146,9 @@ fun RecordSheet(onDismiss: () -> Unit, modifier: Modifier = Modifier, bottomInse
                                 val v = owned.firstOrNull { it.id == vehicleId }
                                 val r = container.recorder.start(
                                     v?.id, v?.displayName, if (withConvoy) convoyCode else null, container.tracker.fix.value,
-                                    title = Fmt.defaultTitle(java.time.LocalTime.now().hour),
+                                    title = Fmt.defaultTitle(java.time.LocalTime.now().hour, words),
                                 )
-                                if (r == StartResult.Busy) busyNote = "Finish or discard your last ride first." else onDismiss()
+                                if (r == StartResult.Busy) busyNote = "Finish or discard your last ${words.noun} first." else onDismiss()
                             },
                             Modifier.fillMaxWidth(), icon = CvIcons.Rec, enabled = permission.granted,
                         )
@@ -162,9 +163,10 @@ fun RecordSheet(onDismiss: () -> Unit, modifier: Modifier = Modifier, bottomInse
 @Composable
 private fun AutoRecordRow(auto: Boolean, onChange: (Boolean) -> Unit) {
     val c = Cv.colors
+    val words = rideWords()
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f).padding(end = Space.s3)) {
-            CvText("Record convoy rides automatically", Cv.type.bodyStrong, c.ink)
+            CvText("Record convoy ${words.noun}s automatically", Cv.type.bodyStrong, c.ink)
             CvText("Starts when you start or join a convoy, stops when you leave it.", Cv.type.bodyS, c.inkMuted)
         }
         CvChipToggle(if (auto) "On" else "Off", auto, { onChange(!auto) })
@@ -175,11 +177,12 @@ private fun AutoRecordRow(auto: Boolean, onChange: (Boolean) -> Unit) {
 private fun ActiveBody(rec: RecorderState, onStop: () -> Unit) {
     val container = LocalContainer.current
     val c = Cv.colors
+    val words = rideWords()
     val auto by container.session.autoRecordConvoy.collectAsStateWithLifecycle()
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Column {
             Eyebrow(if (rec.isPaused) "PAUSED" else "RECORDING", color = if (rec.isPaused) c.hazard else c.pulse)
-            CvText(rec.meta?.title?.ifBlank { null } ?: "Ride", Cv.type.title, c.ink, maxLines = 1)
+            CvText(rec.meta?.title?.ifBlank { null } ?: words.Noun, Cv.type.title, c.ink, maxLines = 1)
         }
         CvText(Fmt.clock(rec.elapsedS), Cv.type.telemetryL, c.ink)
     }
@@ -208,6 +211,7 @@ fun RecordCard(onOpenSheet: () -> Unit) {
     val rec by container.recorder.state.collectAsStateWithLifecycle()
     val garage by container.garage.state.collectAsStateWithLifecycle()
     val c = Cv.colors
+    val words = rideWords()
 
     when {
         rec.isActive -> CvCard(Modifier.fillMaxWidth(), edge = if (rec.isPaused) c.hazard else c.pulse, shape = CutMShape, onClick = onOpenSheet) {
@@ -234,9 +238,9 @@ fun RecordCard(onOpenSheet: () -> Unit) {
         rec.hasRecap -> CvCard(Modifier.fillMaxWidth(), edge = if (rec.upload is UploadState.Failed) c.hazard else c.go, shape = CutMShape, onClick = openRecap) {
             Row(Modifier.padding(Space.s4), horizontalArrangement = Arrangement.spacedBy(Space.s3), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Space.s1)) {
-                    Eyebrow("LAST RIDE · ${uploadLine(rec.upload, rec.stage)}", color = if (rec.upload is UploadState.Failed) c.hazard else c.go)
+                    Eyebrow("${words.last} · ${uploadLine(rec.upload, rec.stage)}", color = if (rec.upload is UploadState.Failed) c.hazard else c.go)
                     CvText("${Fmt.km(rec.stats.distanceM)} km · ${Fmt.clock(rec.stats.durationS)}", Cv.type.title, c.ink)
-                    CvText(rec.meta?.title?.ifBlank { null } ?: "Ride recap", Cv.type.bodyS, c.inkMuted, maxLines = 1)
+                    CvText(rec.meta?.title?.ifBlank { null } ?: "${words.Noun} recap", Cv.type.bodyS, c.inkMuted, maxLines = 1)
                 }
                 CvIcon(CvIcons.Chevron, c.inkMuted)
             }
@@ -248,8 +252,8 @@ fun RecordCard(onOpenSheet: () -> Unit) {
                     CvIcon(CvIcons.Rec, c.pulse, size = 28.dp)
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Space.s1)) {
-                    Eyebrow("RIDE RECORDER")
-                    CvText("Record a ride", Cv.type.title, c.ink)
+                    Eyebrow("${words.NOUN} RECORDER")
+                    CvText(words.record, Cv.type.title, c.ink)
                     CvText(garage.primary?.let { "On the ${it.displayName}" } ?: "Distance, speed, route and photos", Cv.type.bodyS, c.inkMuted, maxLines = 1)
                 }
                 CvIcon(CvIcons.Chevron, c.inkMuted)
@@ -268,6 +272,7 @@ fun RecordStrip(onOpenSheet: () -> Unit, onShutter: () -> Unit, modifier: Modifi
     val openRecap = LocalOpenRecap.current
     val rec by container.recorder.state.collectAsStateWithLifecycle()
     val c = Cv.colors
+    val words = rideWords()
     Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.s3), verticalAlignment = Alignment.CenterVertically) {
         if (rec.isActive) {
             HudSquare(
@@ -286,9 +291,9 @@ fun RecordStrip(onOpenSheet: () -> Unit, onShutter: () -> Unit, modifier: Modifi
             }
             HudSquare(CvIcons.Stop, "Stop recording", tint = c.pulseInk, edge = c.pulse, fill = c.pulse) { container.recorder.stop(); openRecap() }
         } else if (rec.hasRecap) {
-            CvButton("Last ride recap", openRecap, Modifier.weight(1f), CvButtonKind.Ride, icon = CvIcons.Route)
+            CvButton("Last ${words.noun} recap", openRecap, Modifier.weight(1f), CvButtonKind.Ride, icon = CvIcons.Route)
         } else {
-            CvButton("Record ride", onOpenSheet, Modifier.weight(1f), CvButtonKind.Ride, icon = CvIcons.Rec)
+            CvButton("Record ${words.noun}", onOpenSheet, Modifier.weight(1f), CvButtonKind.Ride, icon = CvIcons.Rec)
         }
         HudSquare(CvIcons.Camera, "Take a photo", tint = c.signal, edge = c.signal, fill = c.surface200, onClick = onShutter)
     }

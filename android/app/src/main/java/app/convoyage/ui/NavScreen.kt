@@ -155,6 +155,7 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
     val chrome = LocalBottomChrome.current
     var showRecord by remember { mutableStateOf(false) }
     val capture = rememberRidePhotoCapture()
+    val words = rideWords()
     var dockDetent by rememberSaveable { mutableStateOf(Detent.Peek) }
     var boxH by remember { mutableStateOf(0) }
     val density = androidx.compose.ui.platform.LocalDensity.current
@@ -338,7 +339,7 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
                 val found = convoy.nearbyDrivers.size + convoy.nearbyConvoys.size
                 Box {
                     CvIconButton(
-                        CvIcons.Car, if (openCruiseOn) "Open cruise on, turn off" else "Open cruise: see drivers nearby",
+                        CvIcons.Car, if (openCruiseOn) "Open cruise on, turn off" else "Open cruise: see " + words.people + " nearby",
                         { container.setOpenCruise(!openCruiseOn) },
                         tint = if (openCruiseOn) c.go else c.ink, edge = if (openCruiseOn) c.go else c.lineStrong,
                     )
@@ -409,7 +410,7 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
                     onInvite = vm::inviteFriends,
                     onEnd = { vm.end(); if (drive == null) onBack() },
                 )
-                if (active) DriveRecordBar(rec, onRecord = { showRecord = true }, onPhoto = { capture.shoot(rec.isActive) })
+                if (active) DriveRecordBar(rec, onRecord = { showRecord = true }, onPhoto = { capture.shoot(rec.isActive, words) })
             }
         }
 

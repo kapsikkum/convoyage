@@ -44,6 +44,7 @@ fun DashboardCard(modifier: Modifier = Modifier, onOpenRide: (String) -> Unit = 
     LaunchedEffect(Unit) { container.rides.refresh() }
     val s = remember(rides.rides) { DriveStats.of(rides.rides) }
     val c = Cv.colors
+    val words = rideWords()
 
     CvCard(modifier.fillMaxWidth(), edge = c.lineStrong, shape = CutMShape) {
         Column(Modifier.padding(Space.s4), verticalArrangement = Arrangement.spacedBy(Space.s3)) {
@@ -57,7 +58,7 @@ fun DashboardCard(modifier: Modifier = Modifier, onOpenRide: (String) -> Unit = 
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.s3)) {
                 val (time, unit) = Fmt.hoursOrMinutes(s.lifetimeS)
-                Readout("Drives", s.drives.toString(), Modifier.weight(1f), valueStyle = Cv.type.telemetryL.copy(fontSize = 20.sp))
+                Readout("${words.Noun}s", s.drives.toString(), Modifier.weight(1f), valueStyle = Cv.type.telemetryL.copy(fontSize = 20.sp))
                 Readout("Time", time, Modifier.weight(1f), unit = unit, valueStyle = Cv.type.telemetryL.copy(fontSize = 20.sp))
                 Readout(
                     "This month", Fmt.km(s.monthM), Modifier.weight(1f), unit = "km",
@@ -80,8 +81,8 @@ fun DashboardCard(modifier: Modifier = Modifier, onOpenRide: (String) -> Unit = 
                 s.last?.let { r ->
                     CvCard(Modifier.fillMaxWidth(), edge = c.line, shape = CutSShape, onClick = { onOpenRide(r.id) }) {
                         Column(Modifier.padding(Space.s3)) {
-                            Eyebrow("LAST DRIVE")
-                            CvText(r.title.ifBlank { "Drive" }, Cv.type.bodyStrong, c.ink, maxLines = 1)
+                            Eyebrow(words.last)
+                            CvText(r.title.ifBlank { words.Noun }, Cv.type.bodyStrong, c.ink, maxLines = 1)
                             CvText(
                                 "${Fmt.km(r.distanceM ?: 0.0)} km · ${Fmt.clock(r.durationS ?: 0L)}",
                                 Cv.type.telemetry, c.inkMuted,
@@ -90,7 +91,7 @@ fun DashboardCard(modifier: Modifier = Modifier, onOpenRide: (String) -> Unit = 
                     }
                 }
             } else if (rides.loaded) {
-                CvText("No drives yet. Track one from the Drive tab and it lands here.", Cv.type.bodyS, c.inkMuted)
+                CvText("No ${words.noun}s yet. Track one from the ${words.Noun} tab and it lands here.", Cv.type.bodyS, c.inkMuted)
             }
         }
     }

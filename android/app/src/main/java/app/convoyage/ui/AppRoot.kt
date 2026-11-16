@@ -189,6 +189,7 @@ fun AppRoot(container: AppContainer) {
             if (tab != null) {
                 CvTabBar(
                     selected = tab,
+                    words = rideWords(),
                     onSelect = { t ->
                         when (t) {
                             Tab.Drive -> nav.switchTab(Routes.DRIVE)

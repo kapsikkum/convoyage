@@ -472,6 +472,7 @@ private fun NewPostSheet(vm: FeedViewModel, onDismiss: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     val capture = rememberRidePhotoCapture()
+    val words = rideWords()
     var body by rememberSaveable { mutableStateOf("") }
     var visibility by rememberSaveable { mutableIntStateOf(0) } // 0 public, 1 followers
     var withLocation by rememberSaveable { mutableStateOf(false) }
@@ -508,7 +509,7 @@ private fun NewPostSheet(vm: FeedViewModel, onDismiss: () -> Unit) {
                     }
                 } else {
                     Row(horizontalArrangement = Arrangement.spacedBy(Space.s3)) {
-                        CvButton("Camera", { capture.shoot(recording = true) }, Modifier.weight(1f), CvButtonKind.Ghost, icon = CvIcons.Camera, compact = true)
+                        CvButton("Camera", { capture.shoot(recording = true, words) }, Modifier.weight(1f), CvButtonKind.Ghost, icon = CvIcons.Camera, compact = true)
                         CvButton(
                             "Library", { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                             Modifier.weight(1f), CvButtonKind.Ghost, icon = CvIcons.Image, compact = true,

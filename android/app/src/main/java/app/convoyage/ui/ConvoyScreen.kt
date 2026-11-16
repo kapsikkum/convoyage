@@ -97,6 +97,7 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
     val hazards by container.hazards.active.collectAsStateWithLifecycle()
     val rec by container.recorder.state.collectAsStateWithLifecycle()
     val capture = rememberRidePhotoCapture()
+    val words = rideWords()
     val sessionName by container.session.name.collectAsStateWithLifecycle()
     var showRecord by remember { mutableStateOf(false) }
     var pickRoute by remember { mutableStateOf(false) }
@@ -342,7 +343,7 @@ fun ConvoyScreen(startWithJoin: Boolean, onRide: () -> Unit, onReport: () -> Uni
                     ui = ui, copied = copied, expanded = expanded,
                     etaMs = navState.etaMs.takeIf { navState.phase.guiding() },
                     recActive = rec.isActive,
-                    onRecord = { showRecord = true }, onPhoto = { capture.shoot(rec.isActive) }, onRide = onRide,
+                    onRecord = { showRecord = true }, onPhoto = { capture.shoot(rec.isActive, words) }, onRide = onRide,
                     onCopy = { copyInvite(context, room.code); copied = true },
                     onShare = { shareInvite(context, room.code, room.name) },
                     onQr = { showQr = true },
@@ -475,6 +476,7 @@ private fun ConvoyHeader(
     onRide: () -> Unit,
 ) {
     val c = Cv.colors
+    val words = rideWords()
     val room = ui.room ?: return
     Column(verticalArrangement = Arrangement.spacedBy(Space.s2)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.s3), verticalAlignment = Alignment.CenterVertically) {
@@ -505,10 +507,10 @@ private fun ConvoyHeader(
             Row(horizontalArrangement = Arrangement.spacedBy(Space.s2), verticalAlignment = Alignment.CenterVertically) {
                 CvIconButton(CvIcons.Share, "Share invite", onShare, size = 40.dp)
                 CvIconButton(CvIcons.Qr, "Show QR code", onQr, size = 40.dp)
-                CvIconButton(CvIcons.Rec, if (recActive) "Recording controls" else "Record a ride", onRecord, size = 40.dp, tint = if (recActive) c.pulse else c.ink, edge = if (recActive) c.pulse else c.lineStrong)
+                CvIconButton(CvIcons.Rec, if (recActive) "Recording controls" else words.record, onRecord, size = 40.dp, tint = if (recActive) c.pulse else c.ink, edge = if (recActive) c.pulse else c.lineStrong)
                 CvIconButton(CvIcons.Camera, "Take a photo", onPhoto, size = 40.dp)
                 Spacer(Modifier.weight(1f))
-                CvChipToggle("Ride HUD", false, onRide)
+                CvChipToggle(words.hud, false, onRide)
             }
         }
     }

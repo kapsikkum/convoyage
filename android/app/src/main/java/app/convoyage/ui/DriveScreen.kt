@@ -60,12 +60,12 @@ data class CruiseUi(
     val convoys: List<app.convoyage.protocol.NearbyConvoy>,
     val invited: Set<String>,
 ) {
-    val summary: String get() = when {
-        !wanted -> "See drivers and open convoys nearby"
+    fun summary(words: RideWords): String = when {
+        !wanted -> "See " + words.people + " and open convoys nearby"
         !live -> "Connecting..."
         drivers.isEmpty() && convoys.isEmpty() -> "Nobody else cruising within 5 km yet"
         else -> listOfNotNull(
-            drivers.size.takeIf { it > 0 }?.let { "$it driver${if (it == 1) "" else "s"}" },
+            drivers.size.takeIf { it > 0 }?.let { "$it " + words.person + (if (it == 1) "" else "s") },
             convoys.size.takeIf { it > 0 }?.let { "$it convoy${if (it == 1) "" else "s"}" },
         ).joinToString(" and ") + " within 5 km"
     }
@@ -211,6 +211,7 @@ internal fun ColumnScope.DriveDock(
     onInvite: (String) -> Unit,
 ) {
     val c = Cv.colors
+    val words = rideWords()
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.s2)) {
         CvButton("Start convoy", drive.onStartConvoy, Modifier.weight(1f), icon = CvIcons.Convoy, compact = true)
         CvButton("Join with code", drive.onJoinConvoy, Modifier.weight(1f), CvButtonKind.Ghost, compact = true)
@@ -224,7 +225,7 @@ internal fun ColumnScope.DriveDock(
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.s3)) {
             Column(Modifier.weight(1f)) {
                 Eyebrow(if (cruise.wanted) "OPEN CRUISE · ON" else "OPEN CRUISE · OFF", color = if (cruise.wanted) c.go else c.inkMuted)
-                CvText(cruise.summary, Cv.type.bodyS, c.inkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                CvText(cruise.summary(words), Cv.type.bodyS, c.inkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             app.convoyage.design.CvChipToggle(if (cruise.wanted) "On" else "Off", cruise.wanted, { onCruise(!cruise.wanted) })
         }
@@ -239,7 +240,7 @@ internal fun ColumnScope.DriveDock(
             }
         }
         if (cruise.wanted && cruise.drivers.isNotEmpty()) {
-            Eyebrow("DRIVERS CRUISING NEARBY", Modifier.padding(top = Space.s2))
+            Eyebrow(words.People.uppercase() + " CRUISING NEARBY", Modifier.padding(top = Space.s2))
             cruise.drivers.forEach { d ->
                 val sent = d.id in cruise.invited
                 NearbyRow(
@@ -250,9 +251,9 @@ internal fun ColumnScope.DriveDock(
                 )
             }
         }
-        Eyebrow("DRIVE")
+        Eyebrow(words.NOUN)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.s2)) {
-            CvButton(if (recording) "Recording" else "Track drive", onRecord, Modifier.weight(1f), if (recording) CvButtonKind.Alert else CvButtonKind.Ghost, icon = CvIcons.Rec, compact = true)
+            CvButton(if (recording) "Recording" else words.track, onRecord, Modifier.weight(1f), if (recording) CvButtonKind.Alert else CvButtonKind.Ghost, icon = CvIcons.Rec, compact = true)
             CvButton("Route builder", drive.onBuildRoute, Modifier.weight(1f), CvButtonKind.Ghost, icon = CvIcons.Route, compact = true)
         }
         Eyebrow("SAVED PLACES", Modifier.padding(top = Space.s2))
@@ -260,7 +261,7 @@ internal fun ColumnScope.DriveDock(
             val p = saved[slot]
             PlaceRow(slotIcon(slot), slot.label, p?.name ?: "Not set: search a place, then Set as ${slot.label}", enabled = p != null, onClick = { p?.let(onPick) })
         }
-        PlaceRow(CvIcons.Route, "Saved routes", "Drive one solo or as a convoy", onClick = drive.onOpenRoutes)
+        PlaceRow(CvIcons.Route, "Saved routes", "${words.Verb} one solo or as a convoy", onClick = drive.onOpenRoutes)
         if (recent.isNotEmpty()) {
             Eyebrow("RECENT", Modifier.padding(top = Space.s2))
             recent.forEach { r -> PlaceRow(CvIcons.Clock, r.name, r.detail, onClick = { onPick(r) }, onRemove = { onForget(r) }) }
@@ -307,9 +308,10 @@ internal fun DriveRecordBar(rec: app.convoyage.data.RecorderState, onRecord: () 
     val container = LocalContainer.current
     val openRecap = LocalOpenRecap.current
     val c = Cv.colors
+    val words = rideWords()
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.s2), verticalAlignment = Alignment.CenterVertically) {
         if (!rec.isActive) {
-            CvButton("Track drive", onRecord, Modifier.weight(1f), CvButtonKind.Ghost, icon = CvIcons.Rec, compact = true)
+            CvButton(words.track, onRecord, Modifier.weight(1f), CvButtonKind.Ghost, icon = CvIcons.Rec, compact = true)
             CvButton("Photo", onPhoto, Modifier.weight(1f), CvButtonKind.Ghost, icon = CvIcons.Camera, compact = true)
         } else {
             CvText((if (rec.isPaused) "II " else "REC ") + Fmt.clock(rec.elapsedS), Cv.type.telemetry, if (rec.isPaused) c.hazard else c.pulse)

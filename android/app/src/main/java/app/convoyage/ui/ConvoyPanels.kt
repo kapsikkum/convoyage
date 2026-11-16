@@ -273,7 +273,7 @@ fun LeaderPanel(
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.s3)) {
                 Column(Modifier.weight(1f)) {
                     CvText("Open convoy", Cv.type.bodyStrong, c.ink)
-                    CvText("Open Cruise drivers within 5 km can see it and join without the code.", Cv.type.bodyS, c.inkMuted)
+                    CvText("Open Cruise " + rideWords().people + " within 5 km can see it and join without the code.", Cv.type.bodyS, c.inkMuted)
                 }
                 CvChipToggle(if (room.open) "On" else "Off", room.open, { onSetOpen(!room.open) })
             }

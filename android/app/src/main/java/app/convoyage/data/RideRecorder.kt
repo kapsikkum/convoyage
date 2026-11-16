@@ -377,7 +377,7 @@ class RideRecorder(
                 }
                 404 -> { // the ride is gone on the server: create it again next time
                     edit(m.localId) { it.copy(serverRideId = null) }
-                    UploadState.Failed("The server lost this ride, trying again", retryable = true)
+                    UploadState.Failed("The server lost this one, trying again", retryable = true)
                 }
                 else -> failure(r)
             }
@@ -437,8 +437,8 @@ class RideRecorder(
 
     private fun failure(r: ApiResult.Err): UploadState.Failed = UploadState.Failed(
         when {
-            r.isNetwork -> "No connection. Your ride is saved and will upload when the server is reachable."
-            r.status == 401 -> "Sign in again to upload this ride."
+            r.isNetwork -> "No connection. It is saved and will upload when the server is reachable."
+            r.status == 401 -> "Sign in again to upload it."
             else -> r.message
         },
         retryable = r.isNetwork || r.status >= 500 || r.status == 429 || r.status == 408,

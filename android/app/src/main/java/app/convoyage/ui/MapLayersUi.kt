@@ -183,7 +183,7 @@ private fun LayersPanel(
         if (trafficOn && area.scanning) Eyebrow("WAZE IS SCANNING THIS AREA", color = c.inkMuted)
         if (psLinked) {
             LayerRow("Photo spots", "PhotoScout places to shoot, with their best times. Tap one for its photo and directions.", spotsOn) { session.setLayerSpots(!spotsOn) }
-            LayerRow("Events", "Meets and cruises coming up nearby. Tap one to RSVP, drive there or join its convoy.", eventsOn) { session.setLayerEvents(!eventsOn) }
+            LayerRow("Events", "Meets and cruises coming up nearby. Tap one to RSVP, " + rideWords().verb + " there or join its convoy.", eventsOn) { session.setLayerEvents(!eventsOn) }
             // A link made before PhotoScout offered spots:suggest can browse but not report: offer the relink.
             ActionRow(
                 "Report a spot",

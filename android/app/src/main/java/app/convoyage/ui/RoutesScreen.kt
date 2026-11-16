@@ -280,7 +280,7 @@ private fun RouteDetailSheet(r: SavedRoute, onDismiss: () -> Unit, onDrive: () -
                             })
                         }
                     }
-                    if (vis == "public") CvText("Drivers nearby find it under Routes, Near me.", Cv.type.bodyS, c.inkMuted)
+                    if (vis == "public") CvText(rideWords().People + " nearby find it under Routes, Near me.", Cv.type.bodyS, c.inkMuted)
                 }
                 if (found != null) {
                     CvButton(if (saved) "Saved to your routes" else "Save to my routes", {

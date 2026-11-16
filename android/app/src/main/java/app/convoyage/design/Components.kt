@@ -21,6 +21,7 @@ import app.convoyage.data.ImageSource
 import app.convoyage.render.ThumbSize
 import app.convoyage.ui.LocalContainer
 import app.convoyage.ui.Ps1Thumb
+import app.convoyage.ui.RideWords
 import app.convoyage.ui.ps1
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -669,7 +670,7 @@ enum class Tab(val label: String, val icon: ImageVector) {
 }
 
 @Composable
-fun CvTabBar(selected: Tab?, onSelect: (Tab) -> Unit, modifier: Modifier = Modifier) {
+fun CvTabBar(selected: Tab?, onSelect: (Tab) -> Unit, words: RideWords, modifier: Modifier = Modifier) {
     val c = Cv.colors
     Row(
         modifier = modifier
@@ -679,6 +680,9 @@ fun CvTabBar(selected: Tab?, onSelect: (Tab) -> Unit, modifier: Modifier = Modif
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Tab.entries.forEach { tab ->
+            // The centre tab is the only one that changes with the vehicle: a rider's tab is Ride, with a bike glyph.
+            val label = if (tab == Tab.Drive) words.tab else tab.label
+            val icon = if (tab == Tab.Drive) (if (words.bike) CvIcons.Bike else CvIcons.Navigate) else tab.icon
             if (tab == Tab.Drive) {
                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                     Box(
@@ -687,9 +691,9 @@ fun CvTabBar(selected: Tab?, onSelect: (Tab) -> Unit, modifier: Modifier = Modif
                             .glow(c.signal.copy(alpha = 0.6f), CutMShape, 12.dp)
                             .cutPanel(c.signal, c.signal, CutMShape)
                             .clickable(role = Role.Button) { onSelect(tab) }
-                            .semantics { contentDescription = "Drive" },
+                            .semantics { contentDescription = words.tab },
                         contentAlignment = Alignment.Center,
-                    ) { CvIcon(tab.icon, c.signalInk, size = 28.dp) }
+                    ) { CvIcon(icon, c.signalInk, size = 28.dp) }
                 }
             } else {
                 val on = tab == selected
@@ -703,8 +707,8 @@ fun CvTabBar(selected: Tab?, onSelect: (Tab) -> Unit, modifier: Modifier = Modif
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically),
                 ) {
-                    CvIcon(tab.icon, if (on) c.signal else c.inkMuted, size = 24.dp)
-                    CvText(tab.label, Cv.type.label.copy(fontSize = 10.sp, lineHeight = 12.sp, letterSpacing = 0.04.sp), if (on) c.signal else c.inkMuted)
+                    CvIcon(icon, if (on) c.signal else c.inkMuted, size = 24.dp)
+                    CvText(label, Cv.type.label.copy(fontSize = 10.sp, lineHeight = 12.sp, letterSpacing = 0.04.sp), if (on) c.signal else c.inkMuted)
                 }
             }
         }

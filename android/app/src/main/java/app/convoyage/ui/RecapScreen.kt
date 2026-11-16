@@ -158,10 +158,11 @@ class RecapViewModel(private val container: AppContainer, private val remoteRide
                 is ApiResult.Err -> _ui.update { it.copy(loading = false, error = r.message) }
                 is ApiResult.Ok -> {
                     val ride = r.value
+                    val words = RideWords.of(container.garage.state.value.primary, container.session.mode.value)
                     val route = ride.polyline?.let { runCatching { Polyline.decode(it, ride.polylinePrecision) }.getOrNull() }.orEmpty()
                     _ui.update {
                         it.copy(
-                            loading = false, isLocal = false, rideId = ride.id, title = ride.title.ifBlank { "Ride" },
+                            loading = false, isLocal = false, rideId = ride.id, title = ride.title.ifBlank { words.Noun },
                             whenLine = Fmt.whenLine(ride.startedAt), route = route,
                             distanceM = ride.distanceM ?: 0.0, durationS = ride.durationS ?: 0, movingS = null,
                             avgMps = ride.avgSpeedMps ?: 0.0, maxMps = ride.maxSpeedMps ?: 0.0, elevationM = ride.elevationGainM, maxLeanDeg = ride.maxLeanDeg,
@@ -226,6 +227,7 @@ fun RecapScreen(rideId: String?, onClose: () -> Unit) {
     val vm: RecapViewModel = viewModel(key = rideId ?: "local", factory = viewModelFactory { initializer { RecapViewModel(container, rideId) } })
     val ui by vm.ui.collectAsStateWithLifecycle()
     val c = Cv.colors
+    val words = rideWords()
     var caption by rememberSaveable { mutableStateOf("") }
     var confirmDiscard by remember { mutableStateOf(false) }
     var viewing by remember { mutableStateOf<RecapPhoto?>(null) }
@@ -242,12 +244,12 @@ fun RecapScreen(rideId: String?, onClose: () -> Unit) {
         ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 CvIconButton(CvIcons.Back, "Back", { close() }, fill = c.surface200)
-                Eyebrow(if (ui.isLocal) "RIDE RECAP" else "RIDE")
+                Eyebrow(if (ui.isLocal) words.recap else words.NOUN)
                 Box(Modifier.size(Space.target))
             }
 
-            if (ui.loading) Eyebrow("LOADING RIDE...")
-            ui.error?.let { Banner(BannerTone.Pulse, "Could not open this ride", sub = it, icon = CvIcons.Alert) }
+            if (ui.loading) Eyebrow("LOADING ${words.NOUN}...")
+            ui.error?.let { Banner(BannerTone.Pulse, "Could not open this ${words.noun}", sub = it, icon = CvIcons.Alert) }
 
             CvCard(Modifier.fillMaxWidth(), edge = c.signal, fill = c.surface200, shape = CutLShape) {
                 Column {
@@ -256,7 +258,7 @@ fun RecapScreen(rideId: String?, onClose: () -> Unit) {
                         if (ui.isLocal && !ui.posted) {
                             CvTextField(ui.title, vm::setTitle, "Title", placeholder = "Sunday run")
                         } else {
-                            CvText(ui.title.ifBlank { "Ride" }, Cv.type.displayL, c.ink, maxLines = 2)
+                            CvText(ui.title.ifBlank { words.Noun }, Cv.type.displayL, c.ink, maxLines = 2)
                         }
                         CvText(
                             listOfNotNull(ui.whenLine.ifBlank { null }, ui.vehicleName).joinToString(" · "),
@@ -312,7 +314,7 @@ fun RecapScreen(rideId: String?, onClose: () -> Unit) {
             if (ui.isLocal) {
                 Row(horizontalArrangement = Arrangement.spacedBy(Space.s3)) {
                     CvButton(
-                        if (confirmDiscard) "Tap again to discard" else "Discard ride",
+                        if (confirmDiscard) "Tap again to discard" else "Discard ${words.noun}",
                         { if (confirmDiscard) { vm.discard(); close() } else confirmDiscard = true },
                         Modifier.weight(1f), if (confirmDiscard) CvButtonKind.Alert else CvButtonKind.Ghost,
                     )
@@ -321,7 +323,7 @@ fun RecapScreen(rideId: String?, onClose: () -> Unit) {
                         enabled = ui.upload == UploadState.Done,
                     )
                 }
-                if (ui.upload != UploadState.Done) Eyebrow("DONE UNLOCKS ONCE THE RIDE IS UPLOADED. IT STAYS SAFE ON THIS PHONE UNTIL THEN.")
+                if (ui.upload != UploadState.Done) Eyebrow("DONE UNLOCKS ONCE THE ${words.NOUN} IS UPLOADED. IT STAYS SAFE ON THIS PHONE UNTIL THEN.")
             }
         }
 
@@ -364,6 +366,7 @@ private fun RecapMap(ui: RecapUi, modifier: Modifier) {
 
 @Composable
 private fun Stats(ui: RecapUi) {
+    val words = rideWords()
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.s3)) {
             Readout("Distance", Fmt.km(ui.distanceM), Modifier.weight(1f), unit = "km", valueColor = Cv.colors.signal)
@@ -375,7 +378,8 @@ private fun Stats(ui: RecapUi) {
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.s3)) {
             Readout("Elevation", ui.elevationM?.let { Fmt.metres(it) } ?: "--", Modifier.weight(1f), unit = "m")
-            Readout("Max lean", ui.maxLeanDeg?.let { "%.0f".format(it) } ?: "--", Modifier.weight(1f), unit = "°")
+            // A car cannot lean, so a rider's lean tile would be a "--" that means nothing.
+            if (words.showsLean) Readout("Max lean", ui.maxLeanDeg?.let { "%.0f".format(it) } ?: "--", Modifier.weight(1f), unit = "°")
         }
         if (ui.movingS != null && ui.durationS > ui.movingS + 5) {
             Eyebrow("TOTAL TIME ${Fmt.clock(ui.durationS)} · STOPPED ${Fmt.clock(ui.durationS - ui.movingS)}")
@@ -385,8 +389,9 @@ private fun Stats(ui: RecapUi) {
 
 @Composable
 private fun UploadStatus(ui: RecapUi, onRetry: () -> Unit) {
+    val words = rideWords()
     when (val u = ui.upload) {
-        UploadState.Uploading -> Banner(BannerTone.Police, "Uploading your ride", sub = "Route and ${ui.photos.size} photo(s)", icon = CvIcons.Share)
+        UploadState.Uploading -> Banner(BannerTone.Police, "Uploading your ${words.noun}", sub = "Route and ${ui.photos.size} photo(s)", icon = CvIcons.Share)
         is UploadState.Failed -> Banner(
             BannerTone.Hazard, if (u.retryable) "Saved on this phone" else "Upload failed", sub = u.message,
             icon = CvIcons.Alert, actionLabel = "Retry", onAction = onRetry,

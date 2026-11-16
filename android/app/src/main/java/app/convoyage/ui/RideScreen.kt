@@ -60,6 +60,7 @@ fun RideScreen(onExit: () -> Unit, onReport: () -> Unit) {
     val permission = rememberLocationPermission()
     TrackWhileVisible(permission)
     val c = Cv.colors
+    val words = rideWords()
     val rec by LocalContainer.current.recorder.state.collectAsStateWithLifecycle()
     val capture = rememberRidePhotoCapture()
     var showRecord by remember { mutableStateOf(false) }
@@ -141,7 +142,8 @@ fun RideScreen(onExit: () -> Unit, onReport: () -> Unit) {
 
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = Space.s2), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
             Readout("Speed", "%3d".format(speed).trim(), unit = "km/h", valueStyle = Cv.type.telemetryXl, valueColor = c.signal)
-            LeanMeter(lean, rec.stats.maxLeanDeg.takeIf { rec.isActive }, Modifier.width(112.dp).padding(bottom = 6.dp))
+            // A car does not lean: its HUD keeps speed and drops the lean meter.
+            if (words.showsLean) LeanMeter(lean, rec.stats.maxLeanDeg.takeIf { rec.isActive }, Modifier.width(112.dp).padding(bottom = 6.dp))
         }
 
         Column(verticalArrangement = Arrangement.spacedBy(Space.s3)) {
@@ -153,7 +155,7 @@ fun RideScreen(onExit: () -> Unit, onReport: () -> Unit) {
                     tone = TileTone.Signal,
                 )
                 RideTile(
-                    "Last rider", Modifier.weight(1f),
+                    "Last " + words.person, Modifier.weight(1f),
                     value = last?.distanceM?.let { Geo.formatDistance(it).substringBefore(' ') } ?: "--",
                     unit = last?.distanceM?.let { Geo.formatDistance(it).substringAfter(' ') },
                     valueColor = if (last != null) c.pulse else null,
@@ -168,7 +170,7 @@ fun RideScreen(onExit: () -> Unit, onReport: () -> Unit) {
             }
         }
 
-        RecordStrip(onOpenSheet = { showRecord = true }, onShutter = { capture.shoot(rec.isActive) })
+        RecordStrip(onOpenSheet = { showRecord = true }, onShutter = { capture.shoot(rec.isActive, words) })
         PhotoHint(capture)
 
         Row(

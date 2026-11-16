@@ -100,6 +100,7 @@ fun HomeScreen(onOpenConvoy: (join: Boolean) -> Unit, onOpenNavigation: () -> Un
     val vm: HomeViewModel = viewModel(factory = viewModelFactory { initializer { HomeViewModel(container) } })
     val ui by vm.ui.collectAsStateWithLifecycle()
     val c = Cv.colors
+    val words = rideWords()
     val navState by container.nav.state.collectAsStateWithLifecycle()
 
     var showRecord by remember { mutableStateOf(false) }
@@ -138,7 +139,7 @@ fun HomeScreen(onOpenConvoy: (join: Boolean) -> Unit, onOpenNavigation: () -> Un
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f).padding(end = Space.s2), verticalArrangement = Arrangement.spacedBy(Space.s1)) {
                 Eyebrow(stamp)
-                CvText("$greeting, ${ui.name.ifBlank { "driver" }}", Cv.type.displayL, c.ink, maxLines = 2)
+                CvText("$greeting, ${ui.name.ifBlank { words.noun }}", Cv.type.displayL, c.ink, maxLines = 2)
             }
             CvAvatar(me?.avatarPath, garage.primary?.badge() ?: me?.primaryVehicle?.badge(), Roster.initials(ui.name))
         }
@@ -148,7 +149,7 @@ fun HomeScreen(onOpenConvoy: (join: Boolean) -> Unit, onOpenNavigation: () -> Un
 
         DashboardCard(onOpenRide = onOpenRide)
 
-        CvButton(if (navState.isOn) "Back to navigation" else "Drive", onOpenNavigation, Modifier.fillMaxWidth(), icon = CvIcons.Navigate)
+        CvButton(if (navState.isOn) "Back to navigation" else words.Noun, onOpenNavigation, Modifier.fillMaxWidth(), icon = CvIcons.Navigate)
 
         CvCard(Modifier.fillMaxWidth(), edge = c.line, shape = app.convoyage.design.CutSShape, onClick = onOpenRoutes) {
             Row(Modifier.padding(Space.s4), horizontalArrangement = Arrangement.spacedBy(Space.s3), verticalAlignment = Alignment.CenterVertically) {
@@ -190,7 +191,7 @@ fun HomeScreen(onOpenConvoy: (join: Boolean) -> Unit, onOpenNavigation: () -> Un
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Space.s1)) {
                     Eyebrow(if (primary != null) "YOUR GARAGE · ${garage.owned.size}" else "YOUR GARAGE")
                     CvText(primary?.displayName ?: "Add your first vehicle", Cv.type.title, c.ink, maxLines = 1)
-                    CvText(primary?.let(::buildSummary) ?: "Rides record on your primary vehicle", Cv.type.bodyS, c.inkMuted, maxLines = 1)
+                    CvText(primary?.let(::buildSummary) ?: "${words.Noun}s record on your primary vehicle", Cv.type.bodyS, c.inkMuted, maxLines = 1)
                 }
                 if (primary != null) Ps1Thumb(primary.ps1(), app.convoyage.render.ThumbSize.Card, Modifier.size(width = 96.dp, height = 64.dp), fallback = { CvIcon(kindIcon(primary.kind), primary.build.paint?.let(::parsePaint) ?: c.signal, size = 40.dp) })
                 else CvIcon(CvIcons.Cube, c.signal, size = 40.dp)

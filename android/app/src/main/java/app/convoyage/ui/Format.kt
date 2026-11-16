@@ -77,11 +77,11 @@ object Fmt {
         null
     }
 
-    /** "Morning ride", "Afternoon ride", "Evening ride" from a local hour. */
-    fun defaultTitle(hour: Int): String = when (hour) {
-        in 5..11 -> "Morning ride"
-        in 12..17 -> "Afternoon ride"
-        in 18..21 -> "Evening ride"
-        else -> "Night ride"
+    /** "Morning ride", "Afternoon drive": the day part plus the vehicle's noun. This is the default title at record time. */
+    fun defaultTitle(hour: Int, words: RideWords = RideWords(bike = true)): String = when (hour) {
+        in 5..11 -> "Morning ${words.noun}"
+        in 12..17 -> "Afternoon ${words.noun}"
+        in 18..21 -> "Evening ${words.noun}"
+        else -> "Night ${words.noun}"
     }
 }
