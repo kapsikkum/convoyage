@@ -65,6 +65,8 @@ final class PinAnnotationView: MLNAnnotationView {
     private let glow: CAGradientLayer = CAGradientLayer()
     private let tagLabel: UILabel = UILabel()
     private var carKey: String?
+    /// The vehicle whose render is in `car.image`, so a reused annotation view never shows another member's car.
+    private var carImageBuild: String?
 
     override init(annotation: MLNAnnotation?, reuseIdentifier: String?) {
         super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
@@ -118,14 +120,12 @@ final class PinAnnotationView: MLNAnnotationView {
                 layer.borderWidth = 2
                 rotatesToMatchCamera = false
                 car.transform = .identity
-                frame = CGRect(x: frame.minX, y: frame.minY, width: 36, height: 36)
-                layer.cornerRadius = 18
+                resize(CGSize(width: 36, height: 36))
             }
             carKey = nil
             return
         }
-        frame = CGRect(x: frame.minX, y: frame.minY, width: 56, height: 56)
-        layer.cornerRadius = 28
+        resize(CGSize(width: 56, height: 56))
         backgroundColor = .clear
         layer.borderWidth = 0
         label.isHidden = true
@@ -149,12 +149,10 @@ final class PinAnnotationView: MLNAnnotationView {
             let key: String = b.key("Top")
             if key == carKey && car.image != nil { return }
             carKey = key
-            car.image = Ps1Thumbs.cached(b, Ps1ThumbSize.top)
-            if car.image == nil {
-                Task { @MainActor in
-                    let img: UIImage? = await Ps1Thumbs.shared.image(b, Ps1ThumbSize.top)
-                    if self.carKey == key { self.car.image = img }
-                }
+            if applyCarFrame(Ps1Thumbs.cached(b, Ps1ThumbSize.top), build: b.key()) { return }
+            Task { @MainActor in
+                let img: UIImage? = await Ps1Thumbs.shared.image(b, Ps1ThumbSize.top)
+                if self.carKey == key { self.applyCarFrame(img, build: b.key()) }
             }
             return
         }
@@ -175,13 +173,41 @@ final class PinAnnotationView: MLNAnnotationView {
         let key: String = b.key("a\(yaw).\(pitch)")
         if key == carKey && car.image != nil { return }
         carKey = key
-        car.image = Ps1Thumbs.cachedAngle(b, yaw: yaw, pitch: pitch)
-        if car.image == nil {
-            Task { @MainActor in
-                let img: UIImage? = await Ps1Thumbs.shared.angle(b, yaw: yaw, pitch: pitch)
-                if self.carKey == key { self.car.image = img }
-            }
+        if applyCarFrame(Ps1Thumbs.cachedAngle(b, yaw: yaw, pitch: pitch), build: b.key()) { return }
+        Task { @MainActor in
+            let img: UIImage? = await Ps1Thumbs.shared.angle(b, yaw: yaw, pitch: pitch)
+            // A newer heading may have asked for another frame meanwhile: ignore this one then.
+            if self.carKey == key { self.applyCarFrame(img, build: b.key()) }
         }
+    }
+
+    /// Puts a car frame on the marker. A nil frame keeps the frame already shown for the same vehicle, so a new heading
+    /// step or a late render never blanks the car; on a reused view it hides another vehicle's picture until its own
+    /// is ready. Returns whether a frame for the current key is on screen.
+    @discardableResult
+    private func applyCarFrame(_ frame: UIImage?, build: String) -> Bool {
+        if let frame = frame {
+            car.image = frame
+            carImageBuild = build
+            car.isHidden = false
+            return true
+        }
+        if carImageBuild != build || car.image == nil {
+            if carImageBuild != build { car.image = nil }
+            car.isHidden = true
+        }
+        return false
+    }
+
+    /// Changes the marker's footprint without moving the point it is anchored to. Setting `frame` with the old origin
+    /// moved the centre every time the car replaced the round pin, which made the marker hop off its coordinate.
+    private func resize(_ size: CGSize) {
+        let anchor: CGPoint = center
+        bounds = CGRect(origin: .zero, size: size)
+        center = anchor
+        label.frame = bounds
+        glow.frame = bounds.insetBy(dx: 7, dy: 7)
+        layer.cornerRadius = size.width / 2
     }
 
     required init?(coder aDecoder: NSCoder) {

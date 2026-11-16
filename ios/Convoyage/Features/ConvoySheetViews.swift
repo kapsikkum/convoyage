@@ -45,7 +45,7 @@ enum SheetTab: String, CaseIterable, Hashable {
     }
 }
 
-struct SheetMetrics {
+struct SheetMetrics: Equatable {
     var peek: CGFloat
     var half: CGFloat
     var full: CGFloat

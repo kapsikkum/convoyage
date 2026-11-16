@@ -38,6 +38,12 @@ struct NavigationScreen: View {
         return [MapPin(id: "me", initials: "", kind: .me, coordinate: fix.coordinate, vehicle: vehicle, heading: heading)]
     }
 
+    /// Where the phone is pointing, when the fix knows: `course` is negative until the phone has moved.
+    private var courseHeading: Double? {
+        guard let c = app.convoy.location.latest?.course, c >= 0 else { return nil }
+        return c
+    }
+
     /// The place being looked at (search result or long press) or the active destination, as a flag on the map.
     private var destinationPins: [MapPin] {
         let nav: NavigationSession = app.nav
@@ -301,6 +307,13 @@ struct NavigationScreen: View {
                     Banner(title: h, kind: .info, icon: "flag.fill", actionTitle: "OK", action: { app.convoyHint = nil })
                 }
                 ManeuverCard(nav: nav)
+                if nav.phase == .navigating {
+                    // A wireframe of the road just ahead, under the manoeuvre card: only while actually driving.
+                    RoadAheadStrip(ahead: nav.remainingCoordinates,
+                                   headingDeg: courseHeading,
+                                   distToManeuverM: nav.progress?.distanceToManeuver,
+                                   step: nav.currentStep)
+                }
                 if let h = nav.hazardAhead {
                     let dto: HazardDto = h.hazard
                     Banner(title: "\(hazardLabel(kind: dto.kind, subkind: dto.subkind)) ahead",

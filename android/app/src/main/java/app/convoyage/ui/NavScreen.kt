@@ -301,6 +301,15 @@ fun NavScreen(onBack: () -> Unit, onReport: () -> Unit, drive: DriveHooks? = nul
                             arrivedLine = nav.destination?.name?.let { "Arrived at $it" } ?: "You have arrived",
                         )
                     }
+                    // A wireframe of the road just ahead, under the maneuver card: only while actually driving.
+                    if (nav.phase == NavPhase.Active) {
+                        RoadAheadStrip(
+                            ahead = ahead,
+                            headingDeg = nav.bearing ?: fix?.headingDeg,
+                            distToManeuverM = p?.distToManeuverM,
+                            step = step,
+                        )
+                    }
                     DetourBanner(nav, onResume = vm::resume, onEnd = vm::end)
                     // Search stays on while driving: a pick is a stop on the way.
                     ExpandingSearch(query, { vm.query.value = it }, search, vm::select, "Add a stop")

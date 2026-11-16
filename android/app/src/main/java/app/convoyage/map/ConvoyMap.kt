@@ -414,7 +414,12 @@ fun ConvoyMap(
             pins.forEach { pin ->
                 androidx.compose.runtime.key(pin.id) {
                     PinSprite(pin, camBearing, camTilt) { id, bmp ->
-                        if (s.isFullyLoaded) { s.addImage(id, bmp); if (id !in pinReady) pinReady = pinReady + id }
+                        // Async: the bitmap is copied off the main thread and installed when done. Adding a name that
+                        // is already in the style replaces that image (Style::Impl::addImage), so every capture lands:
+                        // a new heading/tilt frame and the late vehicle render replace the initials/fallback artwork.
+                        // The third argument of addImageAsync is `sdf`, not `replace`; it must stay false or the
+                        // sprite is drawn as a distance field.
+                        if (s.isFullyLoaded) { s.addImageAsync(id, bmp); if (id !in pinReady) pinReady = pinReady + id }
                     }
                 }
             }

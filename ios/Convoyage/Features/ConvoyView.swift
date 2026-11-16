@@ -12,7 +12,10 @@ struct ConvoyView: View {
     @State private var code: String = ""
     @State private var showReport: Bool = false
     @State private var detent: SheetDetent = .peek
-    @GestureState private var dragY: CGFloat = 0
+    /// The sheet's height. One value owns it, so a drag follows the finger and a release springs it once.
+    @State private var sheetHeight: CGFloat = 0
+    /// Where the drag in progress started, in sheet height: nil while no finger is on the handle.
+    @State private var dragStart: CGFloat? = nil
     @State private var tab: SheetTab = .roster
     @State private var pendingDest: PendingDestination?
     @State private var keyboard: CGFloat = 0
@@ -38,6 +41,7 @@ struct ConvoyView: View {
 
     private static let headerHeight: CGFloat = 96
     private static let noConvoyHeight: CGFloat = 228
+    private static let sheetSpring: Animation = .spring(response: 0.35, dampingFraction: 0.85)
 
     private var hazardPins: [MapPin] {
         return app.hazards.active.map { (h: HazardDto) -> MapPin in
@@ -65,12 +69,13 @@ struct ConvoyView: View {
     }
 
     /// Sheet detents for a screen this tall. The bottom `reserve` is where the floating tab bar sits.
+    /// The keyboard stays out of it: it lifts the whole sheet and caps how tall it may draw, so the detents never move
+    /// under a finger that is typing.
     private func metrics(screenHeight: CGFloat, inConvoy: Bool) -> SheetMetrics {
-        let reserve: CGFloat = (keyboard > 0 ? 0 : DeviceInsets.bottom) + 68
-        let available: CGFloat = screenHeight - keyboard
+        let reserve: CGFloat = DeviceInsets.bottom + 68
         let peek: CGFloat = (inConvoy ? ConvoyView.headerHeight : ConvoyView.noConvoyHeight) + reserve
-        let full: CGFloat = max(peek, available - DeviceInsets.top - 12)
-        let half: CGFloat = min(full, max(peek + 180, available * 0.5))
+        let full: CGFloat = max(peek, screenHeight - DeviceInsets.top - 12)
+        let half: CGFloat = min(full, max(peek + 180, screenHeight * 0.5))
         return SheetMetrics(peek: peek, half: half, full: full, reserve: reserve)
     }
 
@@ -86,7 +91,7 @@ struct ConvoyView: View {
         )
         GeometryReader { (geo: GeometryProxy) in
             let m: SheetMetrics = metrics(screenHeight: geo.size.height, inConvoy: inConvoy)
-            let sheetH: CGFloat = min(max(m.height(for: detent) - dragY, m.peek), m.full)
+            let sheetH: CGFloat = shownSheetHeight(m, screenHeight: geo.size.height)
             let railBottom: CGFloat = min(max(sheetH, m.peek), m.half) + 12
             // Settled, not live: a drag through a threshold must not toggle furniture under the finger.
             let railVisible: Bool = detent == .peek && !searchActive
@@ -134,12 +139,25 @@ struct ConvoyView: View {
 
                 layerHint(railVisible, railBottom)
 
-                sheet(vm, m, sheetH)
+                sheet(vm, m, geo.size.height)
                     .padding(.bottom, searchActive ? 0 : keyboard)
                     .opacity(searchActive ? 0 : 1)
                     .allowsHitTesting(!searchActive)
             }
             .frame(width: geo.size.width, height: geo.size.height)
+            // One height state, repaired from the metrics: the first layout snaps on to its detent, and every later
+            // detent or size change springs. A drag writes the height itself, so a release never animates twice.
+            .onAppear {
+                setSheetHeight(m.height(for: detent), animated: false)
+            }
+            .onChange(of: m) { (_: SheetMetrics, new: SheetMetrics) in
+                // A rotation, or a convoy starting or ending: back on the detent, but not while a finger is down.
+                guard dragStart == nil else { return }
+                setSheetHeight(new.height(for: detent), animated: true)
+            }
+            .onChange(of: detent) { (_: SheetDetent, new: SheetDetent) in
+                setSheetHeight(m.height(for: new), animated: true)
+            }
         }
         .ignoresSafeArea()
         .alert("Join a convoy", isPresented: $showJoin) {
@@ -208,11 +226,14 @@ struct ConvoyView: View {
         .onAppear { app.updateServices() }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { (n: Notification) in
             if let f = n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
-                keyboard = max(0, DeviceInsets.screenHeight - f.minY)
+                // The sheet's lift and its height cap both read `keyboard`, so animating it as the keyboard rises
+                // moves them together and the sheet's top edge stays put instead of jumping.
+                let height: CGFloat = max(0, DeviceInsets.screenHeight - f.minY)
+                withAnimation(ConvoyView.keyboardAnimation(n)) { keyboard = height }
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { (_: Notification) in
-            keyboard = 0
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { (n: Notification) in
+            withAnimation(ConvoyView.keyboardAnimation(n)) { keyboard = 0 }
         }
         .task {
             // Keep the hazard pins fresh while the map is up.
@@ -446,14 +467,14 @@ struct ConvoyView: View {
 
     // MARK: Bottom sheet (peek / half / full, flush with the screen edge, only the top-left corner cut)
 
-    @ViewBuilder
-    private func sheet(_ vm: ConvoyViewModel, _ m: SheetMetrics, _ h: CGFloat) -> some View {
+    private func sheet(_ vm: ConvoyViewModel, _ m: SheetMetrics, _ screenHeight: CGFloat) -> some View {
         let shape: TopLeftChamferShape = TopLeftChamferShape(cut: Cut.l)
-        Group {
+        let h: CGFloat = shownSheetHeight(m, screenHeight: screenHeight)
+        return Group {
             if let room = vm.room {
-                convoySheetContent(vm, room, m, h)
+                convoySheetContent(vm, room, m, screenHeight)
             } else {
-                noConvoyDock(m, h)
+                noConvoyDock(m, screenHeight)
             }
         }
         .frame(maxWidth: .infinity)
@@ -462,11 +483,68 @@ struct ConvoyView: View {
         .background(shape.fill(theme.glass))
         .overlay(shape.stroke(theme.lineStrong, lineWidth: 1))
         .clipShape(shape)
-        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: detent)
+    }
+
+    // MARK: Sheet height (the one value the drag and the detents share)
+
+    /// The height the sheet is showing: the live value once there is one, else the detent's own height on the first
+    /// frame, so nothing draws at zero and then pops.
+    private func resolvedSheetHeight(_ m: SheetMetrics) -> CGFloat {
+        return sheetHeight > 0 ? sheetHeight : m.height(for: detent)
+    }
+
+    /// The tallest the sheet may draw. The keyboard lifts the whole sheet by its own height, so while it is up the
+    /// sheet only gets the room left above it; the lift and this cap both follow `keyboard`, so the top edge holds.
+    private func sheetCeiling(_ m: SheetMetrics, screenHeight: CGFloat) -> CGFloat {
+        guard keyboard > 0 else { return m.full }
+        return max(m.peek, screenHeight - keyboard - DeviceInsets.top - 12)
+    }
+
+    private func shownSheetHeight(_ m: SheetMetrics, screenHeight: CGFloat) -> CGFloat {
+        let live: CGFloat = resolvedSheetHeight(m)
+        guard keyboard > 0 else { return live }
+        return min(live, sheetCeiling(m, screenHeight: screenHeight))
+    }
+
+    /// The only writer of the resting height: the first layout snaps, every later detent or metric change springs.
+    private func setSheetHeight(_ target: CGFloat, animated: Bool) {
+        guard animated, sheetHeight > 0 else {
+            sheetHeight = target
+            return
+        }
+        withAnimation(ConvoyView.sheetSpring) { sheetHeight = target }
+    }
+
+    /// Space under the sheet's content. The floating tab bar and the home indicator sit there while the keyboard is
+    /// down; once the keyboard has lifted the sheet clear of both, only a small gap is left above it.
+    private func contentReserve(_ m: SheetMetrics) -> CGFloat {
+        return keyboard > 0 ? 12 : m.reserve
+    }
+
+    /// Collapsing the sheet takes the keyboard with it: there is nothing left to type into, and the sheet would
+    /// otherwise hover over the keyboard on its way to the peek.
+    private func dismissKeyboardIfCollapsed(_ d: SheetDetent) {
+        if d == .peek {
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        }
+    }
+
+    /// A drag height. The ends give a short rubber band instead of stopping dead, so the sheet has weight.
+    private func draggedHeight(_ raw: CGFloat, _ m: SheetMetrics, ceiling: CGFloat) -> CGFloat {
+        if raw < m.peek { return m.peek - ConvoyView.rubber(m.peek - raw) }
+        if raw > ceiling { return ceiling + ConvoyView.rubber(raw - ceiling) }
+        return raw
+    }
+
+    private static func rubber(_ over: CGFloat) -> CGFloat {
+        // One for one for a short pull, then a fifth of the rest, up to a short limit so it never runs away.
+        let slack: CGFloat = 24
+        let damped: CGFloat = over <= slack ? over : slack + (over - slack) * 0.2
+        return min(damped, 80)
     }
 
     /// No convoy: the peek is the start / join prompt; pulled up, the same detents as a convoy sheet.
-    private func noConvoyDock(_ m: SheetMetrics, _ h: CGFloat) -> some View {
+    private func noConvoyDock(_ m: SheetMetrics, _ screenHeight: CGFloat) -> some View {
         // Settled detent, not the live height: content that appears mid-drag changes the sheet's own layout.
         let showBody: Bool = detent != .peek
         return VStack(spacing: 0) {
@@ -491,7 +569,7 @@ struct ConvoyView: View {
                 }
             }
             .padding(.horizontal, 16)
-            .gesture(sheetDrag(m))
+            .gesture(sheetDrag(m, screenHeight: screenHeight))
 
             if showBody {
                 DriveDockContent()
@@ -502,24 +580,31 @@ struct ConvoyView: View {
             }
         }
         .padding(.top, 10)
-        .padding(.bottom, m.reserve)
+        .padding(.bottom, contentReserve(m))
     }
 
-    private func sheetDrag(_ m: SheetMetrics) -> some Gesture {
+    /// A drag on the handle or the header moves the height itself, so the sheet tracks the finger with no second
+    /// animation to fight. Release projects the throw and settles on the nearest detent.
+    private func sheetDrag(_ m: SheetMetrics, screenHeight: CGFloat) -> some Gesture {
+        let ceiling: CGFloat = sheetCeiling(m, screenHeight: screenHeight)
         return DragGesture(minimumDistance: 6)
-            .updating($dragY) { (value: DragGesture.Value, state: inout CGFloat, _: inout Transaction) in
-                state = value.translation.height
+            .onChanged { (value: DragGesture.Value) in
+                let start: CGFloat = dragStart ?? shownSheetHeight(m, screenHeight: screenHeight)
+                if dragStart == nil { dragStart = start }
+                sheetHeight = draggedHeight(start - value.translation.height, m, ceiling: ceiling)
             }
             .onEnded { (value: DragGesture.Value) in
-                settle(value, m)
+                let start: CGFloat = dragStart ?? shownSheetHeight(m, screenHeight: screenHeight)
+                dragStart = nil
+                settle(start - value.predictedEndTranslation.height, m, ceiling: ceiling)
             }
     }
 
-    private func convoySheetContent(_ vm: ConvoyViewModel, _ room: Room, _ m: SheetMetrics, _ h: CGFloat) -> some View {
-        // Settled detent, not the live height: content (and the header's Share/QR buttons) that appears mid-drag
-        // re-lays-out the sheet under the finger, which is what made the drawer jump.
+    private func convoySheetContent(_ vm: ConvoyViewModel, _ room: Room, _ m: SheetMetrics, _ screenHeight: CGFloat) -> some View {
+        // Settled detent, not the live height: content that appears mid-drag re-lays-out the sheet under the finger,
+        // which is what made the drawer jump.
         let showBody: Bool = detent != .peek
-        let drag = sheetDrag(m)
+        let drag = sheetDrag(m, screenHeight: screenHeight)
         return VStack(spacing: 0) {
             VStack(spacing: 0) {
                 Capsule()
@@ -531,7 +616,7 @@ struct ConvoyView: View {
                     .accessibilityLabel("Convoy sheet handle")
                     .accessibilityHint("Double tap to change the sheet size")
                     .accessibilityAddTraits(.isButton)
-                header(vm, room, showBody)
+                header(vm, room)
             }
             .gesture(drag)
 
@@ -547,11 +632,13 @@ struct ConvoyView: View {
                 Spacer(minLength: 0)
             }
         }
-        .padding(.bottom, m.reserve)
+        .padding(.bottom, contentReserve(m))
     }
 
-    private func header(_ vm: ConvoyViewModel, _ room: Room, _ expanded: Bool) -> some View {
-        HStack(alignment: .center, spacing: expanded ? 6 : 10) {
+    /// The same footprint at every detent: nothing appears or disappears as the sheet settles, so the header never
+    /// re-lays-out under the finger.
+    private func header(_ vm: ConvoyViewModel, _ room: Room) -> some View {
+        HStack(alignment: .center, spacing: 6) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(room.name)
                     .font(CvFont.display(20))
@@ -584,32 +671,30 @@ struct ConvoyView: View {
             }
             .layoutPriority(0)
             Spacer(minLength: 0)
-            if expanded {
-                ShareLink(item: InviteLinks.shareText(room), subject: Text("Join my convoy")) {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(theme.ink)
-                        .frame(width: 40, height: 40)
-                        .cvPanel(fill: theme.surface200, edge: theme.lineStrong, cut: Cut.s)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Share the invite")
-                .fixedSize()
-                .layoutPriority(1)
-                Button {
-                    showInviteQR = true
-                } label: {
-                    Image(systemName: "qrcode")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(theme.ink)
-                        .frame(width: 40, height: 40)
-                        .cvPanel(fill: theme.surface200, edge: theme.lineStrong, cut: Cut.s)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Show QR code")
-                .fixedSize()
-                .layoutPriority(1)
+            ShareLink(item: InviteLinks.shareText(room), subject: Text("Join my convoy")) {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(theme.ink)
+                    .frame(width: 40, height: 40)
+                    .cvPanel(fill: theme.surface200, edge: theme.lineStrong, cut: Cut.s)
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Share the invite")
+            .fixedSize()
+            .layoutPriority(1)
+            Button {
+                showInviteQR = true
+            } label: {
+                Image(systemName: "qrcode")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(theme.ink)
+                    .frame(width: 40, height: 40)
+                    .cvPanel(fill: theme.surface200, edge: theme.lineStrong, cut: Cut.s)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Show QR code")
+            .fixedSize()
+            .layoutPriority(1)
             Button {
                 tab = .chat
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { detent = .half }
@@ -700,23 +785,37 @@ struct ConvoyView: View {
             case .full: detent = .peek
             }
         }
+        dismissKeyboardIfCollapsed(detent)
     }
 
-    private func settle(_ value: DragGesture.Value, _ m: SheetMetrics) {
-        let base: CGFloat = m.height(for: detent)
-        let momentum: CGFloat = (value.predictedEndTranslation.height - value.translation.height) * 0.4
-        let projected: CGFloat = base - (value.translation.height + momentum)
+    /// Nearest detent to where a throw would land, then one spring on to its height. A detent change springs the
+    /// height from `.onChange`; a release that stays on the same detent springs back from the rubber band here.
+    private func settle(_ projected: CGFloat, _ m: SheetMetrics, ceiling: CGFloat) {
         var best: SheetDetent = .peek
         var bestGap: CGFloat = abs(m.peek - projected)
-        if abs(m.half - projected) < bestGap {
+        // The top is measured at what the sheet can actually reach, so a throw that stops at the keyboard settles full.
+        let half: CGFloat = min(m.half, ceiling)
+        if abs(half - projected) < bestGap {
             best = .half
-            bestGap = abs(m.half - projected)
+            bestGap = abs(half - projected)
         }
-        if abs(m.full - projected) < bestGap {
+        if abs(ceiling - projected) < bestGap {
             best = .full
         }
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-            detent = best
+        dismissKeyboardIfCollapsed(best)
+        if best == detent {
+            setSheetHeight(m.height(for: best), animated: true)
+        } else {
+            // One spring for the body that appears and the height that follows it; the height itself is moved by
+            // `.onChange(of: detent)`, so the release never animates it twice.
+            withAnimation(ConvoyView.sheetSpring) { detent = best }
         }
+    }
+
+    /// The keyboard's own rise, used for the sheet's lift and height cap alike. One shared value, so both interpolate
+    /// together and the sheet's top edge holds still even though the bottom travels.
+    private static func keyboardAnimation(_ n: Notification) -> Animation {
+        let seconds: Double = n.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
+        return .easeOut(duration: max(0.1, seconds))
     }
 }
