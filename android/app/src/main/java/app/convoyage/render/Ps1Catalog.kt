@@ -51,6 +51,8 @@ object Ps1Catalog {
         // ---- BMW ----
         c("bmw-3-g20", "BMW", "3 Series", "G20", 2019..NOW, Sedan, mm(4709, 1827, 1442, 2851), "225/45R18", listOf("3 series", "320i", "330i", "330e", "m340i", "3er"), Kidney) { copy(roofR = 0.71f) },
         c("bmw-m3-g80", "BMW", "M3", "G80", 2021..NOW, Sedan, mm(4794, 1903, 1433, 2857), "275/35R19", listOf("m3", "m3 competition", "m3 cs"), KidneyTall, setOf(BootLip)) { copy(roofR = 0.71f) },
+        c("bmw-323ci-e46", "BMW", "323Ci", "E46", 1999..2000, Coupe, mm(4488, 1757, 1369, 2725), "205/55R16", listOf("323ci", "323 ci", "e46", "e46 coupe"), Kidney) { copy(roofR = 0.71f) },
+        c("bmw-323ci-e46-cab", "BMW", "323Ci Cabrio", "E46", 1999..2000, Convertible, mm(4488, 1757, 1372, 2725), "205/55R16", listOf("323ci cabrio", "323 ci convertible", "e46 convertible"), Kidney),
         c("bmw-m3-e46", "BMW", "M3", "E46", 2000..2006, Coupe, mm(4492, 1780, 1372, 2731), "255/40R18", listOf("m3", "e46 m3", "m3 e46"), Kidney) { copy(roofR = 0.67f, rw = 0.84f) },
         c("bmw-m3-e30", "BMW", "M3", "E30", 1986..1991, Coupe, mm(4345, 1680, 1370, 2562), "205/55R15", listOf("m3", "e30 m3", "m3 e30"), Kidney, setOf(Wing)) { copy(roofF = 0.44f, roofR = 0.70f, rw = 0.81f, nose = 0.54f, belt = 0.66f) },
         c("bmw-m4-g82", "BMW", "M4", "G82", 2021..NOW, Coupe, mm(4794, 1887, 1393, 2857), "275/35R19", listOf("m4", "m4 competition", "m4 csl"), KidneyTall, setOf(BootLip)),
@@ -62,6 +64,7 @@ object Ps1Catalog {
         c("bmw-x5-g05", "BMW", "X5", "G05", 2019..NOW, Suv, mm(4922, 2004, 1745, 2975), "275/45R20", listOf("x5", "x5 m"), KidneyTall, setOf(RoofRails)),
 
         // ---- Hyundai ----
+        c("hyundai-i30-fd", "Hyundai", "i30", "FD hatch", 2007..2011, Hatch, mm(4245, 1775, 1480, 2650), "185/65R15", listOf("i30 fd", "i30 2010", "fd i30"), Wide),
         c("hyundai-i30-pd", "Hyundai", "i30", "PD hatch", 2017..NOW, Hatch, mm(4340, 1795, 1455, 2650), "225/45R17", listOf("i30", "i30 hatch"), Wide),
         c("hyundai-i30n-pd", "Hyundai", "i30 N", "PD hatch", 2018..NOW, HotHatch, mm(4335, 1795, 1447, 2650), "235/35R19", listOf("i30 n", "i30n", "i30 n hatch"), Wide, setOf(RoofSpoiler)),
         c("hyundai-i30-cn7", "Hyundai", "i30 Sedan", "CN7", 2020..NOW, Sedan, mm(4675, 1825, 1415, 2720), "225/45R17", listOf("i30 sedan", "elantra"), Wide) { copy(roofR = 0.70f, rw = 0.87f) },
